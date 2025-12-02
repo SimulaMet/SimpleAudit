@@ -2,6 +2,8 @@
 
 **Lightweight AI Safety Auditing Framework**
 
+by Michael A. Riegler and Sushant Gautam
+
 SimpleAudit uses Claude to red-team your AI systems through adversarial probing. It's simple, effective, and requires minimal setup.
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -28,7 +30,7 @@ pip install simpleaudit[plot]
 **Or install from GitHub:**
 
 ```bash
-pip install git+https://github.com/yourusername/simpleaudit.git
+pip install git+https://github.com/kelkalot/simpleaudit.git
 ```
 
 ## Quick Start
@@ -223,4 +225,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-Built with [Anthropic Claude](https://www.anthropic.com/) for intelligent probing and safety evaluation.
+Built with [Anthropic Claude](https://www.anthropic.com/) for intelligent probing and safety evaluation. Can be extened to OpenAI or any other model.

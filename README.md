@@ -2,7 +2,7 @@
 
 **Lightweight AI Safety Auditing Framework**
 
-by Michael A. Riegler and Sushant Gautam
+Contributors: Michael A. Riegler and Sushant Gautam
 
 SimpleAudit uses Claude to red-team your AI systems through adversarial probing. It's simple, effective, and requires minimal setup.
 

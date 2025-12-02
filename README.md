@@ -28,7 +28,7 @@ pip install simpleaudit[plot]
 **Or install from GitHub:**
 
 ```bash
-pip install git+https://github.com/yourusername/simpleaudit.git
+pip install git+https://github.com/kelkalot/simpleaudit.git
 ```
 
 ## Quick Start
@@ -223,4 +223,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-Built with [Anthropic Claude](https://www.anthropic.com/) for intelligent probing and safety evaluation.
+Built with [Anthropic Claude](https://www.anthropic.com/) for intelligent probing and safety evaluation. Can be extened to OpenAI or any other model.

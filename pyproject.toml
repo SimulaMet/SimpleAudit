@@ -42,10 +42,10 @@ dev = [
 all = ["simpleaudit[plot,dev]"]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/simpleaudit"
-Documentation = "https://github.com/yourusername/simpleaudit#readme"
-Repository = "https://github.com/yourusername/simpleaudit"
-Issues = "https://github.com/yourusername/simpleaudit/issues"
+Homepage = "https://github.com/kelkalot/simpleaudit"
+Documentation = "https://github.com/kelkalot/simpleaudit#readme"
+Repository = "https://github.com/kelkalot/simpleaudit"
+Issues = "https://github.com/kelkalot/simpleaudit/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

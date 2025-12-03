@@ -2,7 +2,12 @@
 
 **Lightweight AI Safety Auditing Framework**
 
-Contributors: Michael A. Riegler and Sushant Gautam
+Contributors: 
+Michael A. Riegler (Simula) 
+Sushant Gautam (Simula)
+Maja Gran Erke (The Norwegian Directorate of Health)
+Hilde Lovett (The Norwegian Directorate of Health)
+Sunniva Bjørklund (The Norwegian Directorate of Health)
 
 SimpleAudit uses Claude to red-team your AI systems through adversarial probing. It's simple, effective, and requires minimal setup.
 

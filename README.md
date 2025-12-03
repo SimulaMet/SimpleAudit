@@ -2,7 +2,7 @@
 
 **Lightweight AI Safety Auditing Framework**
 
-Contributors: 
+Contributors: \
 Michael A. Riegler (Simula) \
 Sushant Gautam (Simula)\
 Maja Gran Erke (The Norwegian Directorate of Health)\

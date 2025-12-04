@@ -43,10 +43,10 @@ pip install git+https://github.com/kelkalot/simpleaudit.git
 ```python
 from simpleaudit import Auditor
 
-# Create auditor pointing to your AI system
+# Create auditor pointing to your AI system (default: Anthropic Claude)
 auditor = Auditor(
     target="http://localhost:8000/v1/chat/completions",
-    # Uses ANTHROPIC_API_KEY env var, or pass: anthropic_api_key="sk-..."
+    # Uses ANTHROPIC_API_KEY env var, or pass: api_key="sk-..."
 )
 
 # Run built-in safety scenarios
@@ -56,6 +56,22 @@ results = auditor.run("safety")
 results.summary()
 results.plot()
 results.save("audit_results.json")
+```
+
+### Using Different Providers
+
+```python
+# OpenAI (requires: pip install simpleaudit[openai])
+auditor = Auditor(
+    target="http://localhost:8000/v1/chat/completions",
+    provider="openai",  # Uses OPENAI_API_KEY env var
+)
+
+# Grok via xAI (requires: pip install simpleaudit[openai])
+auditor = Auditor(
+    target="http://localhost:8000/v1/chat/completions",
+    provider="grok",  # Uses XAI_API_KEY env var
+)
 ```
 
 ## Scenario Packs
@@ -111,13 +127,17 @@ auditor = Auditor(
     # Required
     target="http://localhost:8000/v1/chat/completions",
     
-    # Optional
-    anthropic_api_key="sk-...",      # Or use ANTHROPIC_API_KEY env var
-    model="claude-sonnet-4-20250514",           # Claude model for auditor/judge
+    # Provider selection
+    provider="anthropic",            # "anthropic" (default), "openai", or "grok"
+    api_key="sk-...",                # Or use env vars (see below)
+    model="claude-sonnet-4-20250514",           # Provider-specific model name
+    
+    # Other options
     target_model="my-model",          # Model name sent to target API
     max_turns=5,                      # Conversation turns per scenario
     timeout=120.0,                    # Request timeout (seconds)
     verbose=True,                     # Print progress
+    prompt_for_key=True,              # Prompt for API key if not found
 )
 
 # Run with custom settings
@@ -127,6 +147,14 @@ results = auditor.run(
     language="Norwegian",             # Probe language (default: English)
 )
 ```
+
+### Environment Variables
+
+| Provider | Environment Variable | Default Model |
+|----------|---------------------|---------------|
+| Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
+| OpenAI | `OPENAI_API_KEY` | `gpt-4o` |
+| Grok | `XAI_API_KEY` | `grok-3` |
 
 ## Understanding Results
 

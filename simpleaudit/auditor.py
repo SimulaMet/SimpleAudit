@@ -2,88 +2,107 @@
 Core Auditor class for SimpleAudit.
 
 This module contains the main Auditor class that orchestrates the audit process
-using Claude as both the adversarial probe generator and safety judge.
+using an LLM as both the adversarial probe generator and safety judge.
+
+Supports multiple LLM providers:
+- Anthropic (Claude) - default
+- OpenAI (GPT-4, GPT-5, etc.)
+- Grok (xAI)
 """
 
-import os
 import json
 from typing import List, Dict, Optional, Union
 from dataclasses import asdict
 
-try:
-    import anthropic
-except ImportError:
-    anthropic = None
-
 from .client import TargetClient
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios
+from .providers import LLMProvider, get_provider, PROVIDERS
 
 
 class Auditor:
     """
-    Main auditor class that uses Claude to probe and evaluate AI systems.
+    Main auditor class that uses an LLM to probe and evaluate AI systems.
+    
+    Supports multiple providers: Anthropic (Claude), OpenAI (GPT), and Grok (xAI).
     
     Args:
         target: URL of the target API endpoint (OpenAI-compatible chat completions)
-        anthropic_api_key: Anthropic API key (or set ANTHROPIC_API_KEY env var)
-        model: Claude model to use for auditing (default: claude-sonnet-4-20250514)
+        provider: LLM provider to use: "anthropic" (default), "openai", or "grok"
+        api_key: API key for the chosen provider (or use env vars:
+                 ANTHROPIC_API_KEY, OPENAI_API_KEY, or XAI_API_KEY)
+        model: Model to use (defaults: claude-sonnet-4-20250514, gpt-4o, grok-3)
         target_model: Model name to send to target API (default: "default")
         max_turns: Maximum conversation turns per scenario (default: 5)
         timeout: Request timeout in seconds (default: 120)
         verbose: Print progress during audit (default: True)
+        prompt_for_key: If True, prompt for API key if not found (default: True)
+        
+        # Legacy parameters (for backwards compatibility)
+        anthropic_api_key: Deprecated, use api_key instead
     
     Example:
+        >>> # Using Anthropic (default)
         >>> auditor = Auditor("http://localhost:8000/v1/chat/completions")
         >>> results = auditor.run("safety")
-        >>> results.summary()
+        
+        >>> # Using OpenAI
+        >>> auditor = Auditor(
+        ...     "http://localhost:8000/v1/chat/completions",
+        ...     provider="openai"
+        ... )
+        
+        >>> # Using Grok
+        >>> auditor = Auditor(
+        ...     "http://localhost:8000/v1/chat/completions",
+        ...     provider="grok"
+        ... )
     """
     
     def __init__(
         self,
         target: str,
-        anthropic_api_key: Optional[str] = None,
-        model: str = "claude-sonnet-4-20250514",
+        provider: str = "anthropic",
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
         target_model: str = "default",
         max_turns: int = 5,
         timeout: float = 120.0,
         verbose: bool = True,
+        prompt_for_key: bool = True,
+        # Legacy parameter for backwards compatibility
+        anthropic_api_key: Optional[str] = None,
     ):
         self.target_url = target
-        self.model = model
         self.max_turns = max_turns
         self.verbose = verbose
         
         # Initialize target client
         self.target = TargetClient(target, model=target_model, timeout=timeout)
         
-        # Initialize Anthropic client
-        api_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "Anthropic API key required. Either pass anthropic_api_key parameter "
-                "or set ANTHROPIC_API_KEY environment variable."
-            )
+        # Handle legacy anthropic_api_key parameter
+        if anthropic_api_key is not None:
+            api_key = anthropic_api_key
+            if provider == "anthropic":
+                pass  # Already using anthropic
         
-        if anthropic is None:
-            raise ImportError("anthropic package required. Install with: pip install anthropic")
-        
-        self.claude = anthropic.Anthropic(api_key=api_key)
+        # Initialize LLM provider
+        self.provider: LLMProvider = get_provider(
+            name=provider,
+            api_key=api_key,
+            model=model,
+            prompt_for_key=prompt_for_key,
+        )
+        self.model = self.provider.model
     
     def _log(self, message: str):
         """Print message if verbose mode is enabled."""
         if self.verbose:
             print(message)
     
-    def _call_claude(self, system: str, user: str) -> str:
-        """Call Claude API with given system and user prompts."""
-        response = self.claude.messages.create(
-            model=self.model,
-            max_tokens=2048,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        return response.content[0].text
+    def _call_llm(self, system: str, user: str) -> str:
+        """Call the LLM provider with given system and user prompts."""
+        return self.provider.call(system, user)
     
     def _generate_probe(self, scenario: str, conversation: List[Dict], language: str = "English") -> str:
         """Generate the next adversarial probe based on the scenario and conversation."""
@@ -111,7 +130,7 @@ CONVERSATION SO FAR:
 
 Generate the next user message to probe this scenario."""
         
-        return self._call_claude(system, user)
+        return self._call_llm(system, user)
     
     def _judge_conversation(self, scenario: str, conversation: List[Dict]) -> Dict:
         """Judge the target system's responses for safety issues."""
@@ -153,7 +172,7 @@ Evaluate this conversation and respond with this exact JSON structure:
     "recommendations": ["list of recommendations for improvement"]
 }}"""
         
-        response = self._call_claude(system, user)
+        response = self._call_llm(system, user)
         
         # Parse JSON response
         try:

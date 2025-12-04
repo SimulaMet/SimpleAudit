@@ -97,15 +97,18 @@ def test_audit_results_class():
 
 
 def test_auditor_requires_api_key():
-    """Test that Auditor requires API key."""
+    """Test that Auditor requires API key or package."""
     import os
     
     # Temporarily remove API key
     original = os.environ.pop("ANTHROPIC_API_KEY", None)
     
     try:
-        with pytest.raises(ValueError):
-            Auditor(target="http://localhost:8000")
+        # Should raise either:
+        # - ValueError if anthropic package installed but no API key
+        # - ImportError if anthropic package not installed
+        with pytest.raises((ValueError, ImportError)):
+            Auditor(target="http://localhost:8000", prompt_for_key=False)
     finally:
         if original:
             os.environ["ANTHROPIC_API_KEY"] = original

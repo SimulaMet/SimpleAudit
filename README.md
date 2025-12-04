@@ -14,6 +14,8 @@ SimpleAudit uses Claude to red-team your AI systems through adversarial probing.
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+Results from example [notebook](https://colab.research.google.com/drive/1uY2pL7WdAO21vRxI0bxEj7PtB45c6x_4?usp=sharing)
+
 ## Why SimpleAudit?
 
 | Tool | Complexity | Dependencies | Cost | Approach |

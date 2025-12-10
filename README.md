@@ -7,12 +7,14 @@ Michael A. Riegler (Simula) \
 Sushant Gautam (Simula)\
 Maja Gran Erke (The Norwegian Directorate of Health)\
 Hilde Lovett (The Norwegian Directorate of Health)\
-Sunniva Bjørklund (The Norwegian Directorate of Health)\
+Sunniva Bjørklund (The Norwegian Directorate of Health)
 
-SimpleAudit uses different models such as Claude to audit/red-team your AI systems through adversarial probing. It is simple, easy to extend, and requires minimal setup.
+SimpleAudit uses different models such as Claude for multilingual auditing/red-teaming your AI systems through adversarial probing. It is simple, easy to extend, and requires minimal setup. It supports models via API or locally running.
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+<img width="1362" height="590" alt="simpleaudit_example_gemma_model" src="https://github.com/user-attachments/assets/05c45a62-74e7-4aa3-a3cd-41bad0cc8233" />
 
 ## Why SimpleAudit?
 
@@ -22,6 +24,7 @@ SimpleAudit uses different models such as Claude to audit/red-team your AI syste
 | Petri | ⭐⭐⭐ Complex | Many | $$$ High | Multi-agent framework |
 | RAGAS | ⭐⭐ Medium | Several | Free | Metrics only |
 | Custom | ⭐⭐⭐ Complex | Varies | Varies | Build from scratch |
+
 
 ## Installation
 

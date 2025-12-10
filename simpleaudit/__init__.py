@@ -9,25 +9,22 @@ Supports multiple providers:
 - Grok (xAI)
 
 Usage:
+    # Audit HTTP endpoint
     from simpleaudit import Auditor
-    
-    # Default (Anthropic)
     auditor = Auditor(target="http://localhost:8000/v1/chat/completions")
-    
-    # With OpenAI
-    auditor = Auditor(target="...", provider="openai")
-    
-    # With Grok
-    auditor = Auditor(target="...", provider="grok")
-    
     results = auditor.run("safety")
-    results.summary()
+    
+    # Audit model directly via API
+    from simpleaudit import ModelAuditor
+    auditor = ModelAuditor(provider="anthropic", system_prompt="You are helpful.")
+    results = auditor.run("system_prompt")
 """
 
 __version__ = "0.1.0"
 __author__ = "SimpleAudit Contributors"
 
 from .auditor import Auditor
+from .model_auditor import ModelAuditor
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios, list_scenario_packs
 from .providers import (
@@ -41,6 +38,7 @@ from .providers import (
 
 __all__ = [
     "Auditor",
+    "ModelAuditor",
     "AuditResults", 
     "AuditResult",
     "get_scenarios",
@@ -53,3 +51,4 @@ __all__ = [
     "get_provider",
     "PROVIDERS",
 ]
+

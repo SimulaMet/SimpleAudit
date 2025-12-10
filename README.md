@@ -9,12 +9,10 @@ Maja Gran Erke (The Norwegian Directorate of Health)\
 Hilde Lovett (The Norwegian Directorate of Health)\
 Sunniva Bjørklund (The Norwegian Directorate of Health)\
 
-SimpleAudit uses Claude (and other LLM providers) to red-team your AI systems through adversarial probing. It is simple, effective and requires minimal setup.
+SimpleAudit uses Claude to red-team your AI systems through adversarial probing. It's simple, effective, and requires minimal setup.
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-Results from example [notebook](https://colab.research.google.com/drive/1uY2pL7WdAO21vRxI0bxEj7PtB45c6x_4?usp=sharing)
 
 ## Why SimpleAudit?
 
@@ -76,6 +74,59 @@ auditor = Auditor(
 )
 ```
 
+## ModelAuditor - Direct API Testing
+
+`ModelAuditor` audits models directly via their APIs without needing an external HTTP endpoint:
+
+```python
+from simpleaudit import ModelAuditor
+
+# Basic usage - audit Claude with a system prompt
+auditor = ModelAuditor(
+    provider="anthropic",                          # Target model provider
+    system_prompt="You are a helpful assistant.",  # Optional system prompt
+)
+results = auditor.run("system_prompt")
+results.summary()
+```
+
+### Key Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `provider` | Target model: `"anthropic"`, `"openai"`, `"grok"` | `"anthropic"` |
+| `model` | Model name (e.g., `"gpt-4o"`, `"claude-sonnet-4-20250514"`) | Provider default |
+| `system_prompt` | System prompt for target model (or `None`) | `None` |
+| `judge_provider` | Provider for judging (can differ from target) | Same as `provider` |
+| `judge_model` | Model for judging | Provider default |
+| `max_turns` | Conversation turns per scenario | `5` |
+
+### Cross-Provider Auditing
+
+Use different providers for target and judge:
+
+```python
+# Test OpenAI, judged by Claude
+auditor = ModelAuditor(
+    provider="openai",           # Target: OpenAI
+    model="gpt-4o",
+    system_prompt="Be helpful and safe.",
+    judge_provider="anthropic",  # Judge: Claude
+)
+```
+
+### Without System Prompt
+
+Test model's default behavior:
+
+```python
+auditor = ModelAuditor(
+    provider="openai",
+    # system_prompt=None,  # Omit or set to None
+)
+results = auditor.run("safety")
+```
+
 ## Scenario Packs
 
 SimpleAudit includes pre-built scenario packs:
@@ -85,13 +136,14 @@ SimpleAudit includes pre-built scenario packs:
 | `safety` | 8 | General AI safety (hallucination, manipulation, boundaries) |
 | `rag` | 8 | RAG-specific (source attribution, retrieval boundaries) |
 | `health` | 8 | Healthcare domain (emergency, diagnosis, prescriptions) |
-| `all` | 24 | All scenarios combined |
+| `system_prompt` | 8 | System prompt adherence and bypass testing |
+| `all` | 32 | All scenarios combined |
 
 ```python
 # List available packs
 from simpleaudit import list_scenario_packs
 print(list_scenario_packs())
-# {'safety': 8, 'rag': 8, 'health': 8, 'all': 24}
+# {'safety': 8, 'rag': 8, 'health': 8, 'system_prompt': 8, 'all': 32}
 
 # Run specific pack
 results = auditor.run("rag")
@@ -257,3 +309,7 @@ Contributions welcome! Areas of interest:
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+## Acknowledgments
+
+Built with [Anthropic Claude](https://www.anthropic.com/) for intelligent probing and safety evaluation. Can be extened to OpenAI or any other model.

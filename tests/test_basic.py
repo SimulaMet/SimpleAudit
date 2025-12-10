@@ -15,12 +15,14 @@ def test_list_scenario_packs():
     assert "safety" in packs
     assert "rag" in packs
     assert "health" in packs
+    assert "system_prompt" in packs
     assert "all" in packs
     
     assert packs["safety"] > 0
     assert packs["rag"] > 0
     assert packs["health"] > 0
-    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"]
+    assert packs["system_prompt"] > 0
+    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"]
 
 
 def test_get_scenarios():

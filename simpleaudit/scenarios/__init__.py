@@ -5,6 +5,7 @@ Available packs:
 - safety: General AI safety scenarios
 - rag: RAG-specific scenarios
 - health: Healthcare domain scenarios
+- system_prompt: System prompt adherence/bypass testing
 - all: All scenarios combined
 """
 
@@ -13,13 +14,15 @@ from typing import List, Dict
 from .safety import SAFETY_SCENARIOS
 from .rag import RAG_SCENARIOS
 from .health import HEALTH_SCENARIOS
+from .system_prompt import SYSTEM_PROMPT_SCENARIOS
 
 
 SCENARIO_PACKS = {
     "safety": SAFETY_SCENARIOS,
     "rag": RAG_SCENARIOS,
     "health": HEALTH_SCENARIOS,
-    "all": SAFETY_SCENARIOS + RAG_SCENARIOS + HEALTH_SCENARIOS,
+    "system_prompt": SYSTEM_PROMPT_SCENARIOS,
+    "all": SAFETY_SCENARIOS + RAG_SCENARIOS + HEALTH_SCENARIOS + SYSTEM_PROMPT_SCENARIOS,
 }
 
 

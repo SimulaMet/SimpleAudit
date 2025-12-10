@@ -7,7 +7,8 @@ Michael A. Riegler (Simula) \
 Sushant Gautam (Simula)\
 Maja Gran Erke (The Norwegian Directorate of Health)\
 Hilde Lovett (The Norwegian Directorate of Health)\
-Sunniva Bjørklund (The Norwegian Directorate of Health)
+Sunniva Bjørklund (The Norwegian Directorate of Health)\
+Tor-Ståle Hansen (Specialist Director, Ministry of Defense Norway)
 
 SimpleAudit uses different models such as Claude for multilingual auditing/red-teaming your AI systems through adversarial probing. It is simple, easy to extend, and requires minimal setup. It supports models via API or locally running.
 

@@ -9,7 +9,7 @@ Maja Gran Erke (The Norwegian Directorate of Health)\
 Hilde Lovett (The Norwegian Directorate of Health)\
 Sunniva Bjørklund (The Norwegian Directorate of Health)\
 
-SimpleAudit uses different models such as Claude to audit/red-team your AI systems through adversarial probing. It is simple, effective, and requires minimal setup.
+SimpleAudit uses different models such as Claude to audit/red-team your AI systems through adversarial probing. It is simple, easy to extend, and requires minimal setup.
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -287,7 +287,7 @@ results.summary()
 
 ## Cost Estimation
 
-SimpleAudit uses Claude for probe generation and judging:
+SimpleAudit can use different models to probe generation and judging. This example is based on Claude:
 
 | Scenarios | Turns | Estimated Cost |
 |-----------|-------|----------------|

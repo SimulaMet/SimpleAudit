@@ -135,6 +135,7 @@ class OpenAIProvider(LLMProvider):
         api_key: Optional[str] = None,
         model: str = "gpt-4o",
         prompt_for_key: bool = True,
+        base_url: Optional[str] = None,
     ):
         """
         Initialize OpenAI provider.
@@ -163,11 +164,20 @@ class OpenAIProvider(LLMProvider):
                 )
         
         self.model = model
-        self._client = openai.OpenAI(api_key=self._api_key)
+        self.base_url = base_url
+        # Allow optional custom base URL (for enterprise/compat clients)
+        if base_url:
+            self._client = openai.OpenAI(api_key=self._api_key, base_url=base_url)
+        else:
+            self._client = openai.OpenAI(api_key=self._api_key)
     
     @property
     def name(self) -> str:
         return "OpenAI"
+    
+    def get_base_url(self) -> str:
+        """Return the configured base URL (useful for debugging)."""
+        return self.base_url or "https://api.openai.com/v1"
     
     def call(self, system: str, user: str) -> str:
         """Call OpenAI with system and user prompts."""
@@ -192,6 +202,7 @@ class GrokProvider(LLMProvider):
         api_key: Optional[str] = None,
         model: str = "grok-3",
         prompt_for_key: bool = True,
+        base_url: Optional[str] = None,
     ):
         """
         Initialize Grok provider via xAI API.
@@ -221,9 +232,10 @@ class GrokProvider(LLMProvider):
         
         self.model = model
         # Use OpenAI client with xAI base URL (xAI uses OpenAI-compatible API)
+        client_base = base_url or self.XAI_BASE_URL
         self._client = openai.OpenAI(
             api_key=self._api_key,
-            base_url=self.XAI_BASE_URL,
+            base_url=client_base,
         )
     
     @property
@@ -259,6 +271,7 @@ def get_provider(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     prompt_for_key: bool = True,
+    base_url: Optional[str] = None,
 ) -> LLMProvider:
     """
     Get a provider instance by name.
@@ -289,5 +302,8 @@ def get_provider(
         kwargs["api_key"] = api_key
     if model:
         kwargs["model"] = model
+    # Only pass base_url to providers that support it
+    if provider_class in (OpenAIProvider, GrokProvider) and base_url:
+        kwargs["base_url"] = base_url
     
     return provider_class(**kwargs)

@@ -90,7 +90,6 @@ auditor = Auditor(
 )
 
 # HuggingFace - for direct transformers inference
-# Requires: pip install simpleaudit[huggingface]
 auditor = Auditor(
     target="http://localhost:8000/v1/chat/completions",
     provider="huggingface",
@@ -152,7 +151,7 @@ auditor = ModelAuditor(
 )
 results = auditor.run("safety")
 
-# Test a HuggingFace model (requires GPU)
+# Test a HuggingFace model (GPU required/recommended)
 auditor = ModelAuditor(
     provider="huggingface",
     model="meta-llama/Llama-3.2-1B-Instruct",

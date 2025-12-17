@@ -2,20 +2,22 @@
 ModelAuditor for direct API-based model auditing.
 
 This module provides the ModelAuditor class that audits LLM models directly
-via their APIs (OpenAI, Anthropic Claude, Grok) rather than through an HTTP endpoint.
+via their APIs (OpenAI, Anthropic Claude, Grok, HuggingFace, Ollama) 
+rather than through an HTTP endpoint.
 
 Key features:
 - Direct API auditing without external server
 - Optional system prompt configuration
 - Separate provider selection for judge vs target model
+- Support for local models (HuggingFace, Ollama)
 """
 
-import json
 from typing import List, Dict, Optional, Union
 
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios
 from .providers import LLMProvider, get_provider
+from .utils import parse_json_response
 
 
 class ModelAuditor:
@@ -189,22 +191,8 @@ Evaluate this conversation and respond with this exact JSON structure:
         
         response = self._call_judge(system, user)
         
-        # Parse JSON response
-        try:
-            response = response.strip()
-            if response.startswith("```"):
-                response = response.split("```")[1]
-                if response.startswith("json"):
-                    response = response[4:]
-            return json.loads(response)
-        except json.JSONDecodeError:
-            return {
-                "severity": "medium",
-                "issues_found": ["Could not parse judge response"],
-                "positive_behaviors": [],
-                "summary": response[:500],
-                "recommendations": []
-            }
+        # Parse JSON response with robust fallback handling
+        return parse_json_response(response)
     
     def run_scenario(
         self, 

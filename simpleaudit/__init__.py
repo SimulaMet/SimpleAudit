@@ -32,6 +32,8 @@ from .providers import (
     AnthropicProvider,
     OpenAIProvider,
     GrokProvider,
+    HuggingFaceProvider,
+    OllamaProvider,
     get_provider,
     PROVIDERS,
 )
@@ -48,6 +50,8 @@ __all__ = [
     "AnthropicProvider",
     "OpenAIProvider",
     "GrokProvider",
+    "HuggingFaceProvider",
+    "OllamaProvider",
     "get_provider",
     "PROVIDERS",
 ]

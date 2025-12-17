@@ -243,6 +243,168 @@ class GrokProvider(LLMProvider):
         return response.choices[0].message.content
 
 
+class HuggingFaceProvider(LLMProvider):
+    """HuggingFace transformers provider for local model inference.
+    
+    Runs models directly using the transformers library. Suitable for
+    local inference on GPU or CPU.
+    
+    Requires: pip install simpleaudit[huggingface]
+    """
+    
+    def __init__(
+        self,
+        model: str = "meta-llama/Llama-3.2-1B-Instruct",
+        device: Optional[str] = None,
+        torch_dtype: Optional[str] = None,
+        max_new_tokens: int = 2048,
+        **pipeline_kwargs,
+    ):
+        """
+        Initialize HuggingFace transformers provider.
+        
+        Args:
+            model: HuggingFace model ID (e.g., "meta-llama/Llama-3.2-1B-Instruct")
+            device: Device to run on ("cuda", "cpu", "mps") or None for auto
+            torch_dtype: Torch dtype ("float16", "bfloat16", "float32") or None
+            max_new_tokens: Maximum tokens to generate (default: 2048)
+            **pipeline_kwargs: Additional kwargs passed to pipeline()
+        """
+        try:
+            import transformers
+            import torch
+        except ImportError:
+            raise ImportError(
+                "transformers and torch packages required. Install with: "
+                "pip install simpleaudit[huggingface]"
+            )
+        
+        self.model = model
+        self.max_new_tokens = max_new_tokens
+        
+        # Build pipeline kwargs
+        pipe_kwargs = {"model": model, "task": "text-generation"}
+        
+        if device is not None:
+            pipe_kwargs["device"] = device
+        elif torch.cuda.is_available():
+            pipe_kwargs["device"] = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            pipe_kwargs["device"] = "mps"
+        
+        if torch_dtype is not None:
+            dtype_map = {
+                "float16": torch.float16,
+                "bfloat16": torch.bfloat16,
+                "float32": torch.float32,
+            }
+            pipe_kwargs["torch_dtype"] = dtype_map.get(torch_dtype, torch.float16)
+        
+        pipe_kwargs.update(pipeline_kwargs)
+        
+        self._pipeline = transformers.pipeline(**pipe_kwargs)
+    
+    @property
+    def name(self) -> str:
+        return "HuggingFace"
+    
+    def call(self, system: str, user: str) -> str:
+        """Call HuggingFace model with system and user prompts."""
+        # Try using chat template if available
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": user})
+        
+        try:
+            # Use chat template via pipeline
+            outputs = self._pipeline(
+                messages,
+                max_new_tokens=self.max_new_tokens,
+                do_sample=True,
+                temperature=0.7,
+                return_full_text=False,
+            )
+            return outputs[0]["generated_text"]
+        except Exception:
+            # Fallback: format manually if chat template fails
+            if system:
+                prompt = f"System: {system}\n\nUser: {user}\n\nAssistant:"
+            else:
+                prompt = f"User: {user}\n\nAssistant:"
+            
+            outputs = self._pipeline(
+                prompt,
+                max_new_tokens=self.max_new_tokens,
+                do_sample=True,
+                temperature=0.7,
+                return_full_text=False,
+            )
+            return outputs[0]["generated_text"]
+
+
+class OllamaProvider(LLMProvider):
+    """Ollama provider for locally served models.
+    
+    Connects to a local Ollama instance. No API key required.
+    
+    Requires: Ollama running locally (ollama serve)
+    """
+    
+    def __init__(
+        self,
+        model: str = "llama3.2",
+        base_url: str = "http://localhost:11434",
+        timeout: float = 120.0,
+    ):
+        """
+        Initialize Ollama provider.
+        
+        Args:
+            model: Ollama model name (e.g., "llama3.2", "mistral", "codellama")
+            base_url: Ollama server URL (default: http://localhost:11434)
+            timeout: Request timeout in seconds (default: 120)
+        """
+        import httpx
+        
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self._client = httpx.Client(timeout=timeout)
+        
+        # Verify connection
+        try:
+            self._client.get(f"{self.base_url}/api/tags")
+        except httpx.ConnectError:
+            raise ConnectionError(
+                f"Cannot connect to Ollama at {self.base_url}. "
+                "Make sure Ollama is running: ollama serve"
+            )
+    
+    @property
+    def name(self) -> str:
+        return "Ollama"
+    
+    def call(self, system: str, user: str) -> str:
+        """Call Ollama with system and user prompts."""
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": user})
+        
+        response = self._client.post(
+            f"{self.base_url}/api/chat",
+            json={
+                "model": self.model,
+                "messages": messages,
+                "stream": False,
+            },
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        return data.get("message", {}).get("content", "")
+
+
 # Provider registry for easy lookup
 PROVIDERS = {
     "anthropic": AnthropicProvider,
@@ -251,6 +413,10 @@ PROVIDERS = {
     "gpt": OpenAIProvider,  # Alias
     "grok": GrokProvider,
     "xai": GrokProvider,  # Alias
+    "huggingface": HuggingFaceProvider,
+    "hf": HuggingFaceProvider,  # Alias
+    "ollama": OllamaProvider,
+    "local": OllamaProvider,  # Alias
 }
 
 
@@ -259,15 +425,18 @@ def get_provider(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     prompt_for_key: bool = True,
+    **kwargs,
 ) -> LLMProvider:
     """
     Get a provider instance by name.
     
     Args:
-        name: Provider name ("anthropic", "openai", "grok", or aliases)
-        api_key: Optional API key override
+        name: Provider name ("anthropic", "openai", "grok", "huggingface", 
+              "ollama", or aliases)
+        api_key: Optional API key override (not used for local providers)
         model: Optional model override
         prompt_for_key: If True, prompt for key if not found in env
+        **kwargs: Additional provider-specific arguments
     
     Returns:
         LLMProvider instance
@@ -284,10 +453,22 @@ def get_provider(
     
     provider_class = PROVIDERS[name_lower]
     
-    kwargs = {"prompt_for_key": prompt_for_key}
-    if api_key:
-        kwargs["api_key"] = api_key
-    if model:
-        kwargs["model"] = model
+    # Local providers don't use API keys
+    local_providers = (HuggingFaceProvider, OllamaProvider)
     
-    return provider_class(**kwargs)
+    if provider_class in local_providers:
+        # Only pass model and additional kwargs for local providers
+        init_kwargs = dict(kwargs)
+        if model:
+            init_kwargs["model"] = model
+        return provider_class(**init_kwargs)
+    else:
+        # API-based providers
+        init_kwargs = {"prompt_for_key": prompt_for_key}
+        init_kwargs.update(kwargs)
+        if api_key:
+            init_kwargs["api_key"] = api_key
+        if model:
+            init_kwargs["model"] = model
+        return provider_class(**init_kwargs)
+

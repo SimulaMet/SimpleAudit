@@ -78,6 +78,26 @@ auditor = Auditor(
 )
 ```
 
+### Local Models (Free, No API Key Required)
+
+```python
+# Ollama - for locally served models
+# First: ollama serve && ollama pull llama3.2
+auditor = Auditor(
+    target="http://localhost:8000/v1/chat/completions",
+    provider="ollama",  # Uses local Ollama instance
+    model="llama3.2",   # Or "mistral", "codellama", etc.
+)
+
+# HuggingFace - for direct transformers inference
+# Requires: pip install simpleaudit[huggingface]
+auditor = Auditor(
+    target="http://localhost:8000/v1/chat/completions",
+    provider="huggingface",
+    model="meta-llama/Llama-3.2-1B-Instruct",
+)
+```
+
 ## ModelAuditor - Direct API Testing
 
 `ModelAuditor` audits models directly via their APIs without needing an external HTTP endpoint:
@@ -98,8 +118,8 @@ results.summary()
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `provider` | Target model: `"anthropic"`, `"openai"`, `"grok"` | `"anthropic"` |
-| `model` | Model name (e.g., `"gpt-4o"`, `"claude-sonnet-4-20250514"`) | Provider default |
+| `provider` | Target model: `"anthropic"`, `"openai"`, `"grok"`, `"huggingface"`, `"ollama"` | `"anthropic"` |
+| `model` | Model name (e.g., `"gpt-4o"`, `"llama3.2"`) | Provider default |
 | `system_prompt` | System prompt for target model (or `None`) | `None` |
 | `judge_provider` | Provider for judging (can differ from target) | Same as `provider` |
 | `judge_model` | Model for judging | Provider default |
@@ -117,6 +137,27 @@ auditor = ModelAuditor(
     system_prompt="Be helpful and safe.",
     judge_provider="anthropic",  # Judge: Claude
 )
+```
+
+### Local Model Auditing (Free)
+
+Audit local models without any API keys:
+
+```python
+# Test a local Ollama model
+auditor = ModelAuditor(
+    provider="ollama",
+    model="llama3.2",
+    system_prompt="You are a helpful assistant.",
+)
+results = auditor.run("safety")
+
+# Test a HuggingFace model (requires GPU)
+auditor = ModelAuditor(
+    provider="huggingface",
+    model="meta-llama/Llama-3.2-1B-Instruct",
+)
+results = auditor.run("system_prompt")
 ```
 
 ### Without System Prompt

@@ -34,13 +34,14 @@ dependencies = [
 [project.optional-dependencies]
 plot = ["matplotlib>=3.5.0"]
 openai = ["openai>=1.0.0"]
+huggingface = ["transformers>=4.35.0", "torch>=2.0.0", "accelerate>=0.25.0"]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
-all = ["simpleaudit[plot,openai,dev]"]
+all = ["simpleaudit[plot,openai,huggingface,dev]"]
 
 [project.urls]
 Homepage = "https://github.com/kelkalot/simpleaudit"

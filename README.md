@@ -350,6 +350,12 @@ Contributions welcome! Areas of interest:
 - More target adapters
 - Documentation improvements
 
+## Governance & Compliance
+
+- 📋 [Digital Public Good Compliance](DPG.md) — SDG alignment, ownership, standards
+- 🤝 [Code of Conduct](CODE_OF_CONDUCT.md) — Community guidelines and responsible use
+- 🔒 [Security Policy](SECURITY.md) — Vulnerability reporting and security considerations
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

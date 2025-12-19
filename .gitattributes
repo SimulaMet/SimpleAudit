@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+*.pyc
+__pycache__
+*.pyo
+.venv/
+*_cache

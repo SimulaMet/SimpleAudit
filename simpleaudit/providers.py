@@ -5,6 +5,8 @@ This module provides a unified interface for different LLM providers:
 - Anthropic (Claude)
 - OpenAI (GPT-4, GPT-5, etc.)
 - Grok (xAI)
+- HuggingFace (local transformers)
+- Ollama (local models)
 """
 
 import os
@@ -135,6 +137,7 @@ class OpenAIProvider(LLMProvider):
         api_key: Optional[str] = None,
         model: str = "gpt-4o",
         prompt_for_key: bool = True,
+        base_url: Optional[str] = None,
     ):
         """
         Initialize OpenAI provider.
@@ -143,6 +146,7 @@ class OpenAIProvider(LLMProvider):
             api_key: OpenAI API key (or uses OPENAI_API_KEY env var)
             model: Model to use (default: gpt-4o)
             prompt_for_key: If True, prompt for key if not found in env
+            base_url: Optional custom base URL (for enterprise/compatible endpoints)
         """
         if openai is None:
             raise ImportError(
@@ -163,11 +167,20 @@ class OpenAIProvider(LLMProvider):
                 )
         
         self.model = model
-        self._client = openai.OpenAI(api_key=self._api_key)
+        self.base_url = base_url
+        # Allow optional custom base URL (for enterprise/compat clients)
+        if base_url:
+            self._client = openai.OpenAI(api_key=self._api_key, base_url=base_url)
+        else:
+            self._client = openai.OpenAI(api_key=self._api_key)
     
     @property
     def name(self) -> str:
         return "OpenAI"
+    
+    def get_base_url(self) -> str:
+        """Return the configured base URL (useful for debugging)."""
+        return self.base_url or "https://api.openai.com/v1"
     
     def call(self, system: str, user: str) -> str:
         """Call OpenAI with system and user prompts."""
@@ -192,6 +205,7 @@ class GrokProvider(LLMProvider):
         api_key: Optional[str] = None,
         model: str = "grok-3",
         prompt_for_key: bool = True,
+        base_url: Optional[str] = None,
     ):
         """
         Initialize Grok provider via xAI API.
@@ -200,6 +214,7 @@ class GrokProvider(LLMProvider):
             api_key: xAI API key (or uses XAI_API_KEY env var)
             model: Model to use (default: grok-3)
             prompt_for_key: If True, prompt for key if not found in env
+            base_url: Optional custom base URL (defaults to xAI API)
         """
         if openai is None:
             raise ImportError(
@@ -221,9 +236,10 @@ class GrokProvider(LLMProvider):
         
         self.model = model
         # Use OpenAI client with xAI base URL (xAI uses OpenAI-compatible API)
+        client_base = base_url or self.XAI_BASE_URL
         self._client = openai.OpenAI(
             api_key=self._api_key,
-            base_url=self.XAI_BASE_URL,
+            base_url=client_base,
         )
     
     @property
@@ -436,13 +452,23 @@ def get_provider(
         api_key: Optional API key override (not used for local providers)
         model: Optional model override
         prompt_for_key: If True, prompt for key if not found in env
-        **kwargs: Additional provider-specific arguments
+        **kwargs: Additional provider-specific arguments (e.g., base_url)
     
     Returns:
         LLMProvider instance
     
     Raises:
         ValueError: If provider name is not recognized
+    
+    Examples:
+        >>> # Default Anthropic provider
+        >>> provider = get_provider("anthropic")
+        
+        >>> # OpenAI with custom base URL
+        >>> provider = get_provider("openai", base_url="https://custom.api.com/v1")
+        
+        >>> # Local Ollama provider
+        >>> provider = get_provider("ollama", model="llama3.2")
     """
     name_lower = name.lower()
     if name_lower not in PROVIDERS:
@@ -471,4 +497,3 @@ def get_provider(
         if model:
             init_kwargs["model"] = model
         return provider_class(**init_kwargs)
-

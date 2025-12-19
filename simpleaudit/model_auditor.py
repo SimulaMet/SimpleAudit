@@ -64,6 +64,7 @@ class ModelAuditor:
         judge_provider: Optional[str] = None,
         judge_api_key: Optional[str] = None,
         judge_model: Optional[str] = None,
+        judge_base_url: Optional[str] = None,
         max_turns: int = 5,
         verbose: bool = True,
         prompt_for_key: bool = True,
@@ -86,11 +87,14 @@ class ModelAuditor:
             # Use same provider instance for judging
             self.judge_provider = self.target_provider
         else:
+            # Determine judge API key: use judge_api_key if provided, else use api_key if same provider, else None
+            judge_key = judge_api_key or (api_key if judge_provider == provider else None)
             self.judge_provider: LLMProvider = get_provider(
                 name=judge_provider,
-                api_key=judge_api_key or api_key if judge_provider == provider else judge_api_key,
+                api_key=judge_key,
                 model=judge_model,
                 prompt_for_key=prompt_for_key,
+                base_url=judge_base_url,
             )
         self.judge_model = self.judge_provider.model
     

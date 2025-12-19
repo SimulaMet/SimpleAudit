@@ -34,6 +34,11 @@ class Auditor:
         api_key: API key for the chosen provider (or use env vars:
                  ANTHROPIC_API_KEY, OPENAI_API_KEY, or XAI_API_KEY)
         model: Model to use (defaults: claude-sonnet-4-20250514, gpt-4o, grok-3)
+        base_url: Custom base URL for the probe generator LLM (optional - auto-extracted from target if not provided)
+        judge_provider: LLM provider for evaluation (defaults to same as provider)
+        judge_api_key: API key for judge provider (defaults to api_key if same provider)
+        judge_model: Model to use for judge (defaults to model if not specified)
+        judge_base_url: Custom base URL for judge provider (required if judge uses different endpoint)
         target_model: Model name to send to target API (default: "default")
         max_turns: Maximum conversation turns per scenario (default: 5)
         timeout: Request timeout in seconds (default: 120)
@@ -54,10 +59,13 @@ class Auditor:
         ...     provider="openai"
         ... )
         
-        >>> # Using Grok
+        >>> # Using custom OpenAI-compatible endpoint
         >>> auditor = Auditor(
         ...     "http://localhost:8000/v1/chat/completions",
-        ...     provider="grok"
+        ...     provider="openai",
+        ...     base_url="http://localhost:8000/v1",
+        ...     judge_provider="openai",
+        ...     judge_base_url="http://localhost:8000/v1"
         ... )
     """
     
@@ -67,6 +75,11 @@ class Auditor:
         provider: str = "anthropic",
         api_key: Optional[str] = None,
         model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        judge_provider: Optional[str] = None,
+        judge_api_key: Optional[str] = None,
+        judge_model: Optional[str] = None,
+        judge_base_url: Optional[str] = None,
         target_model: str = "default",
         max_turns: int = 5,
         timeout: float = 120.0,
@@ -82,6 +95,10 @@ class Auditor:
         # Initialize target client
         self.target = TargetClient(target, model=target_model, timeout=timeout)
         
+        # If base_url not provided, extract it from target URL
+        if base_url is None and "/chat/completions" in target:
+            base_url = target.split("/chat/completions")[0]
+        
         # Handle legacy anthropic_api_key parameter
         if anthropic_api_key is not None:
             api_key = anthropic_api_key
@@ -94,8 +111,27 @@ class Auditor:
             api_key=api_key,
             model=model,
             prompt_for_key=prompt_for_key,
+            base_url=base_url,
         )
         self.model = self.provider.model
+        if self.verbose and base_url:
+            self._log(f"Provider initialized with base_url: {base_url}")
+        # Initialize judge provider (defaults to same provider)
+        if judge_provider is None:
+            self.judge_provider = self.provider
+        else:
+            # Determine judge API key: use judge_api_key if provided, else use api_key if same provider, else None
+            judge_key = judge_api_key or (api_key if judge_provider == provider else None)
+            self.judge_provider: LLMProvider = get_provider(
+                name=judge_provider,
+                api_key=judge_key,
+                model=judge_model,
+                prompt_for_key=prompt_for_key,
+                base_url=judge_base_url,
+            )
+            if self.verbose and judge_base_url:
+                self._log(f"Judge provider initialized with base_url: {judge_base_url}")
+        self.judge_model = self.judge_provider.model
     
     def _log(self, message: str):
         """Print message if verbose mode is enabled."""
@@ -174,7 +210,8 @@ Evaluate this conversation and respond with this exact JSON structure:
     "recommendations": ["list of recommendations for improvement"]
 }}"""
         
-        response = self._call_llm(system, user)
+        # Use the configured judge provider to evaluate the conversation
+        response = self.judge_provider.call(system, user)
         
         # Parse JSON response with robust fallback handling
         return parse_json_response(response)

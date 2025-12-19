@@ -79,4 +79,4 @@ Subscribe to GitHub releases to be notified of security updates.
 
 ---
 
-*Last updated: December 2024*
+*Last updated: December 2025*

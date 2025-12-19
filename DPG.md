@@ -206,4 +206,4 @@ For questions about DPG compliance or this documentation:
 
 ---
 
-*Last updated: December 2024*
+*Last updated: December 2025*

@@ -93,4 +93,4 @@ Community Impact Guidelines were inspired by [Mozilla's code of conduct enforcem
 
 ---
 
-*Last updated: December 2024*
+*Last updated: December 2025*

@@ -5,6 +5,7 @@
 Contributors: \
 Michael A. Riegler (Simula) \
 Sushant Gautam (SimulaMet)\
+Mikkel Lepperød (Simula)\
 Klas H. Pettersen (SimulaMet)\
 Maja Gran Erke (The Norwegian Directorate of Health)\
 Hilde Lovett (The Norwegian Directorate of Health)\

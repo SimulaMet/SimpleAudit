@@ -40,6 +40,7 @@ class Auditor:
         judge_model: Model to use for judge (defaults to model if not specified)
         judge_base_url: Custom base URL for judge provider (required if judge uses different endpoint)
         target_model: Model name to send to target API (default: "default")
+        target_api_key: API key for the target model endpoint (optional)
         max_turns: Maximum conversation turns per scenario (default: 5)
         timeout: Request timeout in seconds (default: 120)
         verbose: Print progress during audit (default: True)
@@ -81,6 +82,7 @@ class Auditor:
         judge_model: Optional[str] = None,
         judge_base_url: Optional[str] = None,
         target_model: str = "default",
+        target_api_key: Optional[str] = None,
         max_turns: int = 5,
         timeout: float = 120.0,
         verbose: bool = True,
@@ -93,7 +95,7 @@ class Auditor:
         self.verbose = verbose
         
         # Initialize target client
-        self.target = TargetClient(target, model=target_model, timeout=timeout)
+        self.target = TargetClient(target, model=target_model, timeout=timeout, api_key=target_api_key)
         
         # If base_url not provided, extract it from target URL
         if base_url is None and "/chat/completions" in target:

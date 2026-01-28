@@ -15,7 +15,9 @@ Tor-Ståle Hansen (Specialist Director, Ministry of Defense Norway)
 SimpleAudit uses different models such as Claude for multilingual auditing/red-teaming your AI systems through adversarial probing. It is simple, easy to extend, and requires minimal setup. It supports models via API or locally running.
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
+
+Standards and best practices for creating test [scenarios](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/scenarios/simpleaudit_scenario_guidelines_v1.0.md).  
 
 <img width="1362" height="590" alt="simpleaudit_example_gemma_model" src="https://github.com/user-attachments/assets/05c45a62-74e7-4aa3-a3cd-41bad0cc8233" />
 

@@ -6,7 +6,7 @@ Standards and best practices for creating test scenarios for [simpleaudit](https
 
 ## Schema Versions
 
-### Current Schema (v1 - Basic)
+### Simple Schema (v1 - Basic)
 
 Simpleaudit currently uses a minimal schema:
 
@@ -17,7 +17,7 @@ Simpleaudit currently uses a minimal schema:
 }
 ```
 
-### Proposed Schema (v2 - Extended)
+### Updated Schema (v2 - Extended)
 
 For better reproducibility, traceability, and tooling support:
 

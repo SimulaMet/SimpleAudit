@@ -1,20 +1,14 @@
 [![DPG Badge](https://img.shields.io/badge/Verified-DPG-3333AB?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMzEiIGhlaWdodD0iMzMiIHZpZXdCb3g9IjAgMCAzMSAzMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE0LjIwMDggMjEuMzY3OEwxMC4xNzM2IDE4LjAxMjRMMTEuNTIxOSAxNi40MDAzTDEzLjk5MjggMTguNDU5TDE5LjYyNjkgMTIuMjExMUwyMS4xOTA5IDEzLjYxNkwxNC4yMDA4IDIxLjM2NzhaTTI0LjYyNDEgOS4zNTEyN0wyNC44MDcxIDMuMDcyOTdMMTguODgxIDUuMTg2NjJMMTUuMzMxNCAtMi4zMzA4MmUtMDVMMTEuNzgyMSA1LjE4NjYyTDUuODU2MDEgMy4wNzI5N0w2LjAzOTA2IDkuMzUxMjdMMCAxMS4xMTc3TDMuODQ1MjEgMTYuMDg5NUwwIDIxLjA2MTJMNi4wMzkwNiAyMi44Mjc3TDUuODU2MDEgMjkuMTA2TDExLjc4MjEgMjYuOTkyM0wxNS4zMzE0IDMyLjE3OUwxOC44ODEgMjYuOTkyM0wyNC44MDcxIDI5LjEwNkwyNC42MjQxIDIyLjgyNzdMMzAuNjYzMSAyMS4wNjEyTDI2LjgxNzYgMTYuMDg5NUwzMC42NjMxIDExLjExNzdMMjQuNjI0MSA5LjM1MTI3WiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+Cg==)](https://digitalpublicgoods.net/r/dpg-slug)
 
+<div align="center">
+  <img width="600" alt="simpleaudit-logo" src="https://github.com/user-attachments/assets/2ed38ae0-f834-4934-bcc4-48fe441b8b2b" />
+</div>
+
 # SimpleAudit
 
 **Lightweight AI Safety Auditing Framework**
 
-Contributors: \
-Michael A. Riegler (Simula) \
-Sushant Gautam (SimulaMet)\
-Mikkel Lepperød (Simula)\
-Klas H. Pettersen (SimulaMet)\
-Maja Gran Erke (The Norwegian Directorate of Health)\
-Hilde Lovett (The Norwegian Directorate of Health)\
-Sunniva Bjørklund (The Norwegian Directorate of Health)\
-Tor-Ståle Hansen (Specialist Director, Ministry of Defense Norway)
-
-SimpleAudit uses different models such as Claude for multilingual auditing/red-teaming your AI systems through adversarial probing. It is simple, easy to extend, and requires minimal setup. It supports models via API or locally running.
+SimpleAudit is a simple, extensible, local-first framework for multilingual auditing and red-teaming of AI systems via adversarial probing. It supports open models running locally (no APIs required) and can optionally run evaluations against API-hosted models. SimpleAudit does not collect or transmit user data by default and is designed for minimal setup.
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
@@ -355,6 +349,16 @@ Contributions welcome! Areas of interest:
 - Additional judge criteria
 - More target adapters
 - Documentation improvements
+
+## Contributors  
+Michael A. Riegler (Simula) \
+Sushant Gautam (SimulaMet)\
+Mikkel Lepperød (Simula)\
+Klas H. Pettersen (SimulaMet)\
+Maja Gran Erke (The Norwegian Directorate of Health)\
+Hilde Lovett (The Norwegian Directorate of Health)\
+Sunniva Bjørklund (The Norwegian Directorate of Health)\
+Tor-Ståle Hansen (Specialist Director, Ministry of Defense Norway)
 
 ## Governance & Compliance
 

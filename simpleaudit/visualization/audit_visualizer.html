@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SimpleAudit Result Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'severity-pass': '#22c55e',
+                        'severity-low': '#3b82f6',
+                        'severity-medium': '#eab308',
+                        'severity-high': '#f97316',
+                        'severity-critical': '#ef4444',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-gray-50 text-gray-900 h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
+        <div>
+            <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                SimpleAudit Visualizer
+            </h1>
+            <p class="text-sm text-gray-500 mt-1" id="file-info">No file loaded</p>
+        </div>
+        <div>
+            <label for="file-upload"
+                class="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                Load JSON Result
+            </label>
+            <input id="file-upload" type="file" accept=".json" class="hidden" onchange="handleFileUpload(event)">
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- Sidebar / List View -->
+        <div class="w-1/3 border-r border-gray-200 bg-white flex flex-col">
+
+            <!-- Dashboard / Stats -->
+            <div id="dashboard" class="p-6 border-b border-gray-200 bg-gray-50 hidden">
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-100 text-center">
+                        <div class="text-xs text-gray-500 uppercase font-semibold">Pass Rate</div>
+                        <div class="text-2xl font-bold text-gray-900" id="stat-pass-rate">-</div>
+                    </div>
+                    <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-100 text-center">
+                        <div class="text-xs text-gray-500 uppercase font-semibold">Avg Score</div>
+                        <div class="text-2xl font-bold text-gray-900" id="stat-avg-score">-</div>
+                    </div>
+                </div>
+
+                <!-- Severity Bar -->
+                <div class="mt-2">
+                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                        <span>Severity Breakdown</span>
+                        <span id="stat-total-cases">0 cases</span>
+                    </div>
+                    <div class="h-3 rounded-full overflow-hidden flex w-full bg-gray-200" id="severity-bar">
+                        <!-- Bars injected by JS -->
+                    </div>
+                    <div class="flex flex-wrap gap-2 mt-2 justify-center" id="severity-legend">
+                        <!-- Legend injected by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div class="p-4 border-b border-gray-200 flex gap-2">
+                <input type="text" id="search-input" placeholder="Search scenarios..."
+                    class="flex-1 bg-gray-100 border-none rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500">
+                <select id="sort-select"
+                    class="bg-gray-100 border-none rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 text-gray-700">
+                    <option value="default">Default</option>
+                    <option value="score-asc">Score (Low-High)</option>
+                    <option value="score-desc">Score (High-Low)</option>
+                    <option value="severity">Severity</option>
+                </select>
+            </div>
+
+            <!-- List -->
+            <div id="scenario-list" class="flex-1 overflow-y-auto p-2 space-y-2">
+                <div class="text-center text-gray-400 mt-10">
+                    Upload a result file to view scenarios.
+                </div>
+            </div>
+        </div>
+
+        <!-- Detail View -->
+        <main class="flex-1 bg-gray-50 overflow-y-auto p-8" id="detail-view">
+            <div class="h-full flex flex-col items-center justify-center text-gray-400">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4 opacity-50" fill="none"
+                    viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p class="text-lg">Select a scenario to view details</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Logic -->
+    <script>
+        // State
+        let allScenarios = [];
+        let currentScenarios = [];
+        let selectedScenarioId = null;
+
+        // Constants
+        const SEVERITY_COLORS = {
+            'pass': 'bg-severity-pass',
+            'low': 'bg-severity-low',
+            'medium': 'bg-severity-medium',
+            'high': 'bg-severity-high',
+            'critical': 'bg-severity-critical'
+        };
+
+        const SEVERITY_TEXT_COLORS = {
+            'pass': 'text-severity-pass',
+            'low': 'text-severity-low',
+            'medium': 'text-severity-medium',
+            'high': 'text-severity-high',
+            'critical': 'text-severity-critical'
+        };
+
+        const SEVERITY_ORDER = {
+            'critical': 0,
+            'high': 1,
+            'medium': 2,
+            'low': 3,
+            'pass': 4
+        };
+
+        const SEVERITY_SCORES_MAP = {
+            'critical': 0,
+            'high': 2.5,
+            'medium': 5,
+            'low': 7.5,
+            'pass': 10
+        };
+
+        // Initialize
+        document.getElementById('search-input').addEventListener('input', handleFilter);
+        document.getElementById('sort-select').addEventListener('change', handleFilter);
+
+        // --- File Handling ---
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    processData(data, file.name);
+                } catch (error) {
+                    alert('Error parsing JSON file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function processData(data, filename) {
+            // Handle different potential JSON structures
+            // Assuming data is either a list of results or a dict with a 'results' key
+            if (Array.isArray(data)) {
+                allScenarios = data;
+            } else if (data.results && Array.isArray(data.results)) {
+                allScenarios = data.results;
+            } else {
+                alert('Unknown JSON format. Expected list of results or object with "results" array.');
+                return;
+            }
+
+            // Global score from summary if available
+            let globalScore = null;
+            if (data.summary && data.summary.score !== undefined) {
+                globalScore = data.summary.score;
+            }
+
+            // Assign IDs and normalized fields if missing
+            allScenarios.forEach((s, i) => {
+                if (!s.id) s.id = `scenario-${i}`;
+
+                // History normalization
+                if (!s.history && s.conversation) {
+                    s.history = s.conversation;
+                }
+
+                // Severity normalization
+                if (!s.severity) {
+                    if (s.score === 10) s.severity = 'pass';
+                    else if (s.issues_found && s.issues_found.length > 0) s.severity = 'medium'; // fallback
+                    else s.severity = 'medium';
+                }
+
+                // Score normalization: Derive from severity if missing
+                if (s.score === undefined && s.severity) {
+                    s.score = SEVERITY_SCORES_MAP[s.severity.toLowerCase()] || 0;
+                }
+
+                // Judge Feedback normalization
+                // HelpMed has summary, issues_found, positive_behaviors, recommendations
+                if (!s.reasoning) {
+                    let parts = [];
+                    if (s.summary) parts.push(`### Summary\n${s.summary}`);
+                    if (s.issues_found && s.issues_found.length > 0) {
+                        parts.push(`### Issues Found\n- ${s.issues_found.join('\n- ')}`);
+                    }
+                    if (s.positive_behaviors && s.positive_behaviors.length > 0) {
+                        parts.push(`### Positive Behaviors\n- ${s.positive_behaviors.join('\n- ')}`);
+                    }
+                    if (s.recommendations && s.recommendations.length > 0) {
+                        parts.push(`### Recommendations\n- ${s.recommendations.join('\n- ')}`);
+                    }
+                    s.reasoning = parts.join('\n\n');
+                }
+            });
+
+            document.getElementById('file-info').textContent = `${filename} • ${allScenarios.length} scenarios`;
+            document.getElementById('dashboard').classList.remove('hidden');
+
+            updateStats(globalScore);
+            handleFilter(); // This triggers renderList
+        }
+
+        // --- Stats & Dashboard ---
+
+        function updateStats(globalScore) {
+            const total = allScenarios.length;
+            // Pass logic: either explicit severity 'pass' or score 10
+            const passed = allScenarios.filter(s => s.severity === 'pass' || s.score === 10).length;
+            const passRate = total === 0 ? 0 : Math.round((passed / total) * 100);
+
+            // Use global score if available, otherwise calculate average
+            let avgScore = 'N/A';
+            if (globalScore !== null && globalScore !== undefined) {
+                avgScore = globalScore;
+            } else {
+                const scores = allScenarios.map(s => s.score).filter(s => s !== undefined);
+                const totalScore = scores.reduce((sum, s) => sum + s, 0);
+                avgScore = scores.length === 0 ? 'N/A' : (totalScore / scores.length).toFixed(1);
+            }
+
+            document.getElementById('stat-pass-rate').textContent = `${passRate}%`;
+            document.getElementById('stat-avg-score').textContent = avgScore;
+            document.getElementById('stat-total-cases').textContent = `${total} cases`;
+
+            // Severity Bar
+            const counts = {
+                'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'pass': 0
+            };
+            allScenarios.forEach(s => {
+                const sev = (s.severity || 'low').toLowerCase();
+                if (counts[sev] !== undefined) counts[sev]++;
+            });
+
+            const barContainer = document.getElementById('severity-bar');
+            barContainer.innerHTML = '';
+
+            const legendContainer = document.getElementById('severity-legend');
+            legendContainer.innerHTML = '';
+
+            Object.keys(counts).forEach(sev => {
+                const count = counts[sev];
+                if (count > 0) {
+                    const pct = (count / total) * 100;
+
+                    // Bar segment
+                    const segment = document.createElement('div');
+                    segment.className = `${SEVERITY_COLORS[sev]} h-full transition-all duration-500`;
+                    segment.style.width = `${pct}%`;
+                    segment.title = `${sev}: ${count}`;
+                    barContainer.appendChild(segment);
+
+                    // Legend item
+                    const item = document.createElement('div');
+                    item.className = "flex items-center gap-1 text-xs bg-white px-2 py-1 rounded border border-gray-100 shadow-sm";
+                    item.innerHTML = `<span class="w-2 h-2 rounded-full ${SEVERITY_COLORS[sev]}"></span> <span class="capitalize">${sev}</span> <span class="font-bold text-gray-700">${count}</span>`;
+                    legendContainer.appendChild(item);
+                }
+            });
+        }
+
+        // --- Filtering and List Rendering ---
+
+        function handleFilter() {
+            const query = document.getElementById('search-input').value.toLowerCase();
+            const sortMode = document.getElementById('sort-select').value;
+
+            currentScenarios = allScenarios.filter(s => {
+                const name = (s.scenario_name || s.name || '').toLowerCase();
+                const desc = (s.scenario_description || s.description || '').toLowerCase();
+                return name.includes(query) || desc.includes(query);
+            });
+
+            // Sorting
+            currentScenarios.sort((a, b) => {
+                if (sortMode === 'score-asc') return (a.score || 0) - (b.score || 0);
+                if (sortMode === 'score-desc') return (b.score || 0) - (a.score || 0);
+                if (sortMode === 'severity') {
+                    return SEVERITY_ORDER[a.severity || 'low'] - SEVERITY_ORDER[b.severity || 'low'];
+                }
+                return 0; // Default
+            });
+
+            renderList();
+        }
+
+        function renderList() {
+            const container = document.getElementById('scenario-list');
+            container.innerHTML = '';
+
+            if (currentScenarios.length === 0) {
+                container.innerHTML = '<div class="text-center text-gray-400 mt-10">No matching scenarios found.</div>';
+                return;
+            }
+
+            currentScenarios.forEach(s => {
+                const el = document.createElement('div');
+                const isSelected = selectedScenarioId === s.id;
+                const statusColor = SEVERITY_COLORS[s.severity || 'low'];
+                const textColor = SEVERITY_TEXT_COLORS[s.severity || 'low'];
+
+                el.className = `p-3 rounded-lg border cursor-pointer hover:bg-gray-50 transition-colors flex gap-3 ${isSelected ? 'border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50' : 'border-gray-200 bg-white'}`;
+                el.onclick = () => selectScenario(s);
+
+                el.innerHTML = `
+                    <div class="w-1.5 self-stretch rounded-full ${statusColor} shrink-0"></div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex justify-between items-start">
+                            <h3 class="font-medium text-gray-900 truncate text-sm" title="${s.scenario_name || s.name}">${s.scenario_name || s.name || 'Untitled Scenario'}</h3>
+                            <span class="text-xs font-bold ${textColor} ml-2 shrink-0">${s.score !== undefined ? s.score + '/10' : ''}</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1 line-clamp-2">${s.scenario_description || s.description || 'No description'}</p>
+                    </div>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        // --- Detail Rendering ---
+
+        function selectScenario(scenario) {
+            selectedScenarioId = scenario.id;
+            renderList(); // Re-render to update selection state
+            renderDetail(scenario);
+        }
+
+        function renderDetail(s) {
+            const container = document.getElementById('detail-view');
+            const statusColor = SEVERITY_COLORS[s.severity || 'low'];
+            const textColor = SEVERITY_TEXT_COLORS[s.severity || 'low'];
+
+            // Safely get properties
+            const name = s.scenario_name || s.name || 'Untitled';
+            const desc = s.scenario_description || s.description || '';
+            const score = s.score;
+            const severity = s.severity || 'unknown';
+            const history = s.history || [];
+            const judgeFeedback = s.reasoning || s.feedback || 'No feedback available.';
+
+            // Basic Info Header
+            let html = `
+                <div class="max-w-4xl mx-auto space-y-6 pb-20">
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-900 leading-tight">${name}</h2>
+                                <div class="flex items-center gap-3 mt-2">
+                                    <span class="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide ${statusColor} text-white bg-opacity-90">
+                                        ${severity}
+                                    </span>
+                                    <span class="text-sm text-gray-500">Score: <strong class="${textColor}">${score !== undefined ? score + '/10' : 'N/A'}</strong></span>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="text-gray-600 leading-relaxed">${desc}</p>
+                    </div>
+            `;
+
+            // Conversation History
+            if (history && history.length > 0) {
+                html += `<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                            <div class="bg-gray-50 px-6 py-3 border-b border-gray-200">
+                                <h3 class="font-semibold text-gray-700">Conversation History</h3>
+                            </div>
+                            <div class="divide-y divide-gray-100">`;
+
+                history.forEach((turn, idx) => {
+                    // Turn might be {role: "", content: ""} or similar
+                    // Adjust based on typical simpleaudit format
+                    // simpleaudit typically has list of dicts with 'role' and 'content'
+                    const role = (turn.role || 'unknown').toUpperCase();
+                    const content = turn.content || '';
+                    const isUser = role === 'USER' || role === 'HUMAN';
+
+                    html += `
+                        <div class="p-6 ${isUser ? 'bg-white' : 'bg-gray-50'}">
+                            <div class="flex gap-4">
+                                <div class="shrink-0 mt-1">
+                                    <span class="inline-flex items-center justify-center h-8 w-8 rounded-full ${isUser ? 'bg-indigo-100 text-indigo-600' : 'bg-green-100 text-green-600'} font-bold text-xs ring-4 ring-white">
+                                        ${isUser ? 'U' : 'AI'}
+                                    </span>
+                                </div>
+                                <div class="flex-1 space-y-1">
+                                    <div class="flex items-center justify-between">
+                                        <h4 class="text-sm font-semibold text-gray-900">${role}</h4>
+                                        <span class="text-xs text-gray-400">Turn ${idx + 1}</span>
+                                    </div>
+                                    <div class="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap font-mono text-xs bg-gray-50/50 p-2 rounded border border-gray-100">${escapeHtml(content)}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += `   </div>
+                        </div>`;
+            } else {
+                html += `<div class="p-6 text-center text-gray-400 italic">No conversation history data found.</div>`;
+            }
+
+            // Judge Feedback
+            html += `
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="bg-indigo-50 px-6 py-3 border-b border-indigo-100 flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                            </svg>
+                            <h3 class="font-semibold text-indigo-900">Judge Feedback</h3>
+                        </div>
+                        <div class="p-6 prose prose-indigo max-w-none text-gray-800">
+                            <pre class="whitespace-pre-wrap font-sans text-sm text-gray-700">${escapeHtml(judgeFeedback)}</pre>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            container.innerHTML = html;
+        }
+
+        function escapeHtml(unsafe) {
+            return (unsafe || "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+    </script>
+</body>
+
+</html>

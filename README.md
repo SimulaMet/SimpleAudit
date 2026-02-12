@@ -26,6 +26,8 @@ Standards and best practices for creating test [scenarios](https://github.com/ke
 | RAGAS | ⭐⭐ Medium | Several | Free | Metrics only |
 | Custom | ⭐⭐⭐ Complex | Varies | Varies | Build from scratch |
 
+<img width="2898" height="1542" alt="image" src="https://github.com/user-attachments/assets/f9bbb891-a847-48d4-85d6-6d6d99c9e017" />
+
 
 ## Installation
 

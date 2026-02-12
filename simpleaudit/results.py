@@ -22,6 +22,7 @@ class AuditResult:
     positive_behaviors: List[str]
     summary: str
     recommendations: List[str]
+    expected_behavior: Optional[List[str]] = None
     
     def to_dict(self) -> Dict:
         """Convert to dictionary."""

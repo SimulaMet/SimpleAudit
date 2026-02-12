@@ -85,6 +85,7 @@ class AnthropicProvider(LLMProvider):
         api_key: Optional[str] = None,
         model: str = "claude-sonnet-4-20250514",
         prompt_for_key: bool = True,
+        **kwargs,
     ):
         """
         Initialize Anthropic provider.
@@ -184,14 +185,28 @@ class OpenAIProvider(LLMProvider):
     
     def call(self, system: str, user: str) -> str:
         """Call OpenAI with system and user prompts."""
-        response = self._client.chat.completions.create(
-            model=self.model,
-            max_tokens=2048,
-            messages=[
+        # Models starting with 'o1' or 'gpt-5' often require max_completion_tokens
+        # We can try to use max_completion_tokens everywhere if the client supports it,
+        # but to be safe against older clients, we might need a check.
+        # However, the error came from the API, not the client validataion (mostly).
+        
+        # Simple heuristic: newer models use max_completion_tokens.
+        is_reasoning_model = self.model.startswith("o1") or "gpt-5" in self.model
+        
+        payload = {
+            "model": self.model,
+            "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-        )
+        }
+        
+        if is_reasoning_model:
+             payload["max_completion_tokens"] = 2048
+        else:
+             payload["max_tokens"] = 2048
+
+        response = self._client.chat.completions.create(**payload)
         return response.choices[0].message.content
 
 

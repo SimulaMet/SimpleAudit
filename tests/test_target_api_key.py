@@ -7,7 +7,15 @@ Run with: pytest tests/test_target_api_key.py
 import pytest
 from simpleaudit import Auditor
 
+# Check if openai is available
+try:
+    import openai
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
 
+
+@pytest.mark.skipif(not HAS_OPENAI, reason="openai package not installed")
 def test_target_api_key_passed_to_client():
     """Test that target_api_key is properly passed to TargetClient."""
     # Create auditor with a target_api_key
@@ -27,6 +35,7 @@ def test_target_api_key_passed_to_client():
     assert auditor.target.client.headers["Authorization"] == "Bearer test-target-key"
 
 
+@pytest.mark.skipif(not HAS_OPENAI, reason="openai package not installed")
 def test_target_without_api_key():
     """Test that target client works without API key (for public endpoints)."""
     auditor = Auditor(
@@ -43,6 +52,7 @@ def test_target_without_api_key():
     assert "Authorization" not in auditor.target.client.headers
 
 
+@pytest.mark.skipif(not HAS_OPENAI, reason="openai package not installed")
 def test_target_api_key_none_explicit():
     """Test that explicitly passing None for target_api_key works."""
     auditor = Auditor(

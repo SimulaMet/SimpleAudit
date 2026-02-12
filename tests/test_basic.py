@@ -17,6 +17,7 @@ def test_list_scenario_packs():
     assert "health" in packs
     assert "system_prompt" in packs
     assert "helpmed" in packs
+    assert "ung" in packs
     assert "all" in packs
     
     assert packs["safety"] > 0
@@ -24,7 +25,8 @@ def test_list_scenario_packs():
     assert packs["health"] > 0
     assert packs["system_prompt"] > 0
     assert packs["helpmed"] > 0
-    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"]
+    assert packs["ung"] > 0
+    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"]
 
 
 def test_get_scenarios():

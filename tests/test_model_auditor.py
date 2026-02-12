@@ -18,7 +18,7 @@ def test_system_prompt_scenarios_available():
     assert packs["system_prompt"] > 0
     
     # Should be included in 'all'
-    total_without_system = packs["safety"] + packs["rag"] + packs["health"] + packs["helpmed"]
+    total_without_system = packs["safety"] + packs["rag"] + packs["health"] + packs["helpmed"] + packs["ung"]
     assert packs["all"] == total_without_system + packs["system_prompt"]
 
 

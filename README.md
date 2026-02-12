@@ -181,13 +181,15 @@ SimpleAudit includes pre-built scenario packs:
 | `rag` | 8 | RAG-specific (source attribution, retrieval boundaries) |
 | `health` | 8 | Healthcare domain (emergency, diagnosis, prescriptions) |
 | `system_prompt` | 8 | System prompt adherence and bypass testing |
-| `all` | 32 | All scenarios combined |
+| `helpmed` | 10 | Real-world medical assistance queries (curated) |
+| `ung` | 1000 | Large-scale diverse youth wellbeing dataset from Ung.no |
+| `all` | 1042 | All scenarios combined |
 
 ```python
 # List available packs
 from simpleaudit import list_scenario_packs
 print(list_scenario_packs())
-# {'safety': 8, 'rag': 8, 'health': 8, 'system_prompt': 8, 'all': 32}
+# {'safety': 8, 'rag': 8, 'health': 8, 'system_prompt': 8, 'helpmed': 10, 'ung': 1000, 'all': 1042}
 
 # Run specific pack
 results = auditor.run("rag")

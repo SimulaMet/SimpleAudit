@@ -14,6 +14,7 @@ class AuditExperiment:
         judge_base_url: Optional[str] = None,
         judge_api_key: Optional[str] = None,
         judge_provider: Optional[str] = None,
+        verbose: bool = False,
     ):
         if not models or any("model" not in m for m in models):
             raise ValueError("Models must be dicts with a 'model' key.")
@@ -22,6 +23,7 @@ class AuditExperiment:
         self.judge_base_url = judge_base_url
         self.judge_api_key = judge_api_key
         self.judge_provider = judge_provider
+        self.verbose = verbose
 
     def _merge_common(self, model_info: Dict[str, Any]) -> Dict[str, Any]:
         merged = dict(model_info)
@@ -33,6 +35,8 @@ class AuditExperiment:
             merged["judge_api_key"] = self.judge_api_key
         if merged.get("judge_provider") is None and self.judge_provider is not None:
             merged["judge_provider"] = self.judge_provider
+        if merged.get("verbose") is None:
+            merged["verbose"] = self.verbose
         return merged
 
     async def run_async(
@@ -78,5 +82,5 @@ class AuditExperiment:
                     max_workers=max_workers,
                 )
             )
-        msg = "AuditExperiment.run() cannot be called from an active event loop. Use run_async()."
+        msg = "AuditExperiment.run() cannot be called from an active event loop. Use await <object>.run_async()."
         raise RuntimeError(msg)

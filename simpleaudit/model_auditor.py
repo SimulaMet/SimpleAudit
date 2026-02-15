@@ -38,9 +38,11 @@ class ModelAuditor:
         judge_base_url: Optional[str] = None,
         max_turns: int = 5,
         verbose: bool = False,
+        show_progress: bool = False,
     ):
         self.max_turns = max_turns
         self.verbose = verbose
+        self.show_progress = show_progress
         self.system_prompt = system_prompt
         self._log_lock = threading.Lock()
         self.target_model = model
@@ -428,8 +430,8 @@ Evaluate this conversation and respond with this exact JSON structure:
                     pbar_judge=pbar_judge,
                     max_workers=max_workers,
                 )
-        with tqdm(total=total_audit_steps, desc=audit_desc, disable=not self.verbose, position=0) as pbar_audit:
-            with tqdm(total=total_judge_steps, desc=judge_desc, disable=not self.verbose, position=1) as pbar_judge:
+        with tqdm(total=total_audit_steps, desc=audit_desc, disable=not self.show_progress, position=0) as pbar_audit:
+            with tqdm(total=total_judge_steps, desc=judge_desc, disable=not self.show_progress, position=1) as pbar_judge:
                 tasks = [asyncio.create_task(_run_one(scenario)) for scenario in scenario_list]
                 for task in tasks:
                     results.append(await task)

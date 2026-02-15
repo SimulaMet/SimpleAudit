@@ -15,6 +15,7 @@ class AuditExperiment:
         judge_api_key: Optional[str] = None,
         judge_provider: Optional[str] = None,
         verbose: bool = False,
+        show_progress: bool = True,
     ):
         if not models or any("model" not in m for m in models):
             raise ValueError("Models must be dicts with a 'model' key.")
@@ -24,6 +25,7 @@ class AuditExperiment:
         self.judge_api_key = judge_api_key
         self.judge_provider = judge_provider
         self.verbose = verbose
+        self.show_progress = show_progress
 
     def _merge_common(self, model_info: Dict[str, Any]) -> Dict[str, Any]:
         merged = dict(model_info)
@@ -37,6 +39,8 @@ class AuditExperiment:
             merged["judge_provider"] = self.judge_provider
         if merged.get("verbose") is None:
             merged["verbose"] = self.verbose
+        if merged.get("show_progress") is None:
+            merged["show_progress"] = self.show_progress
         return merged
 
     async def run_async(
@@ -52,6 +56,7 @@ class AuditExperiment:
             desc="Model Progress",
             position=2,
             leave=True,
+            disable=not self.show_progress,
         ) as pbar_models:
             for model_info in self.models:
                 auditor = ModelAuditor(**self._merge_common(model_info))

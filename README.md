@@ -50,9 +50,9 @@ pip install git+https://github.com/kelkalot/simpleaudit.git
 from simpleaudit import ModelAuditor
 
 # Audit HuggingFace model using GPT-4o as judge
-# First: ollama run hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16
 auditor = ModelAuditor(
     # Required: Target model configuration
+    # First: ollama run hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16
     model="hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16",  # Target model name/identifier
     provider="ollama",  # Target provider (ollama, openai, anthropic, etc.)
     # api_key=None,  # Target API key (uses env var if not provided)

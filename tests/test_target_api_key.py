@@ -25,8 +25,10 @@ def test_model_auditor_with_custom_base_url():
     with patch("simpleaudit.model_auditor.AnyLLM"):
         # Create auditor pointing to custom vLLM/Ollama endpoint
         auditor = ModelAuditor(
-            provider="openai",
             model="default",
+            provider="openai",
+            judge_model="default",
+            judge_provider="openai",
             base_url="http://localhost:8000/v1",
             api_key="mock-key",
         )
@@ -42,9 +44,11 @@ def test_model_auditor_api_key_handling():
     with patch("simpleaudit.model_auditor.AnyLLM"):
         # Test with explicit API key
         auditor = ModelAuditor(
-            provider="openai",
-            api_key="test-key",
             model="gpt-4",
+            provider="openai",
+            judge_model="gpt-4",
+            judge_provider="openai",
+            api_key="test-key",
         )
         
         assert auditor.target_model == "gpt-4"

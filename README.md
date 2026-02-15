@@ -51,14 +51,14 @@ pip install git+https://github.com/kelkalot/simpleaudit.git
 ```python
 from simpleaudit import ModelAuditor
 
-# Create auditor for your target model
+# Audit your own custom HuggingFace model using GPT-4o as judge
+# First: ollama run hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16
 auditor = ModelAuditor(
-    model="gpt-4o-mini",
-    provider="openai",
-    judge_model="gpt-4o-mini",
-    judge_provider="openai",
-    # Uses OPENAI_API_KEY env var by default
-    # If not set, you'll be prompted to enter it
+    model="hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16",  # Target: Your custom model
+    provider="ollama",
+    judge_model="gpt-4o",       # Judge: More capable cloud model
+    judge_provider="openai",    # Uses OPENAI_API_KEY env var
+    system_prompt="You are a helpful assistant.",
 )
 
 # Run built-in safety scenarios
@@ -77,54 +77,75 @@ SimpleAudit supports **any provider** supported by [any-llm-sdk](https://mozilla
 Supported providers include: Anthropic, Azure, Bedrock, Cerebras, Cohere, Databricks, DeepSeek, Fireworks, Gemini, Groq, HuggingFace, Llama, LlamaCpp, LM Studio, Mistral, Ollama, OpenAI, OpenRouter, Perplexity, SageMaker, Together, VertexAI, vLLM, xAI, and [many more](https://mozilla-ai.github.io/any-llm/providers).
 
 ```python
-# OpenAI
+# Audit GPT-4o-mini using Claude as judge
 auditor = ModelAuditor(
     model="gpt-4o-mini",
-    provider="openai",  # Uses OPENAI_API_KEY env var
-    judge_model="gpt-4o-mini",
-    judge_provider="openai",
+    provider="openai",           # Uses OPENAI_API_KEY env var
+    judge_model="claude-sonnet-4-20250514",
+    judge_provider="anthropic",  # Uses ANTHROPIC_API_KEY env var
 )
 
-# Anthropic
+# Audit Claude using GPT-4o as judge
 auditor = ModelAuditor(
     model="claude-sonnet-4-20250514",
-    provider="anthropic",  # Uses ANTHROPIC_API_KEY env var
-    judge_model="claude-sonnet-4-20250514",
-    judge_provider="anthropic",
+    provider="anthropic",        # Uses ANTHROPIC_API_KEY env var
+    judge_model="gpt-4o",
+    judge_provider="openai",     # Uses OPENAI_API_KEY env var
 )
 
 # Any other provider - see all at https://mozilla-ai.github.io/any-llm/providers
 auditor = ModelAuditor(
     model="model-name",
     provider="your-provider",
-    judge_model="judge-model-name",
+    judge_model="more-capable-model",  # Use a different, ideally more capable model
     judge_provider="judge-provider",
 )
 ```
 
-### Local Models (Free, No API Key Required)
+### Local Models (No Target API Key Required)
 
 ```python
-# Ollama - for locally served models
-# First: ollama serve && ollama pull llama3.2
+# Audit your own custom HuggingFace model via Ollama, judged by GPT-4o 
+# Audit standard Ollama model using a cloud judge
+# First: ollama pull llama3.2
 auditor = ModelAuditor(
-    model="llama3.2",
+    model="llama3.2",            # Target: Standard Ollama model (free)
     provider="ollama",
-    judge_model="llama3.2",
-    judge_provider="ollama",
+    judge_model="gpt-4o-mini",   # Judge: Cloud model for evaluation
+    judge_provider="openai",     # Uses OPENAI_API_KEY env var
     system_prompt="You are a helpful assistant.",
 )
 
-# vLLM - for efficient local model serving
-# Start vLLM server first:
-# python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-2-7b-hf
+
+# First: ollama run hf.co/YourOrg/your-model
 auditor = ModelAuditor(
-    model="meta-llama/Llama-2-7b-hf",
-    provider="openai",  # vLLM is OpenAI-compatible
-    judge_model="meta-llama/Llama-2-7b-hf",
-    judge_provider="openai",
+    model="hf.co/YourOrg/your-model",  # Your custom model
+    provider="ollama",
+    judge_model="gpt-4o",        # Judge: Cloud model for better evaluation
+    judge_provider="openai",     # Uses OPENAI_API_KEY env var
+    system_prompt="You are a helpful assistant.",
+)
+
+# Audit your vLLM-served model using a cloud judge
+# Start vLLM server first:
+# python -m vllm.entrypoints.openai.api_server --model your-org/your-finetuned-model
+auditor = ModelAuditor(
+    model="your-org/your-finetuned-model",  # Target: Your fine-tuned model via vLLM (free)
+    provider="openai",           # vLLM is OpenAI-compatible
     base_url="http://localhost:8000/v1",
-    api_key="mock",  # vLLM doesn't require a real API key
+    api_key="mock",              # vLLM doesn't require a real API key
+    judge_model="claude-sonnet-4-20250514",  # Judge: Claude for diverse evaluation
+    judge_provider="anthropic",  # Uses ANTHROPIC_API_KEY env var
+    system_prompt="You are a helpful assistant.",
+)
+
+# Or use a larger local model as judge (fully free, no API keys)
+# First: ollama pull llama3.1:70b
+auditor = ModelAuditor(
+    model="llama3.2",            # Target: Smaller local model
+    provider="ollama",
+    judge_model="llama3.1:70b",  # Judge: Larger, more capable local model
+    judge_provider="ollama",
     system_prompt="You are a helpful assistant.",
 )
 ```
@@ -137,8 +158,8 @@ auditor = ModelAuditor(
 | `provider` | Target model provider (e.g., `"openai"`, `"anthropic"`, `"ollama"`, etc.). See [all supported providers](https://mozilla-ai.github.io/any-llm/providers) | **Yes** |
 | `judge_model` | Model name for judging | **Yes** |
 | `judge_provider` | Provider for judging (can differ from target) | **Yes** |
-| `api_key` | API key for target provider (optional - will prompt if not set via env var) | No |
-| `judge_api_key` | API key for judge provider (optional - will prompt if not set) | No |
+| `api_key` | API key for target provider (optional - uses env var if not provided) | No |
+| `judge_api_key` | API key for judge provider (optional - uses env var if not provided) | No |
 | `base_url` | Custom base URL for target API requests (optional) | No |
 | `judge_base_url` | Custom base URL for judge API requests (optional) | No |
 | `system_prompt` | System prompt for target model (or `None`) | No |
@@ -254,8 +275,8 @@ auditor = ModelAuditor(
     judge_provider="openai",          # Can differ from target provider
     
     # Optional: API configuration
-    api_key="sk-...",                 # Optional - uses env var or prompts if not set
-    judge_api_key="sk-...",           # Optional - uses env var or prompts if not set
+    api_key="sk-...",                 # Optional - uses env var if not provided
+    judge_api_key="sk-...",           # Optional - uses env var if not provided
     base_url="https://...",           # Optional - custom API endpoint
     judge_base_url="https://...",     # Optional - custom judge API endpoint
     system_prompt="You are a helpful assistant.",  # Optional system prompt
@@ -325,24 +346,38 @@ results.plot(save_path="audit_chart.png")
 ```python
 from simpleaudit import ModelAuditor
 
-# Audit local Ollama model with safety scenarios
+# Audit your custom HuggingFace model with safety scenarios, judged by GPT-4o
+# First: ollama run hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16
 auditor = ModelAuditor(
-    model="llama3.2",
+    model="hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16",  # Your custom model
     provider="ollama",
-    judge_model="llama3.2",
-    judge_provider="ollama",
+    judge_model="gpt-4o",        # Judge: More capable cloud model
+    judge_provider="openai",
 )
 results = auditor.run("safety")
 results.summary()
 
-# Audit OpenAI model with RAG scenarios
+# Audit GPT-4o-mini with RAG scenarios, judged by Claude
 auditor = ModelAuditor(
-    model="gpt-4o-mini",
+    model="gpt-4o-mini",         # Target: OpenAI model
     provider="openai",
-    judge_model="gpt-4o-mini",
-    judge_provider="openai",
+    judge_model="claude-sonnet-4-20250514",  # Judge: Claude for diverse evaluation
+    judge_provider="anthropic",
 )
 results = auditor.run("rag")
+results.summary()
+
+# Audit your fine-tuned model served via vLLM with health scenarios, judged by Claude
+# First: python -m vllm.entrypoints.openai.api_server --model your-org/medical-llama-finetuned
+auditor = ModelAuditor(
+    model="your-org/medical-llama-finetuned",  # Target: Your specialized model
+    provider="openai",           # vLLM is OpenAI-compatible
+    base_url="http://localhost:8000/v1",
+    api_key="mock",
+    judge_model="claude-sonnet-4-20250514",  # Judge: Claude for medical domain evaluation
+    judge_provider="anthropic",
+)
+results = auditor.run("health")
 results.summary()
 ```
 

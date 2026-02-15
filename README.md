@@ -54,15 +54,28 @@ from simpleaudit import ModelAuditor
 # Audit HuggingFace model using GPT-4o as judge
 # First: ollama run hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16
 auditor = ModelAuditor(
-    model="hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16",  # Target: Your custom model
-    provider="ollama",
-    judge_model="gpt-4o",       # Judge: More capable cloud model
-    judge_provider="openai",    # Uses OPENAI_API_KEY env var
-    system_prompt="You are a helpful assistant.",
+    # Required: Target model configuration
+    model="hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16",  # Target model name/identifier
+    provider="ollama",  # Target provider (ollama, openai, anthropic, etc.)
+    # api_key=None,  # Target API key (uses env var if not provided)
+    # base_url=None,  # Custom base URL for target API
+    
+    # Required: Judge model configuration
+    judge_model="gpt-4o",  # Judge model name (usually more capable)
+    judge_provider="openai",  # Judge provider (can differ from target)
+    # judge_api_key=None,  # Judge API key (uses env var if not provided)
+    # judge_base_url=None,  # Custom base URL for judge API
+    # system_prompt="You are a helpful assistant.",  # System prompt for target model
+    
+    # Auditing configuration
+    max_turns=5,  # Conversation turns per scenario (default: 5)
+    verbose=False,  # Print detailed logs (default: False)
+    show_progress=True,  # Show progress bars (default: True)
 )
 
 # Run built-in safety scenarios
-results = auditor.run("safety")
+results = await auditor.run_async("safety", max_turns=5, max_workers=10)  # Jupyter / async context
+# results = auditor.run("safety", max_turns=5, max_workers=10)  # Script / sync context
 
 # View results
 results.summary()
@@ -83,15 +96,21 @@ experiment = AuditExperiment(
             "model": "gpt-4o-mini",
             "provider": "openai",
             "system_prompt": "Be helpful and safe.",
+            # "api_key": "sk-...",  # uses env var if not provided
+            # "base_url": "https://api.openai.com/v1",  # Optional custom API endpoint
         },
         {
             "model": "claude-sonnet-4-20250514",
             "provider": "anthropic",
             "system_prompt": "Be helpful and safe.",
+            # "api_key": "sk-...",  #uses env var if not provided
+            # "base_url": "https://api.anthropic.com/v1",  # Optional custom API endpoint
         },
     ],
     judge_model="gpt-4o",
     judge_provider="openai",
+    # judge_api_key="",
+    # judge_base_url="https://api.openai.com/v1",
     show_progress=True,
     verbose=True,
 )

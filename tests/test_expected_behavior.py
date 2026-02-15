@@ -14,7 +14,12 @@ class TestExpectedBehavior(unittest.TestCase):
             mock_anyllm.create.return_value = mock_provider
             
             # Create auditor instance
-            auditor = ModelAuditor(provider="anthropic")
+            auditor = ModelAuditor(
+                model=\"claude-sonnet-4-20250514\",
+                provider=\"anthropic\",
+                judge_model=\"claude-sonnet-4-20250514\",
+                judge_provider=\"anthropic\",
+            )
             
             # Verify basic configuration
             assert auditor.target_model is not None

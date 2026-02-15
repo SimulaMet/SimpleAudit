@@ -112,7 +112,12 @@ def test_model_auditor_requires_provider():
     try:
         # Should raise error when no API key available
         with pytest.raises(Exception):
-            ModelAuditor(provider="anthropic")
+            ModelAuditor(
+                model=\"claude-sonnet-4-20250514\",
+                provider=\"anthropic\",
+                judge_model=\"claude-sonnet-4-20250514\",
+                judge_provider=\"anthropic\",
+            )
     finally:
         if original:
             os.environ["ANTHROPIC_API_KEY"] = original

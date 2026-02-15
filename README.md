@@ -51,9 +51,14 @@ pip install git+https://github.com/kelkalot/simpleaudit.git
 ```python
 from simpleaudit import ModelAuditor
 
-# Create auditor for your target model (default: Anthropic Claude)
+# Create auditor for your target model
 auditor = ModelAuditor(
-    # Uses ANTHROPIC_API_KEY env var, or pass: api_key="sk-..."
+    model="gpt-4o-mini",
+    provider="openai",
+    judge_model="gpt-4o-mini",
+    judge_provider="openai",
+    # Uses OPENAI_API_KEY env var by default
+    # If not set, you'll be prompted to enter it
 )
 
 # Run built-in safety scenarios
@@ -74,19 +79,26 @@ Supported providers include: Anthropic, Azure, Bedrock, Cerebras, Cohere, Databr
 ```python
 # OpenAI
 auditor = ModelAuditor(
+    model="gpt-4o-mini",
     provider="openai",  # Uses OPENAI_API_KEY env var
-    model="gpt-4o",
+    judge_model="gpt-4o-mini",
+    judge_provider="openai",
 )
 
-# Anthropic (default)
+# Anthropic
 auditor = ModelAuditor(
+    model="claude-sonnet-4-20250514",
     provider="anthropic",  # Uses ANTHROPIC_API_KEY env var
+    judge_model="claude-sonnet-4-20250514",
+    judge_provider="anthropic",
 )
 
 # Any other provider - see all at https://mozilla-ai.github.io/any-llm/providers
 auditor = ModelAuditor(
-    provider="your-provider",
     model="model-name",
+    provider="your-provider",
+    judge_model="judge-model-name",
+    judge_provider="judge-provider",
 )
 ```
 
@@ -96,8 +108,10 @@ auditor = ModelAuditor(
 # Ollama - for locally served models
 # First: ollama serve && ollama pull llama3.2
 auditor = ModelAuditor(
-    provider="ollama",
     model="llama3.2",
+    provider="ollama",
+    judge_model="llama3.2",
+    judge_provider="ollama",
     system_prompt="You are a helpful assistant.",
 )
 
@@ -105,8 +119,10 @@ auditor = ModelAuditor(
 # Start vLLM server first:
 # python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-2-7b-hf
 auditor = ModelAuditor(
-    provider="openai",  # vLLM is OpenAI-compatible
     model="meta-llama/Llama-2-7b-hf",
+    provider="openai",  # vLLM is OpenAI-compatible
+    judge_model="meta-llama/Llama-2-7b-hf",
+    judge_provider="openai",
     base_url="http://localhost:8000/v1",
     api_key="mock",  # vLLM doesn't require a real API key
     system_prompt="You are a helpful assistant.",
@@ -115,14 +131,18 @@ auditor = ModelAuditor(
 
 ### Key Parameters
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `provider` | Target model provider (e.g., `"anthropic"`, `"openai"`, `"ollama"`, etc.). See [all supported providers](https://mozilla-ai.github.io/any-llm/providers) | `"anthropic"` |
-| `model` | Model name (e.g., `"gpt-4o"`, `"llama3.2"`) | Provider default |
-| `system_prompt` | System prompt for target model (or `None`) | `None` |
-| `judge_provider` | Provider for judging (can differ from target) | Same as `provider` |
-| `judge_model` | Model for judging | Provider default |
-| `max_turns` | Conversation turns per scenario | `5` |
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `model` | Model name for target (e.g., `"gpt-4o-mini"`, `"llama3.2"`) | **Yes** |
+| `provider` | Target model provider (e.g., `"openai"`, `"anthropic"`, `"ollama"`, etc.). See [all supported providers](https://mozilla-ai.github.io/any-llm/providers) | **Yes** |
+| `judge_model` | Model name for judging | **Yes** |
+| `judge_provider` | Provider for judging (can differ from target) | **Yes** |
+| `api_key` | API key for target provider (optional - will prompt if not set via env var) | No |
+| `judge_api_key` | API key for judge provider (optional - will prompt if not set) | No |
+| `base_url` | Custom base URL for target API requests (optional) | No |
+| `judge_base_url` | Custom base URL for judge API requests (optional) | No |
+| `system_prompt` | System prompt for target model (or `None`) | No |
+| `max_turns` | Conversation turns per scenario | No (default: 5) |
 
 ### Cross-Provider Auditing
 
@@ -131,10 +151,11 @@ Use different providers for target and judge:
 ```python
 # Test OpenAI, judged by Claude
 auditor = ModelAuditor(
+    model="gpt-4o-mini",
     provider="openai",           # Target: OpenAI
-    model="gpt-4o",
-    system_prompt="Be helpful and safe.",
+    judge_model="claude-sonnet-4-20250514",
     judge_provider="anthropic",  # Judge: Claude
+    system_prompt="Be helpful and safe.",
 )
 ```
 
@@ -224,19 +245,23 @@ results = auditor.run(my_scenarios)
 
 ```python
 auditor = ModelAuditor(
-    # Provider selection
-    provider="anthropic",            # Any provider supported by any-llm-sdk
-    model="claude-sonnet-4-20250514",           # Provider-specific model name
-    api_key="sk-...",                # Or use env vars (see below)
+    # Required: Target model
+    model="gpt-4o-mini",              # Provider-specific model name
+    provider="openai",                # Any provider supported by any-llm-sdk
+    
+    # Required: Judge model
+    judge_model="gpt-4o-mini",        # Model for judging
+    judge_provider="openai",          # Can differ from target provider
+    
+    # Optional: API configuration
+    api_key="sk-...",                 # Optional - uses env var or prompts if not set
+    judge_api_key="sk-...",           # Optional - uses env var or prompts if not set
+    base_url="https://...",           # Optional - custom API endpoint
+    judge_base_url="https://...",     # Optional - custom judge API endpoint
     system_prompt="You are a helpful assistant.",  # Optional system prompt
     
-    # Judging options
-    judge_provider="anthropic",      # Can differ from target provider
-    judge_model="claude-sonnet-4-20250514",
-    
-    # Other options
+    # Optional: Other options
     max_turns=5,                      # Conversation turns per scenario
-    timeout=120.0,                    # Request timeout (seconds)
     verbose=True,                     # Print progress
 )
 
@@ -254,8 +279,8 @@ SimpleAudit respects standard environment variables for API keys. Common ones:
 
 | Provider | Environment Variable | 
 |----------|---------------------|
+| OpenAI (default) | `OPENAI_API_KEY` | 
 | Anthropic | `ANTHROPIC_API_KEY` | 
-| OpenAI | `OPENAI_API_KEY` | 
 | Ollama | None (runs locally) | 
 
 See [any-llm-sdk documentation](https://mozilla-ai.github.io/any-llm/providers) for the complete list of supported providers and their environment variables.
@@ -302,16 +327,20 @@ from simpleaudit import ModelAuditor
 
 # Audit local Ollama model with safety scenarios
 auditor = ModelAuditor(
-    provider="ollama",
     model="llama3.2",
+    provider="ollama",
+    judge_model="llama3.2",
+    judge_provider="ollama",
 )
 results = auditor.run("safety")
 results.summary()
 
 # Audit OpenAI model with RAG scenarios
 auditor = ModelAuditor(
+    model="gpt-4o-mini",
     provider="openai",
-    model="gpt-4o",
+    judge_model="gpt-4o-mini",
+    judge_provider="openai",
 )
 results = auditor.run("rag")
 results.summary()
@@ -319,15 +348,15 @@ results.summary()
 
 ## Cost Estimation
 
-SimpleAudit can use different models to probe generation and judging. This example is based on Claude:
+SimpleAudit can use different models for target and judging. Cost estimates for OpenAI (default):
 
 | Scenarios | Turns | Estimated Cost |
 |-----------|-------|----------------|
-| 8 | 5 | ~$2-4 |
-| 24 | 5 | ~$6-12 |
-| 24 | 10 | ~$12-24 |
+| 8 | 5 | ~$1-2 |
+| 24 | 5 | ~$3-6 |
+| 24 | 10 | ~$6-12 |
 
-*Costs depend on response lengths and Claude model used.*
+*Costs depend on response lengths and models used. OpenAI pricing is generally lower than Claude for comparable models.*
 
 ## Contributing
 

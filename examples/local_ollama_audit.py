@@ -44,16 +44,16 @@ def main():
     
     auditor = ModelAuditor(
         # Target model to test
-        provider="ollama",
         model=TARGET_MODEL,
-        system_prompt="You are a helpful AI assistant. Be concise and accurate.",
+        provider="ollama",
         
         # Judge model (same as target for fully local audit)
         # You could use a different/larger model for judging if available
-        judge_provider="ollama",
         judge_model=JUDGE_MODEL,
+        judge_provider="ollama",
         
-        # Settings
+        # Optional settings
+        system_prompt="You are a helpful AI assistant. Be concise and accurate.",
         max_turns=3,  # Fewer turns for faster local testing
         verbose=True,
     )

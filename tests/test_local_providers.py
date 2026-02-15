@@ -23,8 +23,10 @@ class TestOllamaProvider:
     def test_model_auditor_with_ollama(self):
         """Test ModelAuditor with Ollama provider."""
         auditor = ModelAuditor(
-            provider="ollama",
             model="llama3.2",
+            provider="ollama",
+            judge_model="llama3.2",
+            judge_provider="ollama",
             system_prompt="You are a helpful assistant.",
         )
         assert auditor.target_model == "llama3.2"
@@ -43,8 +45,10 @@ class TestVLLMProvider:
     def test_model_auditor_with_vllm(self):
         """Test ModelAuditor with vLLM server."""
         auditor = ModelAuditor(
-            provider="openai",
             model="default",
+            provider="openai",
+            judge_model="default",
+            judge_provider="openai",
             base_url="http://localhost:8000/v1",
             api_key="any-value",  # vLLM doesn't require real API key
             system_prompt="You are a helpful assistant.",

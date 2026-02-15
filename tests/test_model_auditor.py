@@ -37,6 +37,7 @@ def test_get_system_prompt_scenarios():
 def test_model_auditor_init_requires_provider():
     """Test that ModelAuditor requires valid provider configuration."""
     import os
+    from any_llm.exceptions import MissingApiKeyError
     
     # Temporarily remove API keys
     original_anthropic = os.environ.pop("ANTHROPIC_API_KEY", None)
@@ -44,8 +45,8 @@ def test_model_auditor_init_requires_provider():
     original_xai = os.environ.pop("XAI_API_KEY", None)
     
     try:
-        with pytest.raises((ValueError, ImportError)):
-            ModelAuditor(provider="anthropic", prompt_for_key=False)
+        with pytest.raises(MissingApiKeyError):
+            ModelAuditor(provider="anthropic")
     finally:
         if original_anthropic:
             os.environ["ANTHROPIC_API_KEY"] = original_anthropic
@@ -57,10 +58,10 @@ def test_model_auditor_init_requires_provider():
 
 def test_model_auditor_system_prompt_handling():
     """Test that system_prompt parameter is properly stored."""
-    with patch("simpleaudit.model_auditor.get_provider") as mock_get_provider:
+    with patch("simpleaudit.model_auditor.AnyLLM") as mock_anyllm:
         mock_provider = MagicMock()
         mock_provider.model = "test-model"
-        mock_get_provider.return_value = mock_provider
+        mock_anyllm.create.return_value = mock_provider
         
         # With system prompt
         auditor_with = ModelAuditor(
@@ -76,7 +77,7 @@ def test_model_auditor_system_prompt_handling():
 
 def test_model_auditor_separate_judge_provider():
     """Test that ModelAuditor can use different providers for judge and target."""
-    with patch("simpleaudit.model_auditor.get_provider") as mock_get_provider:
+    with patch("simpleaudit.model_auditor.AnyLLM") as mock_anyllm:
         # Create different mock providers for target and judge
         mock_target = MagicMock()
         mock_target.model = "target-model"
@@ -93,29 +94,30 @@ def test_model_auditor_separate_judge_provider():
                 return mock_judge
             return mock_target
         
-        mock_get_provider.side_effect = mock_provider_factory
+        mock_anyllm.create.side_effect = mock_provider_factory
         
         auditor = ModelAuditor(
             provider="anthropic",
             judge_provider="openai"
         )
         
-        assert auditor.target_provider.name == "Anthropic"
-        assert auditor.judge_provider.name == "OpenAI"
+        assert auditor.target_client.name == "Anthropic"
+        assert auditor.judge_client.name == "OpenAI"
 
 
 def test_model_auditor_same_provider_when_no_judge():
     """Test that judge defaults to same provider as target."""
-    with patch("simpleaudit.model_auditor.get_provider") as mock_get_provider:
+    with patch("simpleaudit.model_auditor.AnyLLM") as mock_anyllm:
         mock_provider = MagicMock()
         mock_provider.model = "test-model"
         mock_provider.name = "Anthropic"
-        mock_get_provider.return_value = mock_provider
+        mock_anyllm.create.return_value = mock_provider
         
         auditor = ModelAuditor(provider="anthropic")
         
-        # Should be same instance
-        assert auditor.target_provider is auditor.judge_provider
+        # Should be same instance (both should use same provider mock)
+        assert auditor.target_client.name == "Anthropic"
+        assert auditor.judge_client.name == "Anthropic"
 
 
 def test_scenario_names():

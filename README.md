@@ -85,17 +85,20 @@ auditor = Auditor(
 ```python
 # Ollama - for locally served models
 # First: ollama serve && ollama pull llama3.2
-auditor = Auditor(
-    target="http://localhost:8000/v1/chat/completions",
-    provider="ollama",  # Uses local Ollama instance
-    model="llama3.2",   # Or "mistral", "codellama", etc.
+auditor = ModelAuditor(
+    provider="ollama",
+    model="llama3.2",
+    system_prompt="You are a helpful assistant.",
 )
 
-# HuggingFace - for direct transformers inference
-auditor = Auditor(
-    target="http://localhost:8000/v1/chat/completions",
-    provider="huggingface",
-    model="meta-llama/Llama-3.2-1B-Instruct",
+# vLLM - for efficient local model serving
+# First: python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-2-7b-hf
+auditor = ModelAuditor(
+    provider="openai",  # vLLM is OpenAI-compatible
+    model="meta-llama/Llama-2-7b-hf",
+    base_url="http://localhost:8000/v1",
+    api_key="mock",  # vLLM doesn't require a real API key
+    system_prompt="You are a helpful assistant.",
 )
 ```
 
@@ -119,7 +122,7 @@ results.summary()
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `provider` | Target model: `"anthropic"`, `"openai"`, `"grok"`, `"huggingface"`, `"ollama"` | `"anthropic"` |
+| `provider` | Target model: `"anthropic"`, `"openai"`, `"grok"`, `"ollama"` | `"anthropic"` |
 | `model` | Model name (e.g., `"gpt-4o"`, `"llama3.2"`) | Provider default |
 | `system_prompt` | System prompt for target model (or `None`) | `None` |
 | `judge_provider` | Provider for judging (can differ from target) | Same as `provider` |
@@ -153,10 +156,12 @@ auditor = ModelAuditor(
 )
 results = auditor.run("safety")
 
-# Test a HuggingFace model (GPU required/recommended)
+# Test with vLLM (more efficient than Ollama, OpenAI-compatible)
 auditor = ModelAuditor(
-    provider="huggingface",
-    model="meta-llama/Llama-3.2-1B-Instruct",
+    provider="openai",
+    model="meta-llama/Llama-2-7b-hf",
+    base_url="http://localhost:8000/v1",
+    api_key="mock",
 )
 results = auditor.run("system_prompt")
 ```

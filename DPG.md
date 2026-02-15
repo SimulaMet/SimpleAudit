@@ -63,13 +63,13 @@ SimpleAudit is designed to be **platform-independent** and does not lock users i
 
 | Component | Proprietary Option | Open Alternative |
 |-----------|-------------------|------------------|
-| Auditing LLM | Anthropic Claude, OpenAI GPT | Ollama (local), HuggingFace Transformers |
+| Auditing LLM | Anthropic Claude, OpenAI GPT | Ollama (local), vLLM (local serving) |
 | Target System | Any | OpenAI-compatible API (open standard) |
 | Data Export | — | JSON (open format) |
 | Visualization | — | Matplotlib (open source) |
 
 **Key Independence Features**:
-- **Local-first option**: Users can run audits entirely locally using Ollama or HuggingFace models with no API keys or external dependencies
+- **Local-first option**: Users can run audits entirely locally using Ollama or vLLM with no API keys or external dependencies
 - **No vendor lock-in**: The provider abstraction layer allows switching between LLM providers with a single parameter change
 - **Open API standard**: Targets any OpenAI-compatible chat completions endpoint, which is widely supported across open-source inference servers (vLLM, Ollama, LiteLLM)
 

@@ -59,18 +59,17 @@ auditor = ModelAuditor(
     provider="ollama",  # Target provider (ollama, openai, anthropic, etc.)
     # api_key=None,  # Target API key (uses env var if not provided)
     # base_url=None,  # Custom base URL for target API
+    # system_prompt="You are a helpful assistant.",  # System prompt for target model
     
     # Required: Judge model configuration
     judge_model="gpt-4o",  # Judge model name (usually more capable)
     judge_provider="openai",  # Judge provider (can differ from target)
     # judge_api_key=None,  # Judge API key (uses env var if not provided)
     # judge_base_url=None,  # Custom base URL for judge API
-    # system_prompt="You are a helpful assistant.",  # System prompt for target model
     
     # Auditing configuration
-    max_turns=5,  # Conversation turns per scenario (default: 5)
-    verbose=False,  # Print detailed logs (default: False)
-    show_progress=True,  # Show progress bars (default: True)
+    # verbose=False,  # Print detailed logs (default: False)
+    # show_progress=True,  # Show progress bars (default: True)
 )
 
 # Run built-in safety scenarios

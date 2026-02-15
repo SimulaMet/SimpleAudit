@@ -44,14 +44,15 @@ pip install simpleaudit[plot]
 pip install git+https://github.com/kelkalot/simpleaudit.git
 ```
 
+> **Note:** SimpleAudit uses `any-llm-sdk` to manage all LLM providers. When you specify a provider that isn't installed, `any-llm-sdk` will automatically prompt you to install it.
+
 ## Quick Start
 
 ```python
-from simpleaudit import Auditor
+from simpleaudit import ModelAuditor
 
-# Create auditor pointing to your AI system (default: Anthropic Claude)
-auditor = Auditor(
-    target="http://localhost:8000/v1/chat/completions",
+# Create auditor for your target model (default: Anthropic Claude)
+auditor = ModelAuditor(
     # Uses ANTHROPIC_API_KEY env var, or pass: api_key="sk-..."
 )
 
@@ -66,17 +67,26 @@ results.save("audit_results.json")
 
 ### Using Different Providers
 
+SimpleAudit supports **any provider** supported by [any-llm-sdk](https://mozilla-ai.github.io/any-llm/providers). Just specify the provider and any required API key. If the provider isn't installed, `any-llm-sdk` will prompt you to install it.
+
+Supported providers include: Anthropic, Azure, Bedrock, Cerebras, Cohere, Databricks, DeepSeek, Fireworks, Gemini, Groq, HuggingFace, Llama, LlamaCpp, LM Studio, Mistral, Ollama, OpenAI, OpenRouter, Perplexity, SageMaker, Together, VertexAI, vLLM, xAI, and [many more](https://mozilla-ai.github.io/any-llm/providers).
+
 ```python
-# OpenAI (requires: pip install simpleaudit[openai])
-auditor = Auditor(
-    target="http://localhost:8000/v1/chat/completions",
+# OpenAI
+auditor = ModelAuditor(
     provider="openai",  # Uses OPENAI_API_KEY env var
+    model="gpt-4o",
 )
 
-# Grok via xAI (requires: pip install simpleaudit[openai])
-auditor = Auditor(
-    target="http://localhost:8000/v1/chat/completions",
-    provider="grok",  # Uses XAI_API_KEY env var
+# Anthropic (default)
+auditor = ModelAuditor(
+    provider="anthropic",  # Uses ANTHROPIC_API_KEY env var
+)
+
+# Any other provider - see all at https://mozilla-ai.github.io/any-llm/providers
+auditor = ModelAuditor(
+    provider="your-provider",
+    model="model-name",
 )
 ```
 
@@ -92,7 +102,8 @@ auditor = ModelAuditor(
 )
 
 # vLLM - for efficient local model serving
-# First: python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-2-7b-hf
+# Start vLLM server first:
+# python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-2-7b-hf
 auditor = ModelAuditor(
     provider="openai",  # vLLM is OpenAI-compatible
     model="meta-llama/Llama-2-7b-hf",
@@ -102,27 +113,11 @@ auditor = ModelAuditor(
 )
 ```
 
-## ModelAuditor - Direct API Testing
-
-`ModelAuditor` audits models directly via their APIs without needing an external HTTP endpoint:
-
-```python
-from simpleaudit import ModelAuditor
-
-# Basic usage - audit Claude with a system prompt
-auditor = ModelAuditor(
-    provider="anthropic",                          # Target model provider
-    system_prompt="You are a helpful assistant.",  # Optional system prompt
-)
-results = auditor.run("system_prompt")
-results.summary()
-```
-
 ### Key Parameters
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `provider` | Target model: `"anthropic"`, `"openai"`, `"grok"`, `"ollama"` | `"anthropic"` |
+| `provider` | Target model provider (e.g., `"anthropic"`, `"openai"`, `"ollama"`, etc.). See [all supported providers](https://mozilla-ai.github.io/any-llm/providers) | `"anthropic"` |
 | `model` | Model name (e.g., `"gpt-4o"`, `"llama3.2"`) | Provider default |
 | `system_prompt` | System prompt for target model (or `None`) | `None` |
 | `judge_provider` | Provider for judging (can differ from target) | Same as `provider` |
@@ -141,41 +136,6 @@ auditor = ModelAuditor(
     system_prompt="Be helpful and safe.",
     judge_provider="anthropic",  # Judge: Claude
 )
-```
-
-### Local Model Auditing (Free)
-
-Audit local models without any API keys:
-
-```python
-# Test a local Ollama model
-auditor = ModelAuditor(
-    provider="ollama",
-    model="llama3.2",
-    system_prompt="You are a helpful assistant.",
-)
-results = auditor.run("safety")
-
-# Test with vLLM (more efficient than Ollama, OpenAI-compatible)
-auditor = ModelAuditor(
-    provider="openai",
-    model="meta-llama/Llama-2-7b-hf",
-    base_url="http://localhost:8000/v1",
-    api_key="mock",
-)
-results = auditor.run("system_prompt")
-```
-
-### Without System Prompt
-
-Test model's default behavior:
-
-```python
-auditor = ModelAuditor(
-    provider="openai",
-    # system_prompt=None,  # Omit or set to None
-)
-results = auditor.run("safety")
 ```
 
 ## Scenario Packs
@@ -263,21 +223,21 @@ results = auditor.run(my_scenarios)
 ## Configuration Options
 
 ```python
-auditor = Auditor(
-    # Required
-    target="http://localhost:8000/v1/chat/completions",
-    
+auditor = ModelAuditor(
     # Provider selection
-    provider="anthropic",            # "anthropic" (default), "openai", or "grok"
-    api_key="sk-...",                # Or use env vars (see below)
+    provider="anthropic",            # Any provider supported by any-llm-sdk
     model="claude-sonnet-4-20250514",           # Provider-specific model name
+    api_key="sk-...",                # Or use env vars (see below)
+    system_prompt="You are a helpful assistant.",  # Optional system prompt
+    
+    # Judging options
+    judge_provider="anthropic",      # Can differ from target provider
+    judge_model="claude-sonnet-4-20250514",
     
     # Other options
-    target_model="my-model",          # Model name sent to target API
     max_turns=5,                      # Conversation turns per scenario
     timeout=120.0,                    # Request timeout (seconds)
     verbose=True,                     # Print progress
-    prompt_for_key=True,              # Prompt for API key if not found
 )
 
 # Run with custom settings
@@ -290,11 +250,15 @@ results = auditor.run(
 
 ### Environment Variables
 
-| Provider | Environment Variable | Default Model |
-|----------|---------------------|---------------|
-| Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
-| OpenAI | `OPENAI_API_KEY` | `gpt-4o` |
-| Grok | `XAI_API_KEY` | `grok-3` |
+SimpleAudit respects standard environment variables for API keys. Common ones:
+
+| Provider | Environment Variable | 
+|----------|---------------------|
+| Anthropic | `ANTHROPIC_API_KEY` | 
+| OpenAI | `OPENAI_API_KEY` | 
+| Ollama | None (runs locally) | 
+
+See [any-llm-sdk documentation](https://mozilla-ai.github.io/any-llm/providers) for the complete list of supported providers and their environment variables.
 
 ## Understanding Results
 
@@ -331,43 +295,25 @@ results.plot(save_path="audit_chart.png")
 | 🟠 high | 1 | Significant issue |
 | 🔴 critical | 0 | Dangerous behavior |
 
-## Target API Requirements
-
-Your target must be an OpenAI-compatible chat completions endpoint:
-
-```
-POST /v1/chat/completions
-{
-    "model": "your-model",
-    "messages": [
-        {"role": "user", "content": "Hello"}
-    ]
-}
-```
-
-**Works with:**
-- OpenAI API
-- Ollama (`ollama serve`)
-- vLLM
-- LiteLLM
-- Any OpenAI-compatible server
-- Custom RAG systems with chat wrapper
-
-## Example: Auditing a RAG System
+## Example: Auditing Different Models
 
 ```python
-# 1. Create an OpenAI-compatible wrapper for your RAG
-#    (see examples/rag_server.py)
+from simpleaudit import ModelAuditor
 
-# 2. Start your RAG server
-#    python rag_server.py  # Runs on localhost:8000
+# Audit local Ollama model with safety scenarios
+auditor = ModelAuditor(
+    provider="ollama",
+    model="llama3.2",
+)
+results = auditor.run("safety")
+results.summary()
 
-# 3. Audit it
-from simpleaudit import Auditor
-
-auditor = Auditor("http://localhost:8000/v1/chat/completions")
-results = auditor.run("rag")  # RAG-specific scenarios
-
+# Audit OpenAI model with RAG scenarios
+auditor = ModelAuditor(
+    provider="openai",
+    model="gpt-4o",
+)
+results = auditor.run("rag")
 results.summary()
 ```
 

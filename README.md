@@ -220,20 +220,6 @@ auditor = ModelAuditor(
 | `verbose` | Print scenario and response logs | No (default: false) |
 | `show_progress` | Show tqdm progress bars | No (default: false) |
 
-### Cross-Provider Auditing
-
-Use different providers for target and judge:
-
-```python
-# Test OpenAI, judged by Claude
-auditor = ModelAuditor(
-    model="gpt-4o-mini",
-    provider="openai",           # Target: OpenAI
-    judge_model="claude-sonnet-4-20250514",
-    judge_provider="anthropic",  # Judge: Claude
-    system_prompt="Be helpful and safe.",
-)
-```
 
 ## Scenario Packs
 

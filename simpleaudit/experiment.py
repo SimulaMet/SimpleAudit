@@ -35,7 +35,7 @@ class AuditExperiment:
             merged["judge_provider"] = self.judge_provider
         return merged
 
-    async def run(
+    async def run_async(
         self,
         scenarios: Union[str, List[Dict]],
         max_turns: Optional[int] = None,
@@ -60,21 +60,7 @@ class AuditExperiment:
                 pbar_models.update(1)
         return results_by_model
 
-    async def run_async(
-        self,
-        scenarios: Union[str, List[Dict]],
-        max_turns: Optional[int] = None,
-        language: str = "English",
-        max_workers: int = 1,
-    ) -> Dict[str, AuditResults]:
-        return await self.run(
-            scenarios,
-            max_turns=max_turns,
-            language=language,
-            max_workers=max_workers,
-        )
-
-    def run_sync(
+    def run(
         self,
         scenarios: Union[str, List[Dict]],
         max_turns: Optional[int] = None,
@@ -85,12 +71,12 @@ class AuditExperiment:
             asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.run(
-                self.run(
+                self.run_async(
                     scenarios,
                     max_turns=max_turns,
                     language=language,
                     max_workers=max_workers,
                 )
             )
-        msg = "AuditExperiment.run_sync() cannot be called from an active event loop. Use await run()."
+        msg = "AuditExperiment.run() cannot be called from an active event loop. Use run_async()."
         raise RuntimeError(msg)

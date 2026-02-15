@@ -53,7 +53,7 @@ class AuditExperiment:
         results_by_model: Dict[str, AuditResults] = {}
         with tqdm(
             total=len(self.models),
-            desc="Model Progress",
+            desc="Overall Progress",
             position=2,
             leave=True,
             disable=not self.show_progress,

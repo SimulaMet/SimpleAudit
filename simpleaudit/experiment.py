@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Union
 import asyncio
 
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from simpleaudit.results import AuditResults
 from simpleaudit.model_auditor import ModelAuditor
 

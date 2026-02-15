@@ -18,7 +18,7 @@ import re
 import threading
 from typing import Any, Dict, List, Optional, Union
 
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from any_llm import AnyLLM
 
 from .results import AuditResults, AuditResult

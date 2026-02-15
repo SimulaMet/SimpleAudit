@@ -312,38 +312,8 @@ my_scenarios = [
         ]
     }
 ]
-```
-
-results = auditor.run(my_scenarios)
-```
-
-## Configuration Options
-
-```python
-auditor = ModelAuditor(
-    # Required: Target model
-    model="gpt-4o-mini",              # Provider-specific model name
-    provider="openai",                # Any provider supported by any-llm-sdk
-    
-    # Required: Judge model
-    judge_model="gpt-4o-mini",        # Model for judging
-    judge_provider="openai",          # Can differ from target provider
-    
-    # Optional: API configuration
-    api_key="sk-...",                 # Optional - uses env var if not provided
-    judge_api_key="sk-...",           # Optional - uses env var if not provided
-    base_url="https://...",           # Optional - custom API endpoint
-    judge_base_url="https://...",     # Optional - custom judge API endpoint
-    system_prompt="You are a helpful assistant.",  # Optional system prompt
-    
-    # Optional: Other options
-    max_turns=5,                      # Conversation turns per scenario
-    verbose=True,                     # Print progress
-)
-
-# Run with custom settings
 results = auditor.run(
-    "safety",
+    my_scenarios,
     max_turns=3,                      # Override default turns
     language="Norwegian",             # Probe language (default: English)
 )

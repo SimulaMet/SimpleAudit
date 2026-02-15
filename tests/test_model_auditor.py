@@ -46,7 +46,12 @@ def test_model_auditor_init_requires_provider():
     
     try:
         with pytest.raises(MissingApiKeyError):
-            ModelAuditor(provider="anthropic")
+            ModelAuditor(
+                model="claude-sonnet-4-20250514",
+                provider="anthropic",
+                judge_model="claude-sonnet-4-20250514",
+                judge_provider="anthropic",
+            )
     finally:
         if original_anthropic:
             os.environ["ANTHROPIC_API_KEY"] = original_anthropic
@@ -65,13 +70,21 @@ def test_model_auditor_system_prompt_handling():
         
         # With system prompt
         auditor_with = ModelAuditor(
+            model="claude-sonnet-4-20250514",
             provider="anthropic",
+            judge_model="claude-sonnet-4-20250514",
+            judge_provider="anthropic",
             system_prompt="You are a test assistant."
         )
         assert auditor_with.system_prompt == "You are a test assistant."
         
         # Without system prompt
-        auditor_without = ModelAuditor(provider="openai")
+        auditor_without = ModelAuditor(
+            model="gpt-4o-mini",
+            provider="openai",
+            judge_model="gpt-4o-mini",
+            judge_provider="openai",
+        )
         assert auditor_without.system_prompt is None
 
 
@@ -97,7 +110,9 @@ def test_model_auditor_separate_judge_provider():
         mock_anyllm.create.side_effect = mock_provider_factory
         
         auditor = ModelAuditor(
+            model="claude-sonnet-4-20250514",
             provider="anthropic",
+            judge_model="gpt-4o-mini",
             judge_provider="openai"
         )
         
@@ -113,7 +128,12 @@ def test_model_auditor_same_provider_when_no_judge():
         mock_provider.name = "Anthropic"
         mock_anyllm.create.return_value = mock_provider
         
-        auditor = ModelAuditor(provider="anthropic")
+        auditor = ModelAuditor(
+            model="claude-sonnet-4-20250514",
+            provider="anthropic",
+            judge_model="claude-sonnet-4-20250514",
+            judge_provider="anthropic",
+        )
         
         # Should be same instance (both should use same provider mock)
         assert auditor.target_client.name == "Anthropic"

@@ -27,15 +27,15 @@ from .scenarios import SCENARIO_PACKS
 class ModelAuditor:
     def __init__(
         self,
-        model: str = "gpt-4o",
+        model: str,
+        provider: str,
+        judge_model: str,
+        judge_provider: str,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         system_prompt: Optional[str] = None,
-        provider: str = "openai",
-        judge_model: str = "gpt-5-mini",
         judge_api_key: Optional[str] = None,
         judge_base_url: Optional[str] = None,
-        judge_provider: Optional[str] = None,
         max_turns: int = 5,
         verbose: bool = True,
     ):
@@ -52,13 +52,11 @@ class ModelAuditor:
         }
         self.target_client = self._create_anyllm_client(**self._target_client_config)
 
-        judge_key = judge_api_key or api_key
         self.judge_model = judge_model
-        judge_provider_name = judge_provider or provider
         self._judge_client_config = {
-            "api_key": judge_key,
+            "api_key": judge_api_key,
             "base_url": judge_base_url,
-            "provider": judge_provider_name,
+            "provider": judge_provider,
         }
         self.judge_client = self._create_anyllm_client(**self._judge_client_config)
 

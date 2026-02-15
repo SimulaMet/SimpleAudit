@@ -37,7 +37,7 @@ class ModelAuditor:
         judge_api_key: Optional[str] = None,
         judge_base_url: Optional[str] = None,
         max_turns: int = 5,
-        verbose: bool = True,
+        verbose: bool = False,
     ):
         self.max_turns = max_turns
         self.verbose = verbose

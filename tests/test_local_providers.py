@@ -1,5 +1,7 @@
 """
-Tests for local model providers (HuggingFace and Ollama).
+Tests for local and open-source model providers (Ollama, vLLM, etc.).
+
+HuggingFace is no longer directly supported. Use vLLM or Ollama for open-source models.
 
 Run with: pytest tests/test_local_providers.py -v
 """
@@ -7,114 +9,50 @@ Run with: pytest tests/test_local_providers.py -v
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from simpleaudit import (
-    get_provider, 
-    PROVIDERS,
-    HuggingFaceProvider,
-    OllamaProvider,
-)
+from simpleaudit import ModelAuditor
 from simpleaudit.utils import parse_json_response
 
 
-class TestProviderRegistry:
-    """Test that new providers are registered correctly."""
-    
-    def test_huggingface_in_registry(self):
-        """Test that HuggingFace provider is registered."""
-        assert "huggingface" in PROVIDERS
-        assert "hf" in PROVIDERS  # Alias
-        assert PROVIDERS["huggingface"] == HuggingFaceProvider
-        assert PROVIDERS["hf"] == HuggingFaceProvider
-    
-    def test_ollama_in_registry(self):
-        """Test that Ollama provider is registered."""
-        assert "ollama" in PROVIDERS
-        assert "local" in PROVIDERS  # Alias
-        assert PROVIDERS["ollama"] == OllamaProvider
-        assert PROVIDERS["local"] == OllamaProvider
-
-
-class TestHuggingFaceProvider:
-    """Tests for HuggingFaceProvider."""
-    
-    def test_init_requires_transformers(self):
-        """Test that HuggingFaceProvider requires transformers package."""
-        # This is tested implicitly - if transformers is not installed,
-        # the import in __init__ will raise ImportError
-        pass
-    
-    def test_huggingface_provider_exists(self):
-        """Test that HuggingFaceProvider class exists and is exported."""
-        assert HuggingFaceProvider is not None
-        assert hasattr(HuggingFaceProvider, 'call')
-        assert hasattr(HuggingFaceProvider, 'name')
+class TestOllamaProvider:
+    """Tests for using Ollama with ModelAuditor."""
     
     @pytest.mark.skipif(
-        True,  # Skip if transformers not available
-        reason="Requires transformers and torch packages"
+        True,  # Skip - requires actual Ollama server running
+        reason="Requires Ollama server running on localhost:11434"
     )
-    def test_init_with_model(self):
-        """Test HuggingFaceProvider initialization with custom model."""
-        # This test requires actual transformers/torch installation
-        provider = HuggingFaceProvider(model="test-model")
-        assert provider.model == "test-model"
-        assert provider.name == "HuggingFace"
+    def test_model_auditor_with_ollama(self):
+        """Test ModelAuditor with Ollama provider."""
+        auditor = ModelAuditor(
+            provider="ollama",
+            model="llama3.2",
+            system_prompt="You are a helpful assistant.",
+        )
+        assert auditor.target_model == "llama3.2"
 
 
-class TestOllamaProvider:
-    """Tests for OllamaProvider."""
+class TestVLLMProvider:
+    """Tests for using vLLM with ModelAuditor.
     
-    @patch("httpx.Client")
-    def test_init_with_defaults(self, mock_client_class):
-        """Test OllamaProvider initialization with defaults."""
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        
-        provider = OllamaProvider()
-        
-        assert provider.model == "llama3.2"
-        assert provider.base_url == "http://localhost:11434"
-        assert provider.name == "Ollama"
+    vLLM is OpenAI-compatible, so use provider='openai' with custom base_url.
+    """
     
-    @patch("httpx.Client")
-    def test_init_with_custom_model(self, mock_client_class):
-        """Test OllamaProvider initialization with custom model."""
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        
-        provider = OllamaProvider(model="mistral", base_url="http://custom:11434")
-        
-        assert provider.model == "mistral"
-        assert provider.base_url == "http://custom:11434"
-    
-    @patch("httpx.Client")
-    def test_call_formats_messages(self, mock_client_class):
-        """Test that call properly formats messages."""
-        mock_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "message": {"content": "Hello! How can I help?"}
-        }
-        mock_client.post.return_value = mock_response
-        mock_client_class.return_value = mock_client
-        
-        provider = OllamaProvider()
-        result = provider.call("You are helpful.", "Hello!")
-        
-        assert result == "Hello! How can I help?"
-        
-        # Check the request was formatted correctly
-        mock_client.post.assert_called_once()
-        call_kwargs = mock_client.post.call_args
-        json_data = call_kwargs[1]["json"]
-        
-        assert json_data["model"] == "llama3.2"
-        assert len(json_data["messages"]) == 2
-        assert json_data["messages"][0]["role"] == "system"
-        assert json_data["messages"][1]["role"] == "user"
+    @pytest.mark.skipif(
+        True,  # Skip - requires actual vLLM server running
+        reason="Requires vLLM server running on localhost:8000"
+    )
+    def test_model_auditor_with_vllm(self):
+        """Test ModelAuditor with vLLM server."""
+        auditor = ModelAuditor(
+            provider="openai",
+            model="default",
+            base_url="http://localhost:8000/v1",
+            api_key="any-value",  # vLLM doesn't require real API key
+            system_prompt="You are a helpful assistant.",
+        )
+        assert auditor.target_model == "default"
 
 
-class TestParseJsonResponse:
+class TestJsonParsing:
     """Tests for the robust JSON parsing utility."""
     
     def test_parse_valid_json(self):
@@ -174,28 +112,3 @@ That's all.'''
         result = parse_json_response(response)
         
         assert result["severity"] == "medium"  # Default fallback
-
-
-class TestGetProviderWithLocalModels:
-    """Test get_provider function with local models."""
-    
-    @patch("httpx.Client")
-    def test_get_ollama_provider(self, mock_client_class):
-        """Test getting Ollama provider via get_provider."""
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        
-        provider = get_provider("ollama", model="mistral")
-        
-        assert isinstance(provider, OllamaProvider)
-        assert provider.model == "mistral"
-    
-    @patch("httpx.Client")
-    def test_get_local_alias(self, mock_client_class):
-        """Test getting Ollama provider via 'local' alias."""
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        
-        provider = get_provider("local")
-        
-        assert isinstance(provider, OllamaProvider)

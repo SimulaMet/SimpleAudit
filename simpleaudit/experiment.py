@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Union
+import asyncio
 
 from tqdm import tqdm
 from simpleaudit.results import AuditResults
@@ -22,25 +23,25 @@ class AuditExperiment:
         self.judge_api_key = judge_api_key
         self.judge_provider = judge_provider
 
-    def run(
+    def _merge_common(self, model_info: Dict[str, Any]) -> Dict[str, Any]:
+        merged = dict(model_info)
+        if merged.get("judge_model") is None and self.judge_model is not None:
+            merged["judge_model"] = self.judge_model
+        if merged.get("judge_base_url") is None and self.judge_base_url is not None:
+            merged["judge_base_url"] = self.judge_base_url
+        if merged.get("judge_api_key") is None and self.judge_api_key is not None:
+            merged["judge_api_key"] = self.judge_api_key
+        if merged.get("judge_provider") is None and self.judge_provider is not None:
+            merged["judge_provider"] = self.judge_provider
+        return merged
+
+    async def run(
         self,
         scenarios: Union[str, List[Dict]],
         max_turns: Optional[int] = None,
         language: str = "English",
         max_workers: int = 1,
     ) -> Dict[str, AuditResults]:
-        def _merge_common(model_info: Dict[str, Any]) -> Dict[str, Any]:
-            merged = dict(model_info)
-            if merged.get("judge_model") is None and self.judge_model is not None:
-                merged["judge_model"] = self.judge_model
-            if merged.get("judge_base_url") is None and self.judge_base_url is not None:
-                merged["judge_base_url"] = self.judge_base_url
-            if merged.get("judge_api_key") is None and self.judge_api_key is not None:
-                merged["judge_api_key"] = self.judge_api_key
-            if merged.get("judge_provider") is None and self.judge_provider is not None:
-                merged["judge_provider"] = self.judge_provider
-            return merged
-
         results_by_model: Dict[str, AuditResults] = {}
         with tqdm(
             total=len(self.models),
@@ -49,8 +50,8 @@ class AuditExperiment:
             leave=True,
         ) as pbar_models:
             for model_info in self.models:
-                auditor = ModelAuditor(**_merge_common(model_info))
-                results_by_model[model_info["model"]] = auditor.run(
+                auditor = ModelAuditor(**self._merge_common(model_info))
+                results_by_model[model_info["model"]] = await auditor.run_async(
                     scenarios,
                     max_turns=max_turns,
                     language=language,
@@ -58,3 +59,38 @@ class AuditExperiment:
                 )
                 pbar_models.update(1)
         return results_by_model
+
+    async def run_async(
+        self,
+        scenarios: Union[str, List[Dict]],
+        max_turns: Optional[int] = None,
+        language: str = "English",
+        max_workers: int = 1,
+    ) -> Dict[str, AuditResults]:
+        return await self.run(
+            scenarios,
+            max_turns=max_turns,
+            language=language,
+            max_workers=max_workers,
+        )
+
+    def run_sync(
+        self,
+        scenarios: Union[str, List[Dict]],
+        max_turns: Optional[int] = None,
+        language: str = "English",
+        max_workers: int = 1,
+    ) -> Dict[str, AuditResults]:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self.run(
+                    scenarios,
+                    max_turns=max_turns,
+                    language=language,
+                    max_workers=max_workers,
+                )
+            )
+        msg = "AuditExperiment.run_sync() cannot be called from an active event loop. Use await run()."
+        raise RuntimeError(msg)

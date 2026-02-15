@@ -44,8 +44,6 @@ pip install simpleaudit[plot]
 pip install git+https://github.com/kelkalot/simpleaudit.git
 ```
 
-> **Note:** SimpleAudit uses `any-llm-sdk` to manage all LLM providers. When you specify a provider that isn't installed, `any-llm-sdk` will automatically prompt you to install it.
-
 ## Quick Start
 
 ```python

@@ -70,6 +70,43 @@ results.plot()
 results.save("audit_results.json")
 ```
 
+### Running Experiments
+
+Run the same scenario pack across multiple models and compare results.
+
+```python
+from simpleaudit import AuditExperiment
+
+experiment = AuditExperiment(
+    models=[
+        {
+            "model": "gpt-4o-mini",
+            "provider": "openai",
+            "system_prompt": "Be helpful and safe.",
+        },
+        {
+            "model": "claude-sonnet-4-20250514",
+            "provider": "anthropic",
+            "system_prompt": "Be helpful and safe.",
+        },
+    ],
+    judge_model="gpt-4o",
+    judge_provider="openai",
+    show_progress=True,
+    verbose=True,
+)
+
+# Script / sync context
+results_by_model = experiment.run("safety", max_workers=10)
+
+# Jupyter / async context
+# results_by_model = await experiment.run_async("safety", max_workers=10)
+
+for model_name, results in results_by_model.items():
+    print(f"\n===== {model_name} =====")
+    results.summary()
+```
+
 ### Using Different Providers
 
 Supported providers include: [Anthropic](https://docs.anthropic.com/en/home), [Azure](https://azure.microsoft.com/en-us/products/ai-services/openai-service), [Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-foundry/), [Bedrock](https://aws.amazon.com/bedrock/), [Cerebras](https://docs.cerebras.ai/), [Cohere](https://cohere.com/api), [Databricks](https://docs.databricks.com/), [DeepSeek](https://platform.deepseek.com/), [Fireworks](https://fireworks.ai/api), [Gateway](https://github.com/mozilla-ai/any-llm), [Gemini](https://ai.google.dev/gemini-api/docs), [Groq](https://groq.com/api), [Hugging Face](https://huggingface.co/docs/huggingface_hub/package_reference/inference_client), [Inception](https://inceptionlabs.ai/), [Llama](https://www.llama.com/products/llama-api/), [Llama.cpp](https://github.com/ggml-org/llama.cpp), [Llamafile](https://github.com/Mozilla-Ocho/llamafile), [LM Studio](https://lmstudio.ai/), [Minimax](https://www.minimax.io/platform_overview), [Mistral](https://docs.mistral.ai/), [Moonshot](https://platform.moonshot.ai/), [Nebius](https://studio.nebius.ai/), [Ollama](https://github.com/ollama/ollama), [OpenAI](https://platform.openai.com/docs/api-reference), [OpenRouter](https://openrouter.ai/docs), [Perplexity](https://docs.perplexity.ai/), [Platform](https://github.com/mozilla-ai/any-llm), [Portkey](https://portkey.ai/docs), [SageMaker](https://aws.amazon.com/sagemaker/), [SambaNova](https://sambanova.ai/), [Together](https://together.ai/), [Vertex AI](https://cloud.google.com/vertex-ai/docs), [Vertex AI Anthropic](https://cloud.google.com/vertex-ai/generative-ai/docs/partner-models/use-claude), [vLLM](https://docs.vllm.ai/), [Voyage](https://docs.voyageai.com/), [Watsonx](https://www.ibm.com/watsonx), [xAI](https://x.ai/), [Z.ai](https://docs.z.ai/guides/develop/python/introduction) and [many more](https://mozilla-ai.github.io/any-llm/providers).
@@ -164,6 +201,8 @@ auditor = ModelAuditor(
 | `judge_base_url` | Custom base URL for judge API requests (optional) | No |
 | `system_prompt` | System prompt for target model (or `None`) | No |
 | `max_turns` | Conversation turns per scenario | No (default: 5) |
+| `verbose` | Print scenario and response logs | No (default: false) |
+| `show_progress` | Show tqdm progress bars | No (default: false) |
 
 ### Cross-Provider Auditing
 

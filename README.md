@@ -51,7 +51,7 @@ pip install git+https://github.com/kelkalot/simpleaudit.git
 ```python
 from simpleaudit import ModelAuditor
 
-# Audit your own custom HuggingFace model using GPT-4o as judge
+# Audit HuggingFace model using GPT-4o as judge
 # First: ollama run hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16
 auditor = ModelAuditor(
     model="hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16",  # Target: Your custom model

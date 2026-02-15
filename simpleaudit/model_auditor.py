@@ -456,5 +456,5 @@ Evaluate this conversation and respond with this exact JSON structure:
                     max_workers=max_workers,
                 )
             )
-        msg = "ModelAuditor.run() cannot be called from an active event loop. Use run_async()."
+        msg = "ModelAuditor.run() cannot be called from an active event loop. Use await <object>.run_async()."
         raise RuntimeError(msg)

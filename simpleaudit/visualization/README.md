@@ -21,6 +21,8 @@ simpleaudit serve --results_dir ./my_audit_results
 # Custom port and host
 simpleaudit serve --results_dir ./results --port 8080 --host 0.0.0.0
 ```
+ 👉 [Check for live demo](https://simulamet-simpleauditvisualization.hf.space)
+
 
 **Or run directly with uv (no installation needed):**
 ```bash
@@ -170,18 +172,21 @@ Both visualization methods support these JSON structures:
 ```bash
 # After running your audit
 simpleaudit serve --results_dir ./examples/local_audit_example_results
+<!-- 👉 [Check for demo](https://simulamet-simpleauditvisualization.hf.space) -->
 ```
 
 ### Example 2: Multiple Audits
 ```bash
 # Browse all audits in a directory
 simpleaudit serve --results_dir ./all_audits
+<!-- 👉 [Check for demo](https://simulamet-simpleauditvisualization.hf.space) -->
 ```
 
 ### Example 3: Share with Team
 ```bash
 # Start server on network-accessible host
 simpleaudit serve --results_dir ./results --host 0.0.0.0 --port 8080
+<!-- 👉 [Check for demo](https://simulamet-simpleauditvisualization.hf.space) -->
 ```
 
 Then share: `http://YOUR_IP:8080`
@@ -200,12 +205,14 @@ Then share: `http://YOUR_IP:8080`
 If port 8000 is in use:
 ```bash
 simpleaudit serve --results_dir ./results --port 8001
+<!-- 👉 [Check for demo](https://simulamet-simpleauditvisualization.hf.space) -->
 ```
 
 ### Allow External Access
 To access from other devices on your network:
 ```bash
 simpleaudit serve --results_dir ./results --host 0.0.0.0
+<!-- 👉 [Check for demo](https://simulamet-simpleauditvisualization.hf.space) -->
 ```
 
 ---

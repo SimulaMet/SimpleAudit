@@ -93,7 +93,7 @@ def get_file_tree(directory: str, base_path: str = "") -> List[Dict]:
 @app.get("/")
 async def root():
     """Serve the main visualization page."""
-    html_path = Path(__file__).parent / "visualizer.html"
+    html_path = Path(__file__).resolve().parent / "visualizer.html"
     
     if not html_path.exists():
         return HTMLResponse(
@@ -110,7 +110,7 @@ async def root():
 @app.get("/scenario_viewer.html")
 async def scenario_viewer():
     """Serve the standalone scenario viewer page."""
-    html_path = Path(__file__).parent / "scenario_viewer.html"
+    html_path = Path(__file__).resolve().parent / "scenario_viewer.html"
     
     if not html_path.exists():
         return HTMLResponse(
@@ -127,7 +127,7 @@ async def scenario_viewer():
 @app.get("/favicon.png")
 async def favicon():
     """Serve the favicon."""
-    favicon_path = Path(__file__).parent / "thumbnail.png"
+    favicon_path = Path(__file__).resolve().parent / "thumbnail.png"
     
     if not favicon_path.exists():
         raise HTTPException(status_code=404, detail="Favicon not found")

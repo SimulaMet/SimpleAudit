@@ -31,17 +31,19 @@ Standards and best practices for creating test [scenarios](https://github.com/ke
 
 ## Installation
 
-**Install from GitHub:**
+**Install from PyPI (recommended):**
 
 ```bash
-pip install git+https://github.com/kelkalot/simpleaudit.git
-```
-From pypi (coming soon)
-```bash
-pip install simpleaudit
+pip install -U simpleaudit
 
 # With plotting support
-pip install simpleaudit[plot]
+pip install -U simpleaudit[plot]
+```
+
+**Install from GitHub** (for latest development features):
+
+```bash
+pip install -U git+https://github.com/kelkalot/simpleaudit.git
 ```
 
 ## Quick Start

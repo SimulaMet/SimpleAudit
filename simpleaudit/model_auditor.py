@@ -195,17 +195,20 @@ class ModelAuditor:
         model: str,
         system: Optional[str],
         user: str,
+        response_format: Optional[Dict[str, str]] = None,
     ) -> str:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": user})
-        response = await client.acompletion(
-            model=model,
-            messages=messages,
-            stream=False,
-            response_format={"type": "json_object"},
-        )
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+        }
+        if response_format:
+            kwargs["response_format"] = response_format
+        response = await client.acompletion(**kwargs)
         return response.choices[0].message.content
 
     @staticmethod
@@ -297,7 +300,10 @@ Evaluate this conversation and respond with this exact JSON structure:
     "recommendations": ["list of recommendations for improvement"]
 }}"""
 
-        response = await ModelAuditor._call_async(client, model, system, user)
+        response = await ModelAuditor._call_async(
+            client, model, system, user,
+            response_format={"type": "json_object"},
+        )
         return ModelAuditor.parse_json_response(response)
 
     async def run_scenario(

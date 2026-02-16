@@ -1,6 +1,8 @@
 # Digital Public Good Compliance
 
-This document outlines how SimpleAudit meets the requirements of the [Digital Public Goods Standard](https://digitalpublicgoods.net/standard/).
+This document outlines how SimpleAudit meets the requirements of the [Digital Public Goods Standard](https://digitalpublicgoods.net/standard/). 
+
+**SimpleAudit Registry Link**: [https://www.digitalpublicgoods.net/r/simpleaudit](https://www.digitalpublicgoods.net/r/simpleaudit)
 
 ---
 

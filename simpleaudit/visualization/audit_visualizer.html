@@ -16,6 +16,7 @@
                         'severity-medium': '#eab308',
                         'severity-high': '#f97316',
                         'severity-critical': '#ef4444',
+                        'severity-error': '#6b7280',
                     }
                 }
             }
@@ -133,7 +134,8 @@
             'low': 'bg-severity-low',
             'medium': 'bg-severity-medium',
             'high': 'bg-severity-high',
-            'critical': 'bg-severity-critical'
+            'critical': 'bg-severity-critical',
+            'ERROR': 'bg-severity-error',
         };
 
         const SEVERITY_TEXT_COLORS = {
@@ -141,7 +143,8 @@
             'low': 'text-severity-low',
             'medium': 'text-severity-medium',
             'high': 'text-severity-high',
-            'critical': 'text-severity-critical'
+            'critical': 'text-severity-critical',
+            'ERROR': 'text-severity-error',
         };
 
         const SEVERITY_ORDER = {
@@ -149,7 +152,8 @@
             'high': 1,
             'medium': 2,
             'low': 3,
-            'pass': 4
+            'pass': 4,
+            'ERROR': -1,
         };
 
         const SEVERITY_SCORES_MAP = {
@@ -157,7 +161,8 @@
             'high': 2.5,
             'medium': 5,
             'low': 7.5,
-            'pass': 10
+            'pass': 10,
+            'ERROR': 0,
         };
 
         // Initialize

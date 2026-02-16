@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -27,12 +27,22 @@ jobs:
       
       - name: Run tests with coverage
         run: |
-          pytest --cov=simpleaudit --cov-report=xml --cov-report=term-missing
+          pytest --cov=simpleaudit --cov-report=xml --cov-report=html --cov-report=term-missing --cov-report=term | tee coverage-output.txt
       
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Add coverage summary to job
+        if: always()
+        run: |
+          echo "## Coverage Report - Python ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -n 20 coverage-output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+      
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
-          file: ./coverage.xml
-          flags: unittests
-          name: py${{ matrix.python-version }}
-          fail_ci_if_error: false
+          name: coverage-py${{ matrix.python-version }}
+          path: |
+            coverage.xml
+            htmlcov/
+          retention-days: 30

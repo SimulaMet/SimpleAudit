@@ -88,7 +88,7 @@ uvx simpleaudit[visualize] serve --results_dir ./my_audit_results
 pip install simpleaudit[visualize]
 simpleaudit serve --results_dir ./my_audit_results
 ```
-Spin up a local web interface to explore results with scenario details. See [visualization/README.md](simpleaudit/visualization/README.md) for more options and features.
+This will spin-up a local web server to explore results with scenario details. See [visualization/README.md](simpleaudit/visualization/README.md) for more options and features.
 
 > **Note:** Option 1 requires [`uv`](https://pypi.org/project/uv/) to be installed ([install guide](https://docs.astral.sh/uv/getting-started/installation/)).
 

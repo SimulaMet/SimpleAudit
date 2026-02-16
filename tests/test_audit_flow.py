@@ -17,6 +17,14 @@ from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.experiment import AuditExperiment
 
 
+# Check for optional dependencies
+try:
+    import matplotlib
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
+
+
 # --- Helpers ---
 
 
@@ -304,6 +312,7 @@ class TestSaveLoadRoundTrip:
 class TestPlotSmokeTest:
     """Test that plot() doesn't crash."""
 
+    @pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
     def test_plot_runs_without_error(self):
         """plot() should execute without raising on valid results."""
         import matplotlib
@@ -325,6 +334,7 @@ class TestPlotSmokeTest:
         finally:
             os.unlink(filepath)
 
+    @pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
     def test_plot_single_result(self):
         """plot() should handle a single result without error."""
         import matplotlib

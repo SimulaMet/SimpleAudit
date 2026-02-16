@@ -8,7 +8,12 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 
 from simpleaudit import ModelAuditor, get_scenarios, list_scenario_packs
-
+# Check for optional provider dependencies
+try:
+    import anthropic
+    HAS_ANTHROPIC = True
+except ImportError:
+    HAS_ANTHROPIC = False
 
 def test_system_prompt_scenarios_available():
     """Test that system_prompt scenario pack is registered."""
@@ -34,6 +39,7 @@ def test_get_system_prompt_scenarios():
         assert "description" in scenario
 
 
+@pytest.mark.skipif(not HAS_ANTHROPIC, reason="anthropic provider not installed")
 def test_model_auditor_init_requires_provider():
     """Test that ModelAuditor requires valid provider configuration."""
     import os

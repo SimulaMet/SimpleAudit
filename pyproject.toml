@@ -46,6 +46,7 @@ Homepage = "https://github.com/kelkalot/simpleaudit"
 Documentation = "https://github.com/kelkalot/simpleaudit#readme"
 Repository = "https://github.com/kelkalot/simpleaudit"
 Issues = "https://github.com/kelkalot/simpleaudit/issues"
+PyPI = "https://pypi.org/project/simpleaudit/"
 
 [tool.setuptools.packages.find]
 where = ["."]

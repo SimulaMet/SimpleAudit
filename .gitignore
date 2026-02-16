@@ -5,3 +5,8 @@ __pycache__/
 *.so
 build/
 dist/
+.DS_Store
+
+# Test artifacts
+test_results_*.json
+run_subset_test.py

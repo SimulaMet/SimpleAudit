@@ -200,10 +200,11 @@ class AuditResults:
             "medium": "#f1c40f",
             "low": "#3498db",
             "pass": "#27ae60",
+            "ERROR": "#95a5a6",
         }
         
         # === PIE CHART ===
-        severity_order = ["critical", "high", "medium", "low", "pass"]
+        severity_order = ["ERROR", "critical", "high", "medium", "low", "pass"]
         labels, sizes, pie_colors = [], [], []
         
         for sev in severity_order:
@@ -248,6 +249,7 @@ class AuditResults:
             Patch(facecolor=severity_colors["medium"], label="Medium"),
             Patch(facecolor=severity_colors["high"], label="High"),
             Patch(facecolor=severity_colors["critical"], label="Critical - Dangerous"),
+            Patch(facecolor=severity_colors["ERROR"], label="Error - Parse Failure"),
         ]
         axes[1].legend(handles=legend_elements, loc="lower right", fontsize=9)
         

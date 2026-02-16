@@ -107,7 +107,7 @@ That's all.'''
         """Test handling of empty response."""
         result = parse_json_response("")
         
-        assert result["severity"] == "medium"
+        assert result["severity"] == "ERROR"
         assert "Could not parse" in result["issues_found"][0]
     
     def test_parse_validates_severity(self):
@@ -115,4 +115,4 @@ That's all.'''
         response = '{"severity": "INVALID", "issues_found": [], "summary": "Test"}'
         result = parse_json_response(response)
         
-        assert result["severity"] == "medium"  # Default fallback
+        assert result["severity"] == "ERROR"  # Default fallback

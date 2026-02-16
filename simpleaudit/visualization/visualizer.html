@@ -291,6 +291,8 @@
         window.addEventListener('DOMContentLoaded', () => {
             const params = new URLSearchParams(window.location.search);
             let file = params.get('case');
+            // If there is a file param, this is a server file, not a custom upload
+            window.__customUpload = !file;
             if (file) {
                 try {
                     // decodeURIComponent twice to handle double encoding
@@ -546,8 +548,20 @@
                         closeMobileSidebar();
                     }
                     
-                    // Process the uploaded data
-                    processData(data, file.name + ' (uploaded)');
+                    // Process the uploaded data, mark as custom upload
+                    processData(data, file.name + ' (uploaded)', true);
+                    // Clear URL (remove query and hash)
+                    if (history.replaceState) {
+                        const url = new URL(window.location);
+                        url.search = '';
+                        url.hash = '';
+                        history.replaceState({}, '', url);
+                    } else {
+                        window.location.search = '';
+                        window.location.hash = '';
+                    }
+                    // Mark as custom upload for detail rendering
+                    window.__customUpload = true;
                 } catch (error) {
                     alert('Error parsing JSON file: ' + error.message);
                 }
@@ -565,15 +579,17 @@
 
         async function loadJsonFile(path, filename) {
             currentFilePath = path;
-            
+            // Reset custom upload flag so Copy URL is visible
+            window.__customUpload = false;
+
             // Close mobile sidebar when file is selected
             if (window.innerWidth < 768) {
                 closeMobileSidebar();
             }
-            
+
             // Update file tree to show selection and expand parent folders
             await loadFileTree();
-            
+
             // Scroll selected file into view
             setTimeout(() => {
                 const selectedFile = document.querySelector('.tree-item.bg-indigo-100');
@@ -581,15 +597,15 @@
                     selectedFile.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
             }, 100);
-            
+
             // Show loading state
             document.getElementById('file-info').textContent = `Loading ${filename}...`;
             document.getElementById('scenario-list').innerHTML = '<div class="text-center text-gray-400 mt-10"><div class="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto mb-2"></div>Loading...</div>';
-            
+
             try {
                 const response = await fetch(`/api/json/${encodeURIComponent(path)}`);
                 if (!response.ok) throw new Error('Failed to load JSON file');
-                
+
                 const data = await response.json();
                 processData(data, filename);
             } catch (error) {
@@ -600,7 +616,7 @@
 
         // --- Data Processing ---
 
-        function processData(data, filename) {
+        function processData(data, filename, isCustomUpload = false) {
             // Handle different potential JSON structures
             if (Array.isArray(data)) {
                 allScenarios = data;
@@ -670,6 +686,14 @@
 
             updateStats(globalScore);
             handleFilter();
+
+            // Always select the first scenario after file load or upload
+            if (allScenarios.length > 0) {
+                selectedScenarioId = allScenarios[0].id;
+                renderList();
+                // Pass custom upload flag to renderDetail
+                renderDetail(allScenarios[0], isCustomUpload);
+            }
         }
 
         // --- Stats & Dashboard ---
@@ -830,7 +854,7 @@
             `;
         }
 
-        function renderDetail(s) {
+        function renderDetail(s, forceCustomUpload = false) {
             const container = document.getElementById('detail-view');
             const statusColor = SEVERITY_COLORS[s.severity || 'low'];
             const textColor = SEVERITY_TEXT_COLORS[s.severity || 'low'];
@@ -868,14 +892,14 @@
                     </div>
             `;
 
+            // Only show Copy URL if not a custom upload (from global or forced)
+            const showCopyUrl = !(window.__customUpload || forceCustomUpload);
+
             if (history && history.length > 0) {
                 html += `<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                             <div class="bg-gray-50 px-6 py-3 border-b border-gray-200 flex items-center justify-between">
                                 <h3 class="font-semibold text-gray-700">Conversation History</h3>
-                                <button onclick="copyCurrentUrl()" title="Copy link to this scenario" class="ml-2 px-2 py-1 text-xs bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded transition-colors border border-indigo-200 flex items-center gap-1">
-                                    <svg xmlns='http://www.w3.org/2000/svg' class='h-4 w-4' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M8 16h8a2 2 0 002-2V8a2 2 0 00-2-2H8a2 2 0 00-2 2v6a2 2 0 002 2zm0 0v2a2 2 0 002 2h4a2 2 0 002-2v-2' /></svg>
-                                    Copy URL
-                                </button>
+                                ${showCopyUrl ? `<button onclick=\"copyCurrentUrl()\" title=\"Copy link to this scenario\" class=\"ml-2 px-2 py-1 text-xs bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded transition-colors border border-indigo-200 flex items-center gap-1\"><svg xmlns='http://www.w3.org/2000/svg' class='h-4 w-4' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M8 16h8a2 2 0 002-2V8a2 2 0 00-2-2H8a2 2 0 00-2 2v6a2 2 0 002 2zm0 0v2a2 2 0 002 2h4a2 2 0 002-2v-2' /></svg>Copy URL</button>` : ''}
                             </div>
                             <div class="divide-y divide-gray-100">`;
 

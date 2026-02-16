@@ -1,7 +1,7 @@
 [![DPG Badge](https://img.shields.io/badge/Verified-DPG-3333AB?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMzEiIGhlaWdodD0iMzMiIHZpZXdCb3g9IjAgMCAzMSAzMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE0LjIwMDggMjEuMzY3OEwxMC4xNzM2IDE4LjAxMjRMMTEuNTIxOSAxNi40MDAzTDEzLjk5MjggMTguNDU5TDE5LjYyNjkgMTIuMjExMUwyMS4xOTA5IDEzLjYxNkwxNC4yMDA4IDIxLjM2NzhaTTI0LjYyNDEgOS4zNTEyN0wyNC44MDcxIDMuMDcyOTdMMTguODgxIDUuMTg2NjJMMTUuMzMxNCAtMi4zMzA4MmUtMDVMMTEuNzgyMSA1LjE4NjYyTDUuODU2MDEgMy4wNzI5N0w2LjAzOTA2IDkuMzUxMjdMMCAxMS4xMTc3TDMuODQ1MjEgMTYuMDg5NUwwIDIxLjA2MTJMNi4wMzkwNiAyMi44Mjc3TDUuODU2MDEgMjkuMTA2TDExLjc4MjEgMjYuOTkyM0wxNS4zMzE0IDMyLjE3OUwxOC44ODEgMjYuOTkyM0wyNC44MDcxIDI5LjEwNkwyNC42MjQxIDIyLjgyNzdMMzAuNjYzMSAyMS4wNjEyTDI2LjgxNzYgMTYuMDg5NUwzMC42NjMxIDExLjExNzdMMjQuNjI0MSA5LjM1MTI3WiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+Cg==)](https://digitalpublicgoods.net/r/dpg-slug)
 
 <div align="center">
-  <img width="600" alt="simpleaudit-logo" src="https://github.com/user-attachments/assets/2ed38ae0-f834-4934-bcc4-48fe441b8b2b" />
+  <img width="600" height="300" alt="simpleaudit-logo" src="https://github.com/user-attachments/assets/2ed38ae0-f834-4934-bcc4-48fe441b8b2b" />
 </div>
 
 # SimpleAudit
@@ -15,7 +15,7 @@ SimpleAudit is a simple, extensible, local-first framework for multilingual audi
 
 Standards and best practices for creating test [scenarios](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/scenarios/simpleaudit_scenario_guidelines_v1.0.md).  
 
-<img width="1362" height="590" alt="simpleaudit_example_gemma_model" src="https://github.com/user-attachments/assets/05c45a62-74e7-4aa3-a3cd-41bad0cc8233" />
+<img alt="simpleaudit_example_gemma_model" src="https://github.com/user-attachments/assets/05c45a62-74e7-4aa3-a3cd-41bad0cc8233" />
 
 ## Why SimpleAudit?
 
@@ -26,7 +26,7 @@ Standards and best practices for creating test [scenarios](https://github.com/ke
 | RAGAS | ⭐⭐ Medium | Several | Free | Metrics only |
 | Custom | ⭐⭐⭐ Complex | Varies | Varies | Build from scratch |
 
-<img width="2898" height="1542" alt="image" src="https://github.com/user-attachments/assets/f9bbb891-a847-48d4-85d6-6d6d99c9e017" />
+<img alt="image" src="https://github.com/user-attachments/assets/f9bbb891-a847-48d4-85d6-6d6d99c9e017" />
 
 
 ## Installation
@@ -413,11 +413,13 @@ Contributions welcome! Areas of interest:
 - More target adapters
 - Documentation improvements
 
+Don't hesitate to contact us or [open issues](https://github.com/kelkalot/simpleaudit/issues) if you have questions, feedback, or encounter any problems.
+
 ## Contributors  
-Michael A. Riegler (Simula) \
-Sushant Gautam (SimulaMet)\
-Mikkel Lepperød (Simula)\
-Klas H. Pettersen (SimulaMet)\
+[Michael A. Riegler](https://www.simula.no/people/michael) (Simula) \
+[Sushant Gautam](https://www.simula.no/people/sushant) (SimulaMet)\
+[Mikkel Lepperød](https://www.simula.no/people/mikkel) (Simula)\
+[Klas H. Pettersen](https://www.simula.no/people/klas) (SimulaMet)\
 Maja Gran Erke (The Norwegian Directorate of Health)\
 Hilde Lovett (The Norwegian Directorate of Health)\
 Sunniva Bjørklund (The Norwegian Directorate of Health)\

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simpleaudit"
-version = "0.1.2"
+version = "0.1.4"
 description = "Lightweight AI Safety Auditing Framework"
 readme = "README.md"
 license = {text = "MIT"}
@@ -57,6 +57,12 @@ PyPI = "https://pypi.org/project/simpleaudit/"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["simpleaudit*"]
+
+[tool.setuptools.package-data]
+simpleaudit = [
+    "visualization/*.html",
+    "visualization/*.png",
+]
 
 [tool.black]
 line-length = 100

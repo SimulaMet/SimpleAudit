@@ -1,11 +1,8 @@
 <div align="center">
 
-[![DPG Badge](https://img.shields.io/badge/Verified-DPG-3333AB?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMzEiIGhlaWdodD0iMzMiIHZpZXdCb3g9IjAgMCAzMSAzMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE0LjIwMDggMjEuMzY3OEwxMC4xNzM2IDE4LjAxMjRMMTEuNTIxOSAxNi40MDAzTDEzLjk5MjggMTguNDU5TDE5LjYyNjkgMTIuMjExMUwyMS4xOTA5IDEzLjYxNkwxNC4yMDA4IDIxLjM2NzhaTTI0LjYyNDEgOS4zNTEyN0wyNC44MDcxIDMuMDcyOTdMMTguODgxIDUuMTg2NjJMMTUuMzMxNCAtMi4zMzA4MmUtMDVMMTEuNzgyMSA1LjE4NjYyTDUuODU2MDEgMy4wNzI5N0w2LjAzOTA2IDkuMzUxMjdMMCAxMS4xMTc3TDMuODQ1MjEgMTYuMDg5NUwwIDIxLjA2MTJMNi4wMzkwNiAyMi44Mjc3TDUuODU2MDEgMjkuMTA2TDExLjc4MjEgMjYuOTkyM0wxNS4zMzE0IDMyLjE3OUwxOC44ODEgMjYuOTkyM0wyNC44MDcxIDI5LjEwNkwyNC42MjQxIDIyLjgyNzdMMzAuNjYzMSAyMS4wNjEyTDI2LjgxNzYgMTYuMDg5NUwzMC42NjMxIDExLjExNzdMMjQuNjI0MSA5LjM1MTI3WiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+Cg==)](https://www.digitalpublicgoods.net/r/simpleaudit) [![PyPI version](https://badge.fury.io/py/simpleaudit.svg)](https://pypi.org/project/simpleaudit/) [![PyPI downloads](https://img.shields.io/pypi/dm/simpleaudit.svg)](https://pypi.org/project/simpleaudit/) [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Release](https://github.com/kelkalot/simpleaudit/actions/workflows/tests.yml/badge.svg)](https://github.com/kelkalot/simpleaudit/actions/workflows/tests.yml) [![Contributors](https://img.shields.io/github/contributors/kelkalot/simpleaudit)](https://github.com/kelkalot/simpleaudit/graphs/contributors) [![Last Commit](https://img.shields.io/github/last-commit/kelkalot/simpleaudit)](https://github.com/kelkalot/simpleaudit/commits/main) [![GitHub stars](https://img.shields.io/github/stars/kelkalot/simpleaudit?style=social)](https://github.com/kelkalot/simpleaudit) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/kelkalot/simpleaudit/pulls)
+[![DPG Badge](https://img.shields.io/badge/Verified-DPG-3333AB?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMzEiIGhlaWdodD0iMzMiIHZpZXdCb3g9IjAgMCAzMSAzMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE0LjIwMDggMjEuMzY3OEwxMC4xNzM2IDE4LjAxMjRMMTEuNTIxOSAxNi40MDAzTDEzLjk5MjggMTguNDU5TDE5LjYyNjkgMTIuMjExMUwyMS4xOTA5IDEzLjYxNkwxNC4yMDA4IDIxLjM2NzhaTTI0LjYyNDEgOS4zNTEyN0wyNC44MDcxIDMuMDcyOTdMMTguODgxIDUuMTg2NjJMMTUuMzMxNCAtMi4zMzA4MmUtMDVMMTEuNzgyMSA1LjE4NjYyTDUuODU2MDEgMy4wNzI5N0w2LjAzOTA2IDkuMzUxMjdMMCAxMS4xMTc3TDMuODQ1MjEgMTYuMDg5NUwwIDIxLjA2MTJMNi4wMzkwNiAyMi44Mjc3TDUuODU2MDEgMjkuMTA2TDExLjc4MjEgMjYuOTkyM0wxNS4zMzE0IDMyLjE3OUwxOC44ODEgMjYuOTkyM0wyNC44MDcxIDI5LjEwNkwyNC42MjQxIDIyLjgyNzdMMzAuNjYzMSAyMS4wNjEyTDI2LjgxNzYgMTYuMDg5NUwzMC42NjMxIDExLjExNzdMMjQuNjI0MSA5LjM1MTI3WiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+Cg==)](https://www.digitalpublicgoods.net/r/simpleaudit) [![PyPI version](https://badge.fury.io/py/simpleaudit.svg)](https://pypi.org/project/simpleaudit/)[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Release](https://github.com/kelkalot/simpleaudit/actions/workflows/tests.yml/badge.svg)](https://github.com/kelkalot/simpleaudit/actions/workflows/tests.yml) [![Last Commit](https://img.shields.io/github/last-commit/kelkalot/simpleaudit)](https://github.com/kelkalot/simpleaudit/commits/main)
 
 <img width="600" height="300" alt="simpleaudit-logo" src="https://github.com/user-attachments/assets/2ed38ae0-f834-4934-bcc4-48fe441b8b2b" />
-
-</div>
-
 
 
 # SimpleAudit
@@ -13,10 +10,12 @@
 **Lightweight AI Safety Auditing Framework**
 
 SimpleAudit is a simple, extensible, local-first framework for multilingual auditing and red-teaming of AI systems via adversarial probing. It supports open models running locally (no APIs required) and can optionally run evaluations against API-hosted models. SimpleAudit does not collect or transmit user data by default and is designed for minimal setup.
+</div>
 
-Standards and best practices for creating test [scenarios](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/scenarios/simpleaudit_scenario_guidelines_v1.0.md).  
+See the [standards and best practices for creating custom test scenarios](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/scenarios/simpleaudit_scenario_guidelines_v1.0.md).  
 
 <img alt="simpleaudit_example_gemma_model" src="https://github.com/user-attachments/assets/05c45a62-74e7-4aa3-a3cd-41bad0cc8233" />
+
 
 ## Why SimpleAudit?
 

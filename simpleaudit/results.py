@@ -9,6 +9,7 @@ import json
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Optional
 from datetime import datetime
+from pathlib import Path
 
 @dataclass
 class AuditResult:
@@ -160,6 +161,8 @@ class AuditResults:
     
     def save(self, filepath: str):
         """Save results to JSON file."""
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
         print(f"✓ Results saved to {filepath}")
@@ -256,6 +259,8 @@ class AuditResults:
         plt.tight_layout()
         
         if save_path:
+            path = Path(save_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
             plt.savefig(save_path, dpi=150, bbox_inches="tight")
             print(f"✓ Chart saved to {save_path}")
         

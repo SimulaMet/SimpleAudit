@@ -5,7 +5,7 @@ Run with: pytest tests/test_basic.py
 """
 
 import pytest
-from simpleaudit import Auditor, AuditResults, AuditResult, get_scenarios, list_scenario_packs
+from simpleaudit import ModelAuditor, AuditResults, AuditResult, get_scenarios, list_scenario_packs
 
 
 def test_list_scenario_packs():
@@ -102,19 +102,22 @@ def test_audit_results_class():
     assert "critical" in results.severity_distribution
 
 
-def test_auditor_requires_api_key():
-    """Test that Auditor requires API key or package."""
+def test_model_auditor_requires_provider():
+    """Test that ModelAuditor requires valid provider configuration."""
     import os
     
     # Temporarily remove API key
     original = os.environ.pop("ANTHROPIC_API_KEY", None)
     
     try:
-        # Should raise either:
-        # - ValueError if anthropic package installed but no API key
-        # - ImportError if anthropic package not installed
-        with pytest.raises((ValueError, ImportError)):
-            Auditor(target="http://localhost:8000", prompt_for_key=False)
+        # Should raise error when no API key available
+        with pytest.raises(Exception):
+            ModelAuditor(
+                model="claude-sonnet-4-20250514",
+                provider="anthropic",
+                judge_model="claude-sonnet-4-20250514",
+                judge_provider="anthropic",
+            )
     finally:
         if original:
             os.environ["ANTHROPIC_API_KEY"] = original

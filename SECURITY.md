@@ -58,7 +58,7 @@ If you use SimpleAudit to discover vulnerabilities in AI systems:
 
 ### Local vs. Cloud
 
-- For sensitive testing, consider using local models (Ollama, HuggingFace)
+- For sensitive testing, consider using local models (Ollama, vLLM)
 - Be aware that cloud API providers may log requests
 - Review provider data retention policies for compliance needs
 

@@ -138,8 +138,9 @@
     </style>
 </head>
 
-<body class="bg-gray-50 text-gray-900 h-screen flex flex-col overflow-hidden">
+<body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col">
 
+    <main class="flex-1 flex flex-col">
     <!-- Header -->
     <header class="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
         <div class="flex items-center gap-3">
@@ -285,6 +286,33 @@
         let currentFilePath = null;
         let sidebarWidth = 320; // Default width in pixels
         let expandedFolders = new Set(); // Track expanded folders
+
+        // On page load, check for file and scenario in URL
+        window.addEventListener('DOMContentLoaded', () => {
+            const params = new URLSearchParams(window.location.search);
+            let file = params.get('case');
+            if (file) {
+                try {
+                    // decodeURIComponent twice to handle double encoding
+                    file = decodeURIComponent(decodeURIComponent(file));
+                } catch (e) {
+                    file = decodeURIComponent(file);
+                }
+                const scenarioId = window.location.hash ? decodeURIComponent(window.location.hash.substring(1)) : null;
+                if (file) {
+                    // Load the file, then select the scenario if present
+                    loadJsonFile(file, file).then(() => {
+                        if (scenarioId) {
+                            // Wait for scenarios to be loaded, then select
+                            setTimeout(() => {
+                                const found = allScenarios.find(s => s.id === scenarioId);
+                                if (found) selectScenario(found);
+                            }, 300);
+                        }
+                    });
+                }
+            }
+        });
 
         // Constants
         const SEVERITY_COLORS = {
@@ -760,7 +788,21 @@
             selectedScenarioId = scenario.id;
             renderList();
             renderDetail(scenario);
-            
+            // Update URL with ?case=...#scenario-id
+            if (history.pushState) {
+                const url = new URL(window.location);
+                if (currentFilePath) {
+                    url.searchParams.set('case', encodeURIComponent(currentFilePath));
+                }
+                url.hash = `#${encodeURIComponent(scenario.id)}`;
+                window.history.pushState({scenarioId: scenario.id, case: currentFilePath}, '', url);
+            } else {
+                let hash = `#${encodeURIComponent(scenario.id)}`;
+                if (currentFilePath) {
+                    window.location.search = `?case=${encodeURIComponent(currentFilePath)}`;
+                }
+                window.location.hash = hash;
+            }
             // Mobile: Show detail view full screen
             if (window.innerWidth < 768) {
                 document.getElementById('detail-view').classList.add('has-selection');
@@ -828,8 +870,12 @@
 
             if (history && history.length > 0) {
                 html += `<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                            <div class="bg-gray-50 px-6 py-3 border-b border-gray-200">
+                            <div class="bg-gray-50 px-6 py-3 border-b border-gray-200 flex items-center justify-between">
                                 <h3 class="font-semibold text-gray-700">Conversation History</h3>
+                                <button onclick="copyCurrentUrl()" title="Copy link to this scenario" class="ml-2 px-2 py-1 text-xs bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded transition-colors border border-indigo-200 flex items-center gap-1">
+                                    <svg xmlns='http://www.w3.org/2000/svg' class='h-4 w-4' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M8 16h8a2 2 0 002-2V8a2 2 0 00-2-2H8a2 2 0 00-2 2v6a2 2 0 002 2zm0 0v2a2 2 0 002 2h4a2 2 0 002-2v-2' /></svg>
+                                    Copy URL
+                                </button>
                             </div>
                             <div class="divide-y divide-gray-100">`;
 
@@ -890,7 +936,45 @@
                 .replace(/'/g, "&#039;");
         }
 
+        // Copy current URL to clipboard
+        function copyCurrentUrl() {
+            const url = window.location.href;
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(url).then(() => {
+                    showCopyToast();
+                });
+            } else {
+                // fallback
+                const tempInput = document.createElement('input');
+                tempInput.value = url;
+                document.body.appendChild(tempInput);
+                tempInput.select();
+                document.execCommand('copy');
+                document.body.removeChild(tempInput);
+                showCopyToast();
+            }
+        }
+
+        // Show a toast message after copying
+        function showCopyToast() {
+            let toast = document.getElementById('copy-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'copy-toast';
+                toast.className = 'fixed bottom-6 right-6 bg-indigo-600 text-white px-4 py-2 rounded shadow-lg z-50 text-sm';
+                toast.textContent = 'Link copied!';
+                document.body.appendChild(toast);
+            }
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 1800);
+        }
+
     </script>
+
+    </main>
+    <footer class="w-full text-center py-4 bg-gray-50 border-t border-gray-200">
+        <a href="https://pypi.org/project/simpleaudit/" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline">simpleaudit on PyPI</a>
+    </footer>
 </body>
 
 </html>

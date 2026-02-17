@@ -19,12 +19,17 @@ See the [standards and best practices for creating custom test scenarios](https:
 
 ## Why SimpleAudit?
 
+<div style="overflow-x: auto;">
+
 | Tool | Complexity | Dependencies | Cost | Approach |
 |------|------------|--------------|------|----------|
 | **SimpleAudit** | ⭐ Simple | 2 packages | $ Low | Adversarial probing |
 | Petri | ⭐⭐⭐ Complex | Many | $$$ High | Multi-agent framework |
 | RAGAS | ⭐⭐ Medium | Several | Free | Metrics only |
 | Custom | ⭐⭐⭐ Complex | Varies | Varies | Build from scratch |
+
+</div>
+
 
 ## Installation
 
@@ -239,6 +244,7 @@ auditor = ModelAuditor(
 ## Scenario Packs
 
 SimpleAudit includes pre-built scenario packs:
+<div style="overflow-x: auto;">
 
 | Pack | Scenarios | Description |
 |------|-----------|-------------|
@@ -249,6 +255,8 @@ SimpleAudit includes pre-built scenario packs:
 | `helpmed` | 10 | Real-world medical assistance queries (curated) |
 | `ung` | 1000 | Large-scale diverse youth wellbeing dataset from Ung.no |
 | `all` | 1042 | All scenarios combined |
+
+</div>
 
 ```python
 # List available packs

@@ -2,7 +2,7 @@
 
 [![DPG Badge](https://img.shields.io/badge/Verified-DPG-3333AB?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMzEiIGhlaWdodD0iMzMiIHZpZXdCb3g9IjAgMCAzMSAzMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE0LjIwMDggMjEuMzY3OEwxMC4xNzM2IDE4LjAxMjRMMTEuNTIxOSAxNi40MDAzTDEzLjk5MjggMTguNDU5TDE5LjYyNjkgMTIuMjExMUwyMS4xOTA5IDEzLjYxNkwxNC4yMDA4IDIxLjM2NzhaTTI0LjYyNDEgOS4zNTEyN0wyNC44MDcxIDMuMDcyOTdMMTguODgxIDUuMTg2NjJMMTUuMzMxNCAtMi4zMzA4MmUtMDVMMTEuNzgyMSA1LjE4NjYyTDUuODU2MDEgMy4wNzI5N0w2LjAzOTA2IDkuMzUxMjdMMCAxMS4xMTc3TDMuODQ1MjEgMTYuMDg5NUwwIDIxLjA2MTJMNi4wMzkwNiAyMi44Mjc3TDUuODU2MDEgMjkuMTA2TDExLjc4MjEgMjYuOTkyM0wxNS4zMzE0IDMyLjE3OUwxOC44ODEgMjYuOTkyM0wyNC44MDcxIDI5LjEwNkwyNC42MjQxIDIyLjgyNzdMMzAuNjYzMSAyMS4wNjEyTDI2LjgxNzYgMTYuMDg5NUwzMC42NjMxIDExLjExNzdMMjQuNjI0MSA5LjM1MTI3WiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+Cg==)](https://www.digitalpublicgoods.net/r/simpleaudit) [![PyPI version](https://badge.fury.io/py/simpleaudit.svg)](https://pypi.org/project/simpleaudit/) [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Release](https://github.com/kelkalot/simpleaudit/actions/workflows/tests.yml/badge.svg)](https://github.com/kelkalot/simpleaudit/actions/workflows/tests.yml) [![Last Commit](https://img.shields.io/github/last-commit/kelkalot/simpleaudit)](https://github.com/kelkalot/simpleaudit/commits/main)
 
-<img width="600" height="300" alt="simpleaudit-logo" src="https://github.com/user-attachments/assets/2ed38ae0-f834-4934-bcc4-48fe441b8b2b" />
+<img width="300px" alt="simpleaudit-logo" src="https://github.com/user-attachments/assets/2ed38ae0-f834-4934-bcc4-48fe441b8b2b" />
 
 
 # SimpleAudit
@@ -89,11 +89,11 @@ pip install simpleaudit[visualize]
 simpleaudit serve --results_dir ./my_audit_results
 ```
 This will spin-up a local web server to explore results with scenario details. 👉 [Check for live demo.](https://simulamet-simpleauditvisualization.hf.space)
-See [visualization/README.md](simpleaudit/visualization/README.md) for more options and features.
+See [visualization/README.md](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/visualization/README.md) for more options and features.
 
 > **Note:** Option 1 requires [`uv`](https://pypi.org/project/uv/) to be installed ([install guide](https://docs.astral.sh/uv/getting-started/installation/)).
 
-[![simpleaudit-visualization-ui](https://github.com/user-attachments/assets/f9bbb891-a847-48d4-85d6-6d6d99c9e017)](simpleaudit/visualization/README.md)
+[![simpleaudit-visualization-ui](https://github.com/user-attachments/assets/f9bbb891-a847-48d4-85d6-6d6d99c9e017)](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/visualization/README.md)
 
 ### Running Experiments
 
@@ -442,9 +442,9 @@ Tor-Ståle Hansen (Specialist Director, Ministry of Defense Norway)
 
 ## Governance & Compliance
 
-- 📋 [Digital Public Good Compliance](DPG.md) — SDG alignment, ownership, standards
-- 🤝 [Code of Conduct](CODE_OF_CONDUCT.md) — Community guidelines and responsible use
-- 🔒 [Security Policy](SECURITY.md) — Vulnerability reporting and security considerations
+- 📋 [Digital Public Good Compliance](https://github.com/kelkalot/simpleaudit/blob/main/DPG.md) — SDG alignment, ownership, standards
+- 🤝 [Code of Conduct](https://github.com/kelkalot/simpleaudit/blob/main/CODE_OF_CONDUCT.md) — Community guidelines and responsible use
+- 🔒 [Security Policy](https://github.com/kelkalot/simpleaudit/blob/main/SECURITY.md) — Vulnerability reporting and security considerations
 
 ## License
 

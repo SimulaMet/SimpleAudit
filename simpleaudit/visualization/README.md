@@ -267,8 +267,8 @@ simpleaudit serve --results_dir ./results --port 8001
 
 ## 📚 Related Documentation
 
-- [Main README](../../../README.md) - SimpleAudit overview
-- [Example Notebooks](../../../examples/) - Usage examples
+- [Main README](https://github.com/kelkalot/simpleaudit/blob/main/README.md) - SimpleAudit overview
+- [Example Notebooks](https://github.com/kelkalot/simpleaudit/blob/main/examples/) - Usage examples
 - [PyPI Package](https://pypi.org/project/simpleaudit/) - Installation
 
 ---

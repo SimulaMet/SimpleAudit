@@ -35,7 +35,7 @@
             const resp = await fetch(path, opts);
             if (resp.status === 401) {
                 localStorage.removeItem('visualizer_secret');
-                window.location.href = '/scenario_viewer.html';
+                // window.location.href = '/';
                 throw new Error('Unauthorized');
             }
             return resp;
@@ -43,7 +43,7 @@
 
         function logout() {
             localStorage.removeItem('visualizer_secret');
-            window.location.href = '/scenario_viewer.html';
+            window.location.href = '/';
         }
 
         async function ensureLoggedIn() {
@@ -92,6 +92,7 @@
                         // login successful, now re-run ensureLoggedIn which will
                         // also do the normal post-auth work
                         await ensureLoggedIn();
+                        window.location.reload();
                     } catch (e) {
                         const err = document.getElementById('auth-error');
                         err.textContent = 'Invalid secret';

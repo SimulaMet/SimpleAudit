@@ -784,6 +784,15 @@
                     }
                     s.reasoning = parts.join('\n\n');
                 }
+
+                // Expected behavior normalization – keep as array
+                if (s.expected_behavior) {
+                    if (typeof s.expected_behavior === 'string') {
+                        s.expected_behavior = [s.expected_behavior];
+                    }
+                } else {
+                    s.expected_behavior = [];
+                }
             });
 
             document.getElementById('file-info').textContent = `${filename} • ${allScenarios.length} scenarios`;
@@ -997,6 +1006,18 @@
                         <p class="text-gray-600 leading-relaxed">${desc}</p>
                     </div>
             `;
+
+            // show expected behavior if available
+            if (s.expected_behavior && s.expected_behavior.length > 0) {
+                html += `
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                        <h3 class="font-semibold text-gray-700 mb-2">Expected Behavior</h3>
+                        <ul class="list-disc list-inside text-gray-600">
+                            ${s.expected_behavior.map(b => `<li>${escapeHtml(b)}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
 
             // Only show Copy URL if not a custom upload (from global or forced)
             const showCopyUrl = !(window.__customUpload || forceCustomUpload);

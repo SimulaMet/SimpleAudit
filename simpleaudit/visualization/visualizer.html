@@ -23,6 +23,78 @@
             }
         }
     </script>
+    <script>
+        // authentication helpers
+        async function apiFetch(path, opts = {}) {
+            opts = opts || {};
+            opts.headers = opts.headers || {};
+            const token = localStorage.getItem('visualizer_secret');
+            if (token) {
+                opts.headers['X-Secret'] = token;
+            }
+            const resp = await fetch(path, opts);
+            if (resp.status === 401) {
+                localStorage.removeItem('visualizer_secret');
+                window.location.href = '/scenario_viewer.html';
+                throw new Error('Unauthorized');
+            }
+            return resp;
+        }
+
+        function logout() {
+            localStorage.removeItem('visualizer_secret');
+            window.location.href = '/scenario_viewer.html';
+        }
+
+        async function ensureLoggedIn() {
+            // call the server to learn whether auth is enabled and whether the
+            // stored token (if any) is valid.  The endpoint returns
+            // {ok:True, enabled:bool}.
+            const token = localStorage.getItem('visualizer_secret');
+            const headers = token ? {'X-Secret': token} : {};
+            const resp = await fetch('/api/auth', {headers});
+            if (resp.status === 401) {
+                // key required
+                document.getElementById('auth-overlay').classList.remove('hidden');
+                document.getElementById('logout-button').classList.add('hidden');
+                return false;
+            }
+            const data = await resp.json();
+            if (!data.enabled) {
+                // auth disabled on server side
+                document.getElementById('logout-button').classList.add('hidden');
+            } else {
+                document.getElementById('logout-button').classList.remove('hidden');
+            }
+            // initialization every time we are authorized
+            loadFileTree();
+            initResizer();
+            return true;
+        }
+
+        window.addEventListener('load', async () => {
+            const submit = document.getElementById('auth-submit');
+            if (submit) {
+                submit.addEventListener('click', async () => {
+                    const val = document.getElementById('auth-input').value;
+                    try {
+                        const resp = await fetch('/api/auth', {headers:{'X-Secret': val}});
+                        if (!resp.ok) throw new Error('invalid');
+                        localStorage.setItem('visualizer_secret', val);
+                        document.getElementById('auth-overlay').classList.add('hidden');
+                        // login successful, now re-run ensureLoggedIn which will
+                        // also do the normal post-auth work
+                        await ensureLoggedIn();
+                    } catch (e) {
+                        const err = document.getElementById('auth-error');
+                        err.textContent = 'Invalid secret';
+                        err.classList.remove('hidden');
+                    }
+                });
+            }
+            await ensureLoggedIn();
+        });
+    </script>
     <style>
         .folder-icon::before {
             content: "📁";
@@ -140,6 +212,32 @@
 
 <body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col">
 
+    <!-- authentication overlay shown when a secret is required and not yet stored -->
+    <div id="auth-overlay" class="fixed inset-0 bg-white/90 z-50 flex items-center justify-center hidden">
+        <div class="p-8 bg-white rounded-xl shadow-lg border border-gray-200 w-full max-w-sm space-y-5">
+            <div class="flex flex-col items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-indigo-500 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c1.104 0 2-.896 2-2V7a2 2 0 10-4 0v2c0 1.104.896 2 2 2zm6 2v5a2 2 0 01-2 2H8a2 2 0 01-2-2v-5a6 6 0 1112 0z" />
+                </svg>
+                <h2 class="text-xl font-bold text-gray-800">Protected Resource</h2>
+            </div>
+            <p class="text-gray-600 text-sm text-center">
+                This is a protected resource! Contact
+                <a href="mailto:sushant@simula.no" class="text-indigo-600 underline">sushant@simula.no</a>
+                for a key.
+            </p>
+            <a href="/scenario_viewer.html"
+               class="inline-flex items-center justify-center px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg shadow hover:bg-indigo-100 text-sm font-medium border border-indigo-200 w-full mb-2">
+                Or, access scenario viewer with local JSON
+            </a>
+            <input type="password" id="auth-input" class="bg-gray-100 border border-gray-300 rounded-md px-3 py-2 w-full text-sm focus:ring-2 focus:ring-indigo-500" placeholder="Enter secret key" autocomplete="current-password" />
+            <button id="auth-submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
+                Submit
+            </button>
+            <p id="auth-error" class="text-red-500 text-sm text-center hidden"></p>
+        </div>
+    </div>
+
     <main class="flex-1 flex flex-col">
     <!-- Header -->
     <header class="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
@@ -162,13 +260,16 @@
                 <p class="text-sm text-gray-500 mt-1 hidden sm:block" id="file-info">No file loaded</p>
             </div>
         </div>
-        <div>
+        <div class="flex items-center gap-2">
             <input type="file" id="upload-json-input" accept=".json" class="hidden" onchange="handleUploadedFile(event)">
             <button onclick="document.getElementById('upload-json-input').click()" class="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
                 <span class="hidden md:inline">Upload JSON</span>
+            </button>
+            <button id="logout-button" onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors hidden">
+                Logout
             </button>
         </div>
     </header>
@@ -357,11 +458,9 @@
         document.getElementById('search-input').addEventListener('input', handleFilter);
         document.getElementById('sort-select').addEventListener('change', handleFilter);
 
-        // Load file tree on page load
-        loadFileTree();
-
-        // Initialize resizer
-        initResizer();
+        // the actual loading of data and resizer must wait until auth is settled;
+        // the window 'load' handler configured earlier will call ensureLoggedIn
+        // and then populate the UI.
 
         // --- Sidebar Toggle Functions ---
 
@@ -439,7 +538,7 @@
             container.innerHTML = '<div class="text-center text-gray-400"><div class="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto mb-2"></div>Loading files...</div>';
             
             try {
-                const response = await fetch('/api/files');
+                        const response = await apiFetch('/api/files');
                 if (!response.ok) throw new Error('Failed to load files');
                 
                 const data = await response.json();
@@ -603,7 +702,7 @@
             document.getElementById('scenario-list').innerHTML = '<div class="text-center text-gray-400 mt-10"><div class="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto mb-2"></div>Loading...</div>';
 
             try {
-                const response = await fetch(`/api/json/${encodeURIComponent(path)}`);
+                const response = await apiFetch(`/api/json/${encodeURIComponent(path)}`);
                 if (!response.ok) throw new Error('Failed to load JSON file');
 
                 const data = await response.json();

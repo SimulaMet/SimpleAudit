@@ -1,6 +1,16 @@
 # SimpleAudit Visualization
 
 Visual tools for reviewing SimpleAudit results with an interactive web interface.
+## 🔐 Authentication
+
+To require a secret key for the CLI server, set the `SIMPLEAUDIT_VISUALIZER_SECRET` environment variable:
+
+```bash
+export SIMPLEAUDIT_VISUALIZER_SECRET="mysecret"
+simpleaudit serve --results_dir ./my_audit_results
+```
+ When set, the web UI prompts for the key on first load.
+
 
 ## 📊 Two Ways to Visualize Results
 

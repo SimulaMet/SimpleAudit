@@ -13,6 +13,9 @@ import uvicorn
 
 app = FastAPI(title="SimpleAudit Visualizer")
 
+# read secret from environment variable; if blank, authentication is disabled
+SECRET = os.getenv("SIMPLEAUDIT_VISUALIZER_SECRET", "")
+
 
 # Global variable to store results directory
 RESULTS_DIR = None
@@ -103,7 +106,7 @@ async def root():
     
     with open(html_path, "r", encoding="utf-8") as f:
         content = f.read()
-    
+
     return HTMLResponse(content=content)
 
 
@@ -135,7 +138,36 @@ async def favicon():
     return FileResponse(favicon_path, media_type="image/png")
 
 
-@app.get("/api/files")
+
+# --- authentication helpers ------------------------------------------------
+from fastapi import Request, Depends, status
+
+def check_secret(request: Request):
+    """Raise HTTP 401 if a secret is configured and the request does not
+    provide the correct value in an X-Secret header.  When no secret is
+    configured the check is a no-op.
+    """
+    if not SECRET:
+        return
+    token = request.headers.get("X-Secret")
+    if token != SECRET:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+@app.get("/api/auth")
+async def auth_check(request: Request):
+    """Endpoint used by the frontend to verify a key and learn if auth
+    is enabled.  When the server has no secret configured it still
+    returns 200 but sets ``enabled`` to False.
+    """
+    try:
+        check_secret(request)
+    except HTTPException as exc:
+        # propagate unauthorized status
+        raise
+
+    return JSONResponse(content={"ok": True, "enabled": bool(SECRET)})
+
+@app.get("/api/files", dependencies=[Depends(check_secret)])
 async def get_files():
     """Get the file tree of JSON files in the results directory."""
     if not RESULTS_DIR:
@@ -149,7 +181,7 @@ async def get_files():
     return JSONResponse(content={"tree": tree})
 
 
-@app.get("/api/json/{file_path:path}")
+@app.get("/api/json/{file_path:path}", dependencies=[Depends(check_secret)])
 async def get_json_file(file_path: str):
     """Get the contents of a specific JSON file."""
     if not RESULTS_DIR:
@@ -186,8 +218,11 @@ def start_server(results_dir: str, host: str = "127.0.0.1", port: int = 8000):
         host: Host to bind to
         port: Port to run on
     """
-    global RESULTS_DIR
-    
+    global RESULTS_DIR, SECRET
+    # make sure we pick up the environment variable in case it was
+    # changed after the module was imported (e.g. during testing)
+    SECRET = os.getenv("SIMPLEAUDIT_VISUALIZER_SECRET", "")
+
     # Resolve to absolute path from current working directory
     RESULTS_DIR = os.path.abspath(os.path.join(os.getcwd(), results_dir))
     

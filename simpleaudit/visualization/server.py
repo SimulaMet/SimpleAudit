@@ -16,6 +16,11 @@ app = FastAPI(title="SimpleAudit Visualizer")
 # read secret from environment variable; if blank, authentication is disabled
 SECRET = os.getenv("SIMPLEAUDIT_VISUALIZER_SECRET", "")
 
+# contact email that will be shown in the frontend when auth is enabled;
+# this mirrors the behaviour of the secret variable.  if not set we fall
+# back to the historical default address.
+CONTACT_EMAIL = os.getenv("SIMPLEAUDIT_VISUALIZER_EMAIL", "sushant@simula.no")
+
 
 # Global variable to store results directory
 RESULTS_DIR = None
@@ -158,6 +163,11 @@ async def auth_check(request: Request):
     """Endpoint used by the frontend to verify a key and learn if auth
     is enabled.  When the server has no secret configured it still
     returns 200 but sets ``enabled`` to False.
+
+    The response also includes ``contact_email`` which is read from the
+    ``SIMPLEAUDIT_VISUALIZER_EMAIL`` environment variable and defaults
+    to the original maintainer address.  The frontend uses this to
+    populate the authentication overlay message.
     """
     try:
         check_secret(request)
@@ -165,7 +175,7 @@ async def auth_check(request: Request):
         # propagate unauthorized status
         raise
 
-    return JSONResponse(content={"ok": True, "enabled": bool(SECRET)})
+    return JSONResponse(content={"ok": True, "enabled": bool(SECRET), "contact_email": CONTACT_EMAIL})
 
 @app.get("/api/files", dependencies=[Depends(check_secret)])
 async def get_files():
@@ -218,10 +228,11 @@ def start_server(results_dir: str, host: str = "127.0.0.1", port: int = 8000):
         host: Host to bind to
         port: Port to run on
     """
-    global RESULTS_DIR, SECRET
-    # make sure we pick up the environment variable in case it was
+    global RESULTS_DIR, SECRET, CONTACT_EMAIL
+    # make sure we pick up the environment variables in case they were
     # changed after the module was imported (e.g. during testing)
     SECRET = os.getenv("SIMPLEAUDIT_VISUALIZER_SECRET", "")
+    CONTACT_EMAIL = os.getenv("SIMPLEAUDIT_VISUALIZER_EMAIL", "sushant@simula.no")
 
     # Resolve to absolute path from current working directory
     RESULTS_DIR = os.path.abspath(os.path.join(os.getcwd(), results_dir))

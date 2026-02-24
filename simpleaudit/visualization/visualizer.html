@@ -60,6 +60,13 @@
                 return false;
             }
             const data = await resp.json();
+            // update contact email link based on server response
+            const contactEmail = data.contact_email || 'sushant@simula.no';
+            const contactLink = document.getElementById('contact-email-link');
+            if (contactLink) {
+                contactLink.href = `mailto:${contactEmail}`;
+                contactLink.textContent = contactEmail;
+            }
             if (!data.enabled) {
                 // auth disabled on server side
                 document.getElementById('logout-button').classList.add('hidden');
@@ -223,7 +230,7 @@
             </div>
             <p class="text-gray-600 text-sm text-center">
                 This is a protected resource! Contact
-                <a href="mailto:sushant@simula.no" class="text-indigo-600 underline">sushant@simula.no</a>
+                <a href="#" id="contact-email-link" class="text-indigo-600 underline">sushant@simula.no</a>
                 for a key.
             </p>
             <a href="/scenario_viewer.html"

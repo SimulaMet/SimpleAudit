@@ -111,7 +111,8 @@ class ModelAuditor:
         system: Optional[str],
         user: str,
         response_format: Optional[Dict[str, str]] = None,
-    ) -> str:
+    ) -> tuple[str, int, int]:
+        """Returns (content, input_tokens, output_tokens)."""
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -124,7 +125,11 @@ class ModelAuditor:
         if response_format:
             kwargs["response_format"] = response_format
         response = await client.acompletion(**kwargs)
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        usage = getattr(response, "usage", None)
+        input_tokens = getattr(usage, "prompt_tokens", 0) or 0
+        output_tokens = getattr(usage, "completion_tokens", 0) or 0
+        return content, input_tokens, output_tokens
 
     @staticmethod
     async def _generate_probe_async(
@@ -158,7 +163,8 @@ CONVERSATION SO FAR:
 
 Generate the next user message to probe this scenario."""
 
-        return await ModelAuditor._call_async(client, model, system, user)
+        content, input_tokens, output_tokens = await ModelAuditor._call_async(client, model, system, user)
+        return content, input_tokens, output_tokens
 
     @staticmethod
     async def _judge_conversation_async(
@@ -215,11 +221,11 @@ Evaluate this conversation and respond with this exact JSON structure:
     "recommendations": ["list of recommendations for improvement"]
 }}"""
 
-        response = await ModelAuditor._call_async(
+        response, input_tokens, output_tokens = await ModelAuditor._call_async(
             client, model, system, user,
             response_format={"type": "json_object"},
         )
-        return ModelAuditor.parse_json_response(response)
+        return ModelAuditor.parse_json_response(response), input_tokens, output_tokens
 
     async def run_scenario(
         self,
@@ -233,21 +239,28 @@ Evaluate this conversation and respond with this exact JSON structure:
         max_workers: Optional[int] = None,
     ) -> AuditResult:
         turns = max_turns or self.max_turns
-        
+
         mode_str = " (Parallel)" if (max_workers or 1) > 1 else ""
         self._log(f"--- Started Scenario: {name}{mode_str} ---")
 
         conversation: List[Dict] = []
+        auditor_input_tokens = 0
+        auditor_output_tokens = 0
+        target_input_tokens = 0
+        target_output_tokens = 0
+
         for turn in range(turns):
             self._log(f"--- Turn {turn + 1}/{turns} ---", name=name)
 
-            probe = await self._generate_probe_async(
+            probe, a_in, a_out = await self._generate_probe_async(
                 self.judge_client,
                 self.judge_model,
                 description,
                 conversation,
                 language,
             )
+            auditor_input_tokens += a_in
+            auditor_output_tokens += a_out
             probe = ModelAuditor.strip_thinking(probe)
 
             probe_preview = probe[:80] + "..." if len(probe) > 80 else probe
@@ -255,12 +268,14 @@ Evaluate this conversation and respond with this exact JSON structure:
 
             conversation.append({"role": "user", "content": probe})
 
-            response = await self._call_async(
+            response, t_in, t_out = await self._call_async(
                 self.target_client,
                 self.target_model,
                 self.system_prompt,
                 probe,
             )
+            target_input_tokens += t_in
+            target_output_tokens += t_out
             response = ModelAuditor.strip_thinking(response)
 
             response_preview = response[:80] + "..." if len(response) > 80 else response
@@ -271,13 +286,15 @@ Evaluate this conversation and respond with this exact JSON structure:
                 pbar_audit.update(1)
 
         self._log("Judging conversation...", name=name)
-        judgment = await self._judge_conversation_async(
+        judgment, j_in, j_out = await self._judge_conversation_async(
             self.judge_client,
             self.judge_model,
             description,
             conversation,
             expected_behavior,
         )
+        auditor_input_tokens += j_in
+        auditor_output_tokens += j_out
 
         if pbar_judge:
             pbar_judge.update(1)
@@ -294,6 +311,10 @@ Evaluate this conversation and respond with this exact JSON structure:
             summary=judgment.get("summary", ""),
             recommendations=judgment.get("recommendations", []),
             expected_behavior=expected_behavior,
+            auditor_input_tokens=auditor_input_tokens,
+            auditor_output_tokens=auditor_output_tokens,
+            target_input_tokens=target_input_tokens,
+            target_output_tokens=target_output_tokens,
         )
 
         icon = AuditResults.SEVERITY_ICONS.get(result.severity, "⚪")

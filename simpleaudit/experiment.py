@@ -1,9 +1,11 @@
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 import asyncio
 
 from tqdm.auto import tqdm
 from simpleaudit.results import AuditResults
 from simpleaudit.model_auditor import ModelAuditor
+from simpleaudit.repeated_results import RepeatedExperimentResults
 
 
 class AuditExperiment:
@@ -16,9 +18,21 @@ class AuditExperiment:
         judge_provider: Optional[str] = None,
         verbose: bool = False,
         show_progress: bool = True,
+        n_repetitions: int = 1,
+        save_dir: Optional[str] = None,
     ):
         if not models or any("model" not in m for m in models):
             raise ValueError("Models must be dicts with a 'model' key.")
+        if n_repetitions < 1:
+            raise ValueError("n_repetitions must be >= 1")
+
+        labels = [m.get("label") or m["model"] for m in models]
+        if len(labels) != len(set(labels)):
+            raise ValueError(
+                "Duplicate model labels detected. Add a 'label' key to distinguish "
+                "models sharing the same 'model' value."
+            )
+
         self.models = models
         self.judge_model = judge_model
         self.judge_base_url = judge_base_url
@@ -26,9 +40,15 @@ class AuditExperiment:
         self.judge_provider = judge_provider
         self.verbose = verbose
         self.show_progress = show_progress
+        self.n_repetitions = n_repetitions
+        self.save_dir = Path(save_dir) if save_dir else None
+
+    def _make_label(self, model_info: Dict[str, Any]) -> str:
+        return model_info.get("label") or model_info["model"]
 
     def _merge_common(self, model_info: Dict[str, Any]) -> Dict[str, Any]:
         merged = dict(model_info)
+        merged.pop("label", None)  # label is experiment-level only; ModelAuditor doesn't accept it
         if merged.get("judge_model") is None and self.judge_model is not None:
             merged["judge_model"] = self.judge_model
         if merged.get("judge_base_url") is None and self.judge_base_url is not None:
@@ -43,31 +63,88 @@ class AuditExperiment:
             merged["show_progress"] = self.show_progress
         return merged
 
+    def _run_path(self, label: str, index: int) -> Path:
+        # Replace characters that are unsafe in directory names
+        safe_label = label.replace("/", "_").replace(":", "_").replace(" ", "_")
+        return self.save_dir / safe_label / f"run_{index}.json"
+
+    def _load_cached_runs(self, label: str) -> Dict[int, AuditResults]:
+        """Return {index: AuditResults} for every run_N.json that exists on disk."""
+        cached: Dict[int, AuditResults] = {}
+        for i in range(self.n_repetitions):
+            path = self._run_path(label, i)
+            if path.exists():
+                cached[i] = AuditResults.load(str(path))
+        return cached
+
     async def run_async(
         self,
         scenarios: Union[str, List[Dict]],
         max_turns: Optional[int] = None,
         language: str = "English",
         max_workers: int = 1,
-    ) -> Dict[str, AuditResults]:
-        results_by_model: Dict[str, AuditResults] = {}
+    ) -> RepeatedExperimentResults:
+        runs_by_model: Dict[str, List[AuditResults]] = {}
         with tqdm(
             total=len(self.models),
-            desc="Overall Progress",
-            position=2,
+            desc="Models",
+            position=3,
             leave=True,
             disable=not self.show_progress,
         ) as pbar_models:
             for model_info in self.models:
-                auditor = ModelAuditor(**self._merge_common(model_info))
-                results_by_model[model_info["model"]] = await auditor.run_async(
-                    scenarios,
-                    max_turns=max_turns,
-                    language=language,
-                    max_workers=max_workers,
-                )
+                label = self._make_label(model_info)
+
+                # Load any runs already saved to disk
+                cached = self._load_cached_runs(label) if self.save_dir else {}
+                if cached:
+                    tqdm.write(f"  Resuming {label}: {len(cached)}/{self.n_repetitions} runs found on disk")
+
+                with tqdm(
+                    total=self.n_repetitions,
+                    desc=f"{label} — repetitions",
+                    position=2,
+                    leave=False,
+                    disable=(not self.show_progress or self.n_repetitions == 1),
+                ) as pbar_reps:
+                    # Fast-forward the bar for already-completed runs
+                    pbar_reps.update(len(cached))
+
+                    runs_ordered: Dict[int, AuditResults] = dict(cached)
+                    for i in range(self.n_repetitions):
+                        if i in cached:
+                            continue
+                        auditor = ModelAuditor(**self._merge_common(model_info))
+                        result = await auditor.run_async(
+                            scenarios,
+                            max_turns=max_turns,
+                            language=language,
+                            max_workers=max_workers,
+                        )
+                        if self.save_dir:
+                            run_path = self._run_path(label, i)
+                            run_path.parent.mkdir(parents=True, exist_ok=True)
+                            result.save(str(run_path))
+                        runs_ordered[i] = result
+                        pbar_reps.update(1)
+
+                runs_by_model[label] = [runs_ordered[i] for i in range(self.n_repetitions)]
                 pbar_models.update(1)
-        return results_by_model
+
+        judge_info = {
+            k: v for k, v in {
+                "judge_model": self.judge_model,
+                "judge_base_url": self.judge_base_url,
+                "judge_provider": self.judge_provider,
+            }.items() if v is not None
+        } or None
+        experiment_results = RepeatedExperimentResults(runs_by_model, judge=judge_info)
+
+        if self.save_dir:
+            self.save_dir.mkdir(parents=True, exist_ok=True)
+            experiment_results.save(str(self.save_dir / "experiment_results.json"))
+
+        return experiment_results
 
     def run(
         self,
@@ -75,7 +152,7 @@ class AuditExperiment:
         max_turns: Optional[int] = None,
         language: str = "English",
         max_workers: int = 1,
-    ) -> Dict[str, AuditResults]:
+    ) -> RepeatedExperimentResults:
         try:
             asyncio.get_running_loop()
         except RuntimeError:

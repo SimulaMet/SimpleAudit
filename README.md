@@ -526,6 +526,7 @@ Don't hesitate to contact us or [open issues](https://github.com/kelkalot/simple
 ## Contributors  
 [Michael A. Riegler](https://www.simula.no/people/michael) (Simula) \
 [Sushant Gautam](https://www.simula.no/people/sushant) (SimulaMet)\
+[Finn Schwall](https://www.simula.no/people/finn) (Simula)\
 [Mikkel Lepperød](https://www.simula.no/people/mikkel) (Simula)\
 [Klas H. Pettersen](https://www.simula.no/people/klas) (SimulaMet)\
 Maja Gran Erke (The Norwegian Directorate of Health)\

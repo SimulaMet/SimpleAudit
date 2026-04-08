@@ -111,11 +111,15 @@ class ModelAuditor:
         system: Optional[str],
         user: str,
         response_format: Optional[Dict[str, str]] = None,
+        history: Optional[List[Dict]] = None,
     ) -> str:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": user})
+        if history:
+            messages.extend(history)
+        else:
+            messages.append({"role": "user", "content": user})
         kwargs: Dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -260,6 +264,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                 self.target_model,
                 self.system_prompt,
                 probe,
+                history=conversation,
             )
             response = ModelAuditor.strip_thinking(response)
 

@@ -111,12 +111,16 @@ class ModelAuditor:
         system: Optional[str],
         user: str,
         response_format: Optional[Dict[str, str]] = None,
+        history: Optional[List[Dict]] = None,
     ) -> tuple[str, int, int]:
         """Returns (content, input_tokens, output_tokens)."""
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": user})
+        if history:
+            messages.extend(history)
+        else:
+            messages.append({"role": "user", "content": user})
         kwargs: Dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -273,6 +277,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                 self.target_model,
                 self.system_prompt,
                 probe,
+                history=conversation,
             )
             target_input_tokens += t_in
             target_output_tokens += t_out

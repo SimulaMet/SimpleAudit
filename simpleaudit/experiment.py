@@ -16,6 +16,10 @@ class AuditExperiment:
         judge_base_url: Optional[str] = None,
         judge_api_key: Optional[str] = None,
         judge_provider: Optional[str] = None,
+        auditor_model: Optional[str] = None,
+        auditor_provider: Optional[str] = None,
+        auditor_api_key: Optional[str] = None,
+        auditor_base_url: Optional[str] = None,
         verbose: bool = False,
         show_progress: bool = True,
         n_repetitions: int = 1,
@@ -38,6 +42,10 @@ class AuditExperiment:
         self.judge_base_url = judge_base_url
         self.judge_api_key = judge_api_key
         self.judge_provider = judge_provider
+        self.auditor_model = auditor_model
+        self.auditor_provider = auditor_provider
+        self.auditor_api_key = auditor_api_key
+        self.auditor_base_url = auditor_base_url
         self.verbose = verbose
         self.show_progress = show_progress
         self.n_repetitions = n_repetitions
@@ -57,6 +65,9 @@ class AuditExperiment:
             merged["judge_api_key"] = self.judge_api_key
         if merged.get("judge_provider") is None and self.judge_provider is not None:
             merged["judge_provider"] = self.judge_provider
+        for key in ("auditor_model", "auditor_provider", "auditor_api_key", "auditor_base_url"):
+            if merged.get(key) is None and getattr(self, key) is not None:
+                merged[key] = getattr(self, key)
         if merged.get("verbose") is None:
             merged["verbose"] = self.verbose
         if merged.get("show_progress") is None:

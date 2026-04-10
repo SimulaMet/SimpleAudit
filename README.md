@@ -63,12 +63,18 @@ auditor = ModelAuditor(
     # base_url=None,  # Custom base URL for target API
     # system_prompt="You are a helpful assistant.",  # System prompt for target model
     
-    # Required: Judge model configuration
+    # Required: Judge model configuration (evaluates target responses)
     judge_model="gpt-4o",  # Judge model name (usually more capable)
     judge_provider="openai",  # Judge provider (can differ from target)
     # judge_api_key=None,  # Judge API key (uses env var if not provided)
     # judge_base_url=None,  # Custom base URL for judge API
-    
+
+    # Optional: Separate auditor model for probe/attack generation (defaults to judge if omitted)
+    # auditor_model="gpt-4o-mini",  # Can be a cheaper/faster model
+    # auditor_provider="openai",
+    # auditor_api_key=None,
+    # auditor_base_url=None,
+
     # Auditing configuration
     # verbose=False,  # Print detailed logs (default: False)
     # show_progress=True,  # Show progress bars (default: True)
@@ -128,6 +134,8 @@ experiment = AuditExperiment(
     judge_provider="openai",
     # judge_api_key="",
     # judge_base_url="https://api.openai.com/v1",
+    # auditor_model="gpt-4o-mini",   # Optional: separate model for probe generation
+    # auditor_provider="openai",
     show_progress=True,
     verbose=True,
 )

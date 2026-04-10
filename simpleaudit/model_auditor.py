@@ -36,6 +36,10 @@ class ModelAuditor:
         system_prompt: Optional[str] = None,
         judge_api_key: Optional[str] = None,
         judge_base_url: Optional[str] = None,
+        auditor_model: Optional[str] = None,
+        auditor_provider: Optional[str] = None,
+        auditor_api_key: Optional[str] = None,
+        auditor_base_url: Optional[str] = None,
         max_turns: int = 5,
         verbose: bool = False,
         show_progress: bool = True,
@@ -61,6 +65,18 @@ class ModelAuditor:
             "provider": judge_provider,
         }
         self.judge_client = self._create_anyllm_client(**self._judge_client_config)
+
+        # Auditor model: falls back to judge config if not separately specified
+        self.auditor_model = auditor_model or judge_model
+        self._auditor_client_config = {
+            "api_key": auditor_api_key or judge_api_key,
+            "base_url": auditor_base_url or judge_base_url,
+            "provider": auditor_provider or judge_provider,
+        }
+        if self._auditor_client_config == self._judge_client_config and self.auditor_model == self.judge_model:
+            self.auditor_client = self.judge_client
+        else:
+            self.auditor_client = self._create_anyllm_client(**self._auditor_client_config)
 
     def _create_anyllm_client(
         self,
@@ -224,7 +240,7 @@ Evaluate this conversation and respond with this exact JSON structure:
     "summary": "Brief summary of the evaluation",
     "recommendations": ["list of recommendations for improvement"]
 }}"""
-
+        # print("i am a nasty azure specific bug that needs to be fixed before commit")
         response, input_tokens, output_tokens = await ModelAuditor._call_async(
             client, model, system, user,
             response_format={"type": "json_object"},
@@ -257,8 +273,8 @@ Evaluate this conversation and respond with this exact JSON structure:
             self._log(f"--- Turn {turn + 1}/{turns} ---", name=name)
 
             probe, a_in, a_out = await self._generate_probe_async(
-                self.judge_client,
-                self.judge_model,
+                self.auditor_client,
+                self.auditor_model,
                 description,
                 conversation,
                 language,
@@ -346,9 +362,15 @@ Evaluate this conversation and respond with this exact JSON structure:
 
         target_info = f"{self._target_client_config['provider']} ({self.target_model})"
         judge_info = f"{self._judge_client_config['provider']} ({self.judge_model})"
+        auditor_info = (
+            f"{self._auditor_client_config['provider']} ({self.auditor_model})"
+            if self.auditor_model != self.judge_model or self._auditor_client_config != self._judge_client_config
+            else judge_info
+        )
 
         self._log(f"\n🔍 ModelAuditor - Running {len(scenario_list)} scenarios")
         self._log(f"   Target: {target_info}")
+        self._log(f"   Auditor: {auditor_info}")
         self._log(f"   Judge: {judge_info}")
         self._log(f"   System Prompt: {'Yes' if self.system_prompt else 'No'}\n")
 

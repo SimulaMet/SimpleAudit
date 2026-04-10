@@ -236,6 +236,7 @@ auditor = ModelAuditor(
 | `base_url` | Custom base URL for target API requests (optional) | No |
 | `judge_base_url` | Custom base URL for judge API requests (optional) | No |
 | `system_prompt` | System prompt for target model (or `None`) | No |
+| `judge` | Named judge config to use (e.g. `"helpfulness"`, `"factuality"`) — see [Judge Configs](#judge-configs) | No |
 | `probe_prompt` | Custom system prompt for the probe generator (replaces the built-in red-team persona) | No |
 | `judge_prompt` | Custom system prompt for the judge, including your own output schema (replaces built-in safety criteria) | No |
 | `json_format` | Pass `False` for providers that don't support OpenAI-style `json_object` response format (e.g. Ollama) | No (default: `True`) |
@@ -277,6 +278,48 @@ results = auditor.run("rag")
 # Run multiple packs
 results = auditor.run("all")
 ```
+
+## Judge Configs
+
+SimpleAudit includes pre-built judge configurations grounded in published evaluation research. Each config defines both a probe strategy and evaluation criteria, so you can swap the entire judging logic with a single parameter.
+
+<div style="overflow-x: auto;">
+
+| Config | Basis | Output fields |
+|--------|-------|---------------|
+| `safety` | Constitutional AI — Bai et al., 2022 | `severity`, `issues_found`, `positive_behaviors`, `summary`, `recommendations` |
+| `abstention` | AbstentionBench — Kirichenko et al., 2025 | `score` (1–10), `abstained`, `appropriate`, `category`, `reasoning` |
+| `helpfulness` | MT-Bench — Zheng et al., 2023 | `score` (1–10), `relevance`, `accuracy`, `clarity`, `completeness`, `feedback` |
+| `factuality` | G-Eval — Liu et al., 2023 | `score` (1–10), `verdict`, `factual_errors`, `unsupported_claims`, `reasoning` |
+| `harm` | HELM Safety — Liang et al., 2022 | `harmful`, `category`, `severity`, `explanation` |
+
+</div>
+
+```python
+from simpleaudit import ModelAuditor, list_judge_configs
+
+# List available configs
+print(list_judge_configs())
+
+# Use a named judge config
+auditor = ModelAuditor(
+    model="llama3.2:3b",
+    provider="ollama",
+    judge_model="gemma3:latest",
+    judge_provider="ollama",
+    judge="helpfulness",   # ← pick any config from the table above
+    json_format=False,     # required for Ollama
+)
+results = auditor.run("safety")
+
+# Access the judge output fields
+for r in results:
+    print(r.judgment["score"], r.judgment["feedback"])
+```
+
+Precedence: `judge_prompt` (explicit) > `judge` (named config) > default safety behaviour.
+
+See the [judge config guidelines](simpleaudit/judges/simpleaudit_judge_guidelines_v1.0.md) for how to write your own and add it to the registry.
 
 ## Custom Scenarios
 
@@ -337,7 +380,7 @@ results = auditor.run(
 
 ## Custom Judge
 
-By default the judge uses a built-in safety evaluation schema (severity: `critical / high / medium / low / pass`). You can replace both the probe generator behaviour and the evaluation criteria with your own prompts — including defining a completely different output schema.
+By default the judge uses a built-in safety evaluation schema (severity: `critical / high / medium / low / pass`). You can use a [named judge config](#judge-configs) for a different evaluation goal, or define fully custom prompts and output schemas.
 
 ### `probe_prompt` — change how probes are generated
 
@@ -393,7 +436,8 @@ The default safety schema is used whenever `judge_prompt` is not set, so existin
 
 ### Running both modes side by side
 
-See [`examples/custom_judge_ollama.py`](examples/custom_judge_ollama.py) for a complete working example that runs the default safety audit and a custom bullshit-detection judge back to back against local Ollama models.
+- [`examples/custom_judge_ollama.py`](examples/custom_judge_ollama.py) — default safety audit vs. custom bullshit-detection judge using inline `probe_prompt` / `judge_prompt`
+- [`examples/judge_configs_ollama.py`](examples/judge_configs_ollama.py) — named judge configs (`safety`, `helpfulness`, `factuality`) run back to back against local Ollama models
 
 ### Environment Variables
 

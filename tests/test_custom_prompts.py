@@ -425,3 +425,138 @@ class TestAuditExperimentCustomPrompts:
         merged = exp._merge_common(exp.models[0])
         assert merged.get("probe_prompt") is None
         assert merged.get("judge_prompt") is None
+
+
+# ---------------------------------------------------------------------------
+# Named judge config resolution
+# ---------------------------------------------------------------------------
+
+class TestNamedJudgeConfig:
+    def _make(self, **kwargs):
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()):
+            return ModelAuditor(
+                model="target", provider="openai",
+                judge_model="judge", judge_provider="openai",
+                show_progress=False,
+                **kwargs,
+            )
+
+    def test_named_judge_loads_probe_and_judge_prompt(self):
+        auditor = self._make(judge="safety")
+        assert auditor.probe_prompt is not None
+        assert auditor.judge_prompt is not None
+        assert "red-team" in auditor.probe_prompt.lower() or "probe" in auditor.probe_prompt.lower()
+        assert "safety" in auditor.judge_prompt.lower() or "constitutional" in auditor.judge_prompt.lower()
+
+    def test_named_judge_unknown_name_raises(self):
+        with pytest.raises(ValueError, match="Unknown judge config"):
+            self._make(judge="nonexistent_judge")
+
+    def test_explicit_probe_prompt_overrides_config_probe(self):
+        """Custom probe_prompt overrides the config's probe but config's judge_prompt is kept."""
+        auditor = self._make(judge="helpfulness", probe_prompt="my custom probe")
+        assert auditor.probe_prompt == "my custom probe"
+        # judge_prompt should come from the helpfulness config, not be None
+        assert auditor.judge_prompt is not None
+        assert "helpfulness" in auditor.judge_prompt.lower() or "mt-bench" in auditor.judge_prompt.lower()
+
+    def test_explicit_judge_prompt_overrides_config_judge(self):
+        """Custom judge_prompt overrides the config's judge prompt."""
+        auditor = self._make(judge="factuality", judge_prompt="my custom judge")
+        assert auditor.judge_prompt == "my custom judge"
+
+    def test_no_judge_leaves_prompts_none(self):
+        auditor = self._make()
+        assert auditor.probe_prompt is None
+        assert auditor.judge_prompt is None
+
+    def test_all_five_named_configs_load(self):
+        for name in ("safety", "abstention", "helpfulness", "factuality", "harm"):
+            auditor = self._make(judge=name)
+            assert auditor.judge_prompt is not None, f"{name} judge_prompt is None"
+
+
+# ---------------------------------------------------------------------------
+# expected_behavior passed through in custom/named judge path
+# ---------------------------------------------------------------------------
+
+class TestExpectedBehaviorInCustomPath:
+    def test_expected_behavior_included_in_user_message(self):
+        """expected_behavior should appear in the user message even when judge_prompt is set."""
+        captured_user = []
+
+        async def fake_call(client, model, system, user, response_format=None, history=None):
+            captured_user.append(user)
+            return '{"score": 8, "verdict": "accurate"}'
+
+        with patch.object(ModelAuditor, "_call_async", side_effect=fake_call):
+            asyncio.run(ModelAuditor._judge_conversation_async(
+                client=MagicMock(),
+                model="judge",
+                scenario="Test scenario",
+                conversation=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}],
+                expected_behavior=["Should greet politely", "Should not be rude"],
+                judge_prompt="You are a custom judge.",
+                json_format=False,
+            ))
+
+        assert len(captured_user) == 1
+        user_msg = captured_user[0]
+        assert "Should greet politely" in user_msg
+        assert "Should not be rude" in user_msg
+
+    def test_no_expected_behavior_does_not_add_empty_section(self):
+        """No expected_behavior → no SCENARIO EXPECTATIONS section in user message."""
+        captured_user = []
+
+        async def fake_call(client, model, system, user, response_format=None, history=None):
+            captured_user.append(user)
+            return '{"score": 8}'
+
+        with patch.object(ModelAuditor, "_call_async", side_effect=fake_call):
+            asyncio.run(ModelAuditor._judge_conversation_async(
+                client=MagicMock(),
+                model="judge",
+                scenario="Test scenario",
+                conversation=[{"role": "user", "content": "hi"}],
+                expected_behavior=None,
+                judge_prompt="You are a custom judge.",
+                json_format=False,
+            ))
+
+        assert "SCENARIO EXPECTATIONS" not in captured_user[0]
+
+
+# ---------------------------------------------------------------------------
+# AuditExperiment — judge named config propagation
+# ---------------------------------------------------------------------------
+
+class TestAuditExperimentJudgeConfig:
+    def test_judge_config_merged_to_model(self):
+        exp = AuditExperiment(
+            models=[{"model": "test", "provider": "openai"}],
+            judge_model="judge",
+            judge_provider="openai",
+            judge="helpfulness",
+        )
+        merged = exp._merge_common(exp.models[0])
+        assert merged["judge"] == "helpfulness"
+
+    def test_model_level_judge_overrides_experiment(self):
+        exp = AuditExperiment(
+            models=[{"model": "test", "provider": "openai", "judge": "factuality"}],
+            judge_model="judge",
+            judge_provider="openai",
+            judge="helpfulness",
+        )
+        merged = exp._merge_common(exp.models[0])
+        assert merged["judge"] == "factuality"
+
+    def test_no_judge_not_merged(self):
+        exp = AuditExperiment(
+            models=[{"model": "test", "provider": "openai"}],
+            judge_model="judge",
+            judge_provider="openai",
+        )
+        merged = exp._merge_common(exp.models[0])
+        assert merged.get("judge") is None

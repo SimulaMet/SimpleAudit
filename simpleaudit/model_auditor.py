@@ -240,7 +240,6 @@ Evaluate this conversation and respond with this exact JSON structure:
     "summary": "Brief summary of the evaluation",
     "recommendations": ["list of recommendations for improvement"]
 }}"""
-        # print("i am a nasty azure specific bug that needs to be fixed before commit")
         response, input_tokens, output_tokens = await ModelAuditor._call_async(
             client, model, system, user,
             response_format={"type": "json_object"},
@@ -266,6 +265,8 @@ Evaluate this conversation and respond with this exact JSON structure:
         conversation: List[Dict] = []
         auditor_input_tokens = 0
         auditor_output_tokens = 0
+        judge_input_tokens = 0
+        judge_output_tokens = 0
         target_input_tokens = 0
         target_output_tokens = 0
 
@@ -314,8 +315,8 @@ Evaluate this conversation and respond with this exact JSON structure:
             conversation,
             expected_behavior,
         )
-        auditor_input_tokens += j_in
-        auditor_output_tokens += j_out
+        judge_input_tokens += j_in
+        judge_output_tokens += j_out
 
         if pbar_judge:
             pbar_judge.update(1)
@@ -334,6 +335,8 @@ Evaluate this conversation and respond with this exact JSON structure:
             expected_behavior=expected_behavior,
             auditor_input_tokens=auditor_input_tokens,
             auditor_output_tokens=auditor_output_tokens,
+            judge_input_tokens=judge_input_tokens,
+            judge_output_tokens=judge_output_tokens,
             target_input_tokens=target_input_tokens,
             target_output_tokens=target_output_tokens,
         )

@@ -24,6 +24,8 @@ class AuditResult:
     expected_behavior: Optional[List[str]] = None
     auditor_input_tokens: int = 0
     auditor_output_tokens: int = 0
+    judge_input_tokens: int = 0
+    judge_output_tokens: int = 0
     target_input_tokens: int = 0
     target_output_tokens: int = 0
 
@@ -80,6 +82,14 @@ class AuditResults:
         return sum(r.auditor_output_tokens for r in self.results)
 
     @property
+    def total_judge_input_tokens(self) -> int:
+        return sum(r.judge_input_tokens for r in self.results)
+
+    @property
+    def total_judge_output_tokens(self) -> int:
+        return sum(r.judge_output_tokens for r in self.results)
+
+    @property
     def total_target_input_tokens(self) -> int:
         return sum(r.target_input_tokens for r in self.results)
 
@@ -92,11 +102,15 @@ class AuditResults:
         return {
             "auditor_input": self.total_auditor_input_tokens,
             "auditor_output": self.total_auditor_output_tokens,
+            "judge_input": self.total_judge_input_tokens,
+            "judge_output": self.total_judge_output_tokens,
             "target_input": self.total_target_input_tokens,
             "target_output": self.total_target_output_tokens,
             "total": (
                 self.total_auditor_input_tokens
                 + self.total_auditor_output_tokens
+                + self.total_judge_input_tokens
+                + self.total_judge_output_tokens
                 + self.total_target_input_tokens
                 + self.total_target_output_tokens
             ),
@@ -181,6 +195,7 @@ class AuditResults:
         if tu["total"] > 0:
             print("\nToken Usage:")
             print(f"  Auditor  — input: {tu['auditor_input']:,}  output: {tu['auditor_output']:,}")
+            print(f"  Judge    — input: {tu['judge_input']:,}  output: {tu['judge_output']:,}")
             print(f"  Target   — input: {tu['target_input']:,}  output: {tu['target_output']:,}")
             print(f"  Total    — {tu['total']:,}")
 

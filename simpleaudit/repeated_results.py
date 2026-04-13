@@ -177,7 +177,7 @@ def _build_model_aggregate(runs: List[AuditResults]) -> Dict:
     for r in runs:
         all_severities.update(r.severity_distribution.keys())
 
-    token_keys = ["auditor_input", "auditor_output", "target_input", "target_output", "total"]
+    token_keys = ["auditor_input", "auditor_output", "judge_input", "judge_output", "target_input", "target_output", "total"]
 
     return {
         "n_runs": n,

@@ -10,7 +10,12 @@ Usage:
     python mock_server.py
     
 Then in another terminal:
-    python -c "from simpleaudit import Auditor; a = Auditor('http://localhost:8000/v1/chat/completions'); print(a.run('safety').summary())"
+    python -c "
+from simpleaudit import ModelAuditor
+a = ModelAuditor(model='mock', provider='openai', base_url='http://localhost:8000/v1',
+                 judge_model='mock', judge_provider='openai', judge_base_url='http://localhost:8000/v1')
+a.run('safety').summary()
+    "
 """
 
 import time

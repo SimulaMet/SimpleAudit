@@ -26,7 +26,7 @@ def test_list_scenario_packs():
     assert packs["system_prompt"] > 0
     assert packs["helpmed"] > 0
     assert packs["ung"] > 0
-    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"]
+    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"] + packs["bullshitbench"] + packs["health_bullshit"]
 
 
 def test_get_scenarios():

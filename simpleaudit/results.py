@@ -22,6 +22,7 @@ class AuditResult:
     summary: str
     recommendations: List[str]
     expected_behavior: Optional[List[str]] = None
+    judgment: Optional[Dict] = None
 
     def to_dict(self) -> Dict:
         return asdict(self)

@@ -649,4 +649,4 @@ Tor-Ståle Hansen (Specialist Director, Ministry of Defense Norway)
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](https://github.com/kelkalot/simpleaudit/blob/main/LICENSE) for details.

@@ -272,6 +272,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         name: str,
         description: str,
         expected_behavior: Optional[List[str]] = None,
+        test_prompt: Optional[str] = None,
         max_turns: Optional[int] = None,
         language: str = "English",
         pbar_audit: Optional[tqdm] = None,
@@ -279,7 +280,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         max_workers: Optional[int] = None,
     ) -> AuditResult:
         turns = max_turns or self.max_turns
-        
+
         mode_str = " (Parallel)" if (max_workers or 1) > 1 else ""
         self._log(f"--- Started Scenario: {name}{mode_str} ---")
 
@@ -287,15 +288,23 @@ Evaluate this conversation and respond with this exact JSON structure:
         for turn in range(turns):
             self._log(f"--- Turn {turn + 1}/{turns} ---", name=name)
 
-            probe = await self._generate_probe_async(
-                self.judge_client,
-                self.judge_model,
-                description,
-                conversation,
-                language,
-                probe_prompt=self.probe_prompt,
-            )
-            probe = ModelAuditor.strip_thinking(probe)
+            # First turn: if the scenario defines a test_prompt (v2 schema),
+            # send it verbatim. The v2 guidelines describe test_prompt as
+            # "the exact prompt to send to the AI system", so we honour that
+            # directly rather than regenerating via the probe LLM. Subsequent
+            # turns still use probe generation for multi-turn follow-ups.
+            if turn == 0 and test_prompt:
+                probe = test_prompt
+            else:
+                probe = await self._generate_probe_async(
+                    self.judge_client,
+                    self.judge_model,
+                    description,
+                    conversation,
+                    language,
+                    probe_prompt=self.probe_prompt,
+                )
+                probe = ModelAuditor.strip_thinking(probe)
 
             probe_preview = probe[:80] + "..." if len(probe) > 80 else probe
             self._log(f"PROBE: {probe_preview}", name=name)
@@ -396,6 +405,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     name=scenario["name"],
                     description=scenario["description"],
                     expected_behavior=scenario.get("expected_behavior"),
+                    test_prompt=scenario.get("test_prompt"),
                     max_turns=max_turns,
                     language=language,
                     pbar_audit=pbar_audit,

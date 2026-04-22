@@ -560,3 +560,107 @@ class TestAuditExperimentJudgeConfig:
         )
         merged = exp._merge_common(exp.models[0])
         assert merged.get("judge") is None
+
+
+# ---------------------------------------------------------------------------
+# test_prompt sent verbatim on turn 1 (v2 schema honoured)
+# ---------------------------------------------------------------------------
+
+class TestTestPromptVerbatim:
+    def _auditor(self):
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()):
+            a = ModelAuditor(
+                model="target", provider="openai",
+                judge_model="judge", judge_provider="openai",
+                max_turns=1, show_progress=False,
+            )
+        a.target_client = MagicMock()
+        a.judge_client = MagicMock()
+        return a
+
+    def test_test_prompt_used_verbatim_on_turn_1(self):
+        """When scenario has test_prompt, it must be sent to target as-is
+        (no probe generation)."""
+        auditor = self._auditor()
+        captured = []
+
+        async def fake_call(client, model, system, user, response_format=None, history=None):
+            captured.append({"system": system, "user": user, "history": list(history or [])})
+            return "target reply"
+
+        async def fake_probe(*args, **kwargs):
+            pytest.fail("probe generator must not be called when test_prompt is present")
+
+        async def fake_judge(*args, **kwargs):
+            return {"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []}
+
+        with patch.object(ModelAuditor, "_call_async", side_effect=fake_call), \
+             patch.object(ModelAuditor, "_generate_probe_async", side_effect=fake_probe), \
+             patch.object(ModelAuditor, "_judge_conversation_async", side_effect=fake_judge):
+            asyncio.run(auditor.run_scenario(
+                name="test",
+                description="some description",
+                test_prompt="exact verbatim prompt",
+                max_turns=1,
+            ))
+
+        # target was called once with the verbatim test_prompt
+        assert len(captured) == 1
+        assert captured[0]["user"] == "exact verbatim prompt"
+
+    def test_probe_generated_when_no_test_prompt(self):
+        """Fallback: when test_prompt is missing, use probe generation as before."""
+        auditor = self._auditor()
+        probe_calls = []
+
+        async def fake_call(*args, **kwargs):
+            return "target reply"
+
+        async def fake_probe(client, model, scenario, conversation, language="English", probe_prompt=None):
+            probe_calls.append(scenario)
+            return "generated probe"
+
+        async def fake_judge(*args, **kwargs):
+            return {"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []}
+
+        with patch.object(ModelAuditor, "_call_async", side_effect=fake_call), \
+             patch.object(ModelAuditor, "_generate_probe_async", side_effect=fake_probe), \
+             patch.object(ModelAuditor, "_judge_conversation_async", side_effect=fake_judge):
+            asyncio.run(auditor.run_scenario(
+                name="test",
+                description="some description",
+                test_prompt=None,
+                max_turns=1,
+            ))
+
+        assert len(probe_calls) == 1
+        assert probe_calls[0] == "some description"
+
+    def test_probe_generated_on_subsequent_turns_even_with_test_prompt(self):
+        """Turn 1 uses test_prompt verbatim, but turn 2+ should still probe-gen
+        so multi-turn conversations work."""
+        auditor = self._auditor()
+        probe_calls = []
+
+        async def fake_call(*args, **kwargs):
+            return "target reply"
+
+        async def fake_probe(client, model, scenario, conversation, language="English", probe_prompt=None):
+            probe_calls.append(len(conversation))
+            return "follow-up probe"
+
+        async def fake_judge(*args, **kwargs):
+            return {"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []}
+
+        with patch.object(ModelAuditor, "_call_async", side_effect=fake_call), \
+             patch.object(ModelAuditor, "_generate_probe_async", side_effect=fake_probe), \
+             patch.object(ModelAuditor, "_judge_conversation_async", side_effect=fake_judge):
+            asyncio.run(auditor.run_scenario(
+                name="test",
+                description="desc",
+                test_prompt="first prompt",
+                max_turns=3,
+            ))
+
+        # Probe generator called on turns 2 and 3 only
+        assert len(probe_calls) == 2

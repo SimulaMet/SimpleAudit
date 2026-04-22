@@ -263,7 +263,8 @@ SimpleAudit includes pre-built scenario packs:
 | `bullshitbench` | 155 | BullshitBench v1+v2 combined |
 | `health_bullshit` | 15 | Health-specific broken premises with real harm potential |
 | `epistemic_safety` | 170 | All BullshitBench + health_bullshit combined |
-| `all` | 1212 | All scenarios combined |
+| `hei_refusal` | 47 | Norwegian youth Q&A refusal + guidance edge cases (16 refusal / 31 guidance) |
+| `all` | 1259 | All scenarios combined |
 
 </div>
 

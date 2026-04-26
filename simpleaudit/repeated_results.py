@@ -2,15 +2,13 @@
 Repeated-run results for SimpleAudit.
 
 Holds results from running an AuditExperiment multiple times and provides
-stability statistics and pairwise significance testing between models.
+stability statistics across runs.
 """
 
 import json
-import math
 import statistics
 from collections import Counter
 from dataclasses import dataclass, asdict
-from itertools import combinations
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
@@ -85,75 +83,6 @@ class ModelStabilityReport:
             "cv": self.cv,
             "per_scenario": {k: v.to_dict() for k, v in self.per_scenario.items()},
         }
-
-
-# ---------------------------------------------------------------------------
-# Pairwise model comparison report
-# ---------------------------------------------------------------------------
-
-@dataclass
-class ModelComparisonReport:
-    model_a: str
-    model_b: str
-    n_runs: int
-    mean_a: float
-    mean_b: float
-    t_statistic: Optional[float]           # None when scipy unavailable
-    p_value: Optional[float]               # None when scipy unavailable
-    df: Optional[float]                    # Welch–Satterthwaite; None when scipy unavailable
-    effect_size_cohens_d: Optional[float]  # None when scipy unavailable
-    alpha: float
-    significant: Optional[bool]            # None when scipy unavailable
-    winner: Optional[str]                  # model name or None (tie / not significant)
-    scipy_available: bool
-
-    # Qualitative label for Cohen's d magnitude
-    @staticmethod
-    def _d_label(d: float) -> str:
-        d = abs(d)
-        if d < 0.2:
-            return "negligible"
-        if d < 0.5:
-            return "small"
-        if d < 0.8:
-            return "medium"
-        if d < 1.2:
-            return "large"
-        return "very large"
-
-    def summary(self) -> None:
-        print()
-        print("=" * 60)
-        print(f"COMPARISON: {self.model_a}  vs  {self.model_b}  ({self.n_runs} runs each)")
-        print("=" * 60)
-        diff = self.mean_a - self.mean_b
-        favour = self.model_a if diff >= 0 else self.model_b
-        print(f"Mean Scores :  {self.model_a} = {self.mean_a:.1f}   {self.model_b} = {self.mean_b:.1f}")
-        print(f"Difference  :  {abs(diff):+.1f} in favour of {favour}")
-
-        if not self.scipy_available:
-            print()
-            print("t-statistic :  SCIPY MISSING")
-            print("p-value     :  SCIPY MISSING")
-            print("Effect size :  SCIPY MISSING")
-            print("Result      :  SCIPY MISSING — install scipy for significance testing")
-        else:
-            t_str = "∞" if self.t_statistic == math.inf else f"{self.t_statistic:.3f}"
-            if math.isinf(self.effect_size_cohens_d):
-                d_str = "∞ (perfect separation)"
-            else:
-                d_str = f"{self.effect_size_cohens_d:.2f}  ({self._d_label(self.effect_size_cohens_d)})"
-            print(f"t-statistic :  {t_str}   df = {self.df:.1f}   p = {self.p_value:.4f}")
-            print(f"Effect size :  Cohen's d = {d_str}")
-            print(f"Alpha       :  {self.alpha}")
-            if self.significant and self.winner:
-                print(f"Result      :  SIGNIFICANT — {self.winner} performs better")
-            else:
-                print("Result      :  NOT SIGNIFICANT — no reliable difference detected")
-        print()
-
-    def to_dict(self) -> Dict:
-        return asdict(self)
 
 
 # ---------------------------------------------------------------------------
@@ -238,90 +167,6 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
     )
 
 
-def _compute_comparison(
-    model_a: str,
-    scores_a: List[float],
-    model_b: str,
-    scores_b: List[float],
-    alpha: float,
-) -> ModelComparisonReport:
-    n_runs = len(scores_a)
-    mean_a = statistics.mean(scores_a)
-    mean_b = statistics.mean(scores_b)
-
-    try:
-        from scipy.stats import ttest_ind
-    except ImportError:
-        return ModelComparisonReport(
-            model_a=model_a,
-            model_b=model_b,
-            n_runs=n_runs,
-            mean_a=round(mean_a, 1),
-            mean_b=round(mean_b, 1),
-            t_statistic=None,
-            p_value=None,
-            df=None,
-            effect_size_cohens_d=None,
-            alpha=alpha,
-            significant=None,
-            winner=None,
-            scipy_available=False,
-        )
-
-    var_a = statistics.variance(scores_a)
-    var_b = statistics.variance(scores_b)
-    n_a = len(scores_a)
-    n_b = len(scores_b)
-
-    pooled_std = math.sqrt((var_a + var_b) / 2)
-    if pooled_std > 0:
-        d = (mean_a - mean_b) / pooled_std
-    elif mean_a != mean_b:
-        d = math.inf  # perfectly separated groups
-    else:
-        d = 0.0
-
-    # Welch–Satterthwaite degrees of freedom and t-statistic
-    term_a = var_a / n_a
-    term_b = var_b / n_b
-    se = math.sqrt(term_a + term_b)
-
-    if se == 0.0:
-        # Zero within-group variance: scores are perfectly consistent.
-        # If means differ the difference is certain; if same there is no effect.
-        if mean_a == mean_b:
-            t, p_value, df = 0.0, 1.0, float(n_a + n_b - 2)
-        else:
-            t, p_value, df = math.inf, 0.0, float(n_a + n_b - 2)
-    else:
-        t = (mean_a - mean_b) / se
-        denom_df = term_a + term_b
-        df = denom_df ** 2 / (term_a ** 2 / (n_a - 1) + term_b ** 2 / (n_b - 1))
-        _, p_value = ttest_ind(scores_a, scores_b, equal_var=False)
-
-    significant = p_value < alpha
-    if significant:
-        winner = model_a if mean_a > mean_b else model_b
-    else:
-        winner = None
-
-    return ModelComparisonReport(
-        model_a=model_a,
-        model_b=model_b,
-        n_runs=n_runs,
-        mean_a=round(mean_a, 1),
-        mean_b=round(mean_b, 1),
-        t_statistic=round(t, 3) if math.isfinite(t) else t,
-        p_value=round(p_value, 4),
-        df=round(df, 1),
-        effect_size_cohens_d=round(d, 2) if math.isfinite(d) else d,
-        alpha=alpha,
-        significant=significant,
-        winner=winner,
-        scipy_available=True,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Main container
 # ---------------------------------------------------------------------------
@@ -333,8 +178,7 @@ class RepeatedExperimentResults:
     Provides:
     - Backward-compatible dict interface (returns first run's AuditResults)
     - .stability(model) — mean/std/CV and per-scenario pass rates
-    - .compare(model_a, model_b) — Welch's t-test + Cohen's d
-    - .summary() — prints all stability reports and pairwise comparisons
+    - .summary() — prints stability reports for all models
     - .save() / .load() — JSON serialization
     """
 
@@ -378,41 +222,10 @@ class RepeatedExperimentResults:
             raise KeyError(f"No model '{model_name}' in results. Available: {available}")
         return _build_stability_report(model_name, self._runs[model_name])
 
-    def compare(
-        self,
-        model_a: str,
-        model_b: str,
-        alpha: float = 0.05,
-    ) -> ModelComparisonReport:
-        """
-        Welch's two-sample t-test comparing scores of model_a vs model_b.
-        Requires n_repetitions >= 2 and scipy installed for p-values.
-        """
-        for name in (model_a, model_b):
-            if name not in self._runs:
-                raise KeyError(f"No model '{name}' in results. Available: {list(self._runs.keys())}")
-
-        n = len(self._runs[model_a])
-        if n < 2:
-            raise ValueError(
-                "compare() requires n_repetitions >= 2. "
-                "Re-run AuditExperiment with n_repetitions=2 or more."
-            )
-
-        scores_a = [r.score for r in self._runs[model_a]]
-        scores_b = [r.score for r in self._runs[model_b]]
-        return _compute_comparison(model_a, scores_a, model_b, scores_b, alpha)
-
     def summary(self) -> None:
-        """Print stability reports for all models and all pairwise comparisons."""
+        """Print stability reports for all models."""
         for model_name in self._runs:
             self.stability(model_name).summary()
-
-        n_reps = len(next(iter(self._runs.values())))
-        model_names = list(self._runs.keys())
-        if n_reps >= 2 and len(model_names) >= 2:
-            for a, b in combinations(model_names, 2):
-                self.compare(a, b).summary()
 
     # ------------------------------------------------------------------
     # Serialization

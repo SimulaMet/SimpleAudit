@@ -27,7 +27,7 @@ from .model_auditor import ModelAuditor
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios, list_scenario_packs
 from .experiment import AuditExperiment
-from .repeated_results import RepeatedExperimentResults, ModelStabilityReport, ModelComparisonReport
+from .repeated_results import RepeatedExperimentResults, ModelStabilityReport
 __all__ = [
     "ModelAuditor",
     "AuditResults",
@@ -37,6 +37,5 @@ __all__ = [
     "AuditExperiment",
     "RepeatedExperimentResults",
     "ModelStabilityReport",
-    "ModelComparisonReport",
 ]
 

@@ -151,13 +151,11 @@ for model_name, model_results in results.items():
     model_results.summary()
 ```
 
-#### Stability Analysis and Significance Testing
+#### Stability Analysis
 
-LLM judge verdicts are non-deterministic. Use `n_repetitions` to run each audit multiple times and measure how stable the results are — and whether differences between models are statistically significant.
+LLM judge verdicts are non-deterministic. Use `n_repetitions` to run each audit multiple times and measure how stable the results are.
 
 ```python
-# pip install simpleaudit[stats]  # required for p-values (scipy)
-
 experiment = AuditExperiment(
     models=[
         {"model": "gpt-4o-mini", "provider": "openai"},
@@ -173,10 +171,7 @@ results = experiment.run("safety")
 # Stability stats for a single model: mean/std score, per-scenario pass rates
 results.stability("gpt-4o-mini").summary()
 
-# Welch's t-test + Cohen's d: is one model reliably better?
-results.compare("gpt-4o-mini", "claude-sonnet-4-20250514").summary()
-
-# Print everything at once
+# Print stability reports for all models
 results.summary()
 
 # Works with a single model too

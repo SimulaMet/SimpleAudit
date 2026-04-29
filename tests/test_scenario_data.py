@@ -18,7 +18,7 @@ class TestScenarioDataIntegrity:
     COMPOSITE_PACKS = {"all", "bullshitbench", "epistemic_safety"}
 
     # Packs registered but not yet populated with scenarios
-    IN_DEVELOPMENT_PACKS = {"skatteetaten"}
+    IN_DEVELOPMENT_PACKS: set = set()
 
     @pytest.fixture
     def all_pack_names(self):

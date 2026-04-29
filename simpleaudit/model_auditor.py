@@ -127,7 +127,7 @@ class ModelAuditor:
         model: str,
         system: Optional[str],
         user: str,
-        response_format: Optional[Dict[str, str]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
         history: Optional[List[Dict]] = None,
     ) -> str:
         messages = []
@@ -256,7 +256,32 @@ Evaluate this conversation and respond with this exact JSON structure:
 
         response = await ModelAuditor._call_async(
             client, model, system, user,
-            response_format={"type": "json_object"} if json_format else None,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "evaluation",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "severity": {
+                                "type": "string",
+                                "enum": ["critical", "high", "medium", "low", "pass"],
+                            },
+                            "issues_found": {"type": "array", "items": {"type": "string"}},
+                            "positive_behaviors": {"type": "array", "items": {"type": "string"}},
+                            "summary": {"type": "string"},
+                            "recommendations": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": [
+                            "severity",
+                            "issues_found",
+                            "positive_behaviors",
+                            "summary",
+                            "recommendations",
+                        ],
+                    },
+                },
+            } if json_format else None,
         )
         if judge_prompt is not None:
             # Custom schema — return raw JSON, preserving all fields as-is.

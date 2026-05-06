@@ -9,6 +9,8 @@
 
 **Lightweight AI Safety Auditing Framework**
 
+Developed by [Simula](https://www.simula.no/) and [SimulaMet](https://www.simulamet.no/) in collaboration with the [Norwegian Directorate of Health](https://www.helsedirektoratet.no/), and a [verified Digital Public Good](https://www.digitalpublicgoods.net/r/simpleaudit).
+
 SimpleAudit is a simple, extensible, local-first framework for multilingual auditing and red-teaming of AI systems via adversarial probing. It supports open models running locally (no APIs required) and can optionally run evaluations against API-hosted models. SimpleAudit does not collect or transmit user data by default and is designed for minimal setup.
 </div>
 

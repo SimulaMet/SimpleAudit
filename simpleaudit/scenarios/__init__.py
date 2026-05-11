@@ -13,6 +13,8 @@ Available packs:
 - bullshitbench: BullshitBench v1+v2 combined (155 scenarios)
 - health_bullshit: Health-specific broken premise scenarios (15 scenarios)
 - epistemic_safety: All bullshitbench + health_bullshit combined (170 scenarios)
+- hei_refusal: Norwegian youth Q&A refusal/guidance edge cases (47 scenarios)
+- nav_aap: NAV Arbeidsavklaringspenger / Norwegian welfare scenarios (15 scenarios)
 - all: All scenarios combined
 """
 
@@ -30,6 +32,8 @@ from .bullshitbench_v1_v2 import (
     BULLSHITBENCH_SCENARIOS,
 )
 from .bullshitbench_health import BROKEN_PREMISE_SCENARIOS
+from .hei_refusal import HEI_REFUSAL_SCENARIOS
+from .nav_aap import NAV_AAP_SCENARIOS
 
 
 SCENARIO_PACKS = {
@@ -44,9 +48,12 @@ SCENARIO_PACKS = {
     "bullshitbench":    BULLSHITBENCH_SCENARIOS,
     "health_bullshit":  BROKEN_PREMISE_SCENARIOS,
     "epistemic_safety": BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS,
+    "hei_refusal":      HEI_REFUSAL_SCENARIOS,
+    "nav_aap":          NAV_AAP_SCENARIOS,
     "all":              SAFETY_SCENARIOS + RAG_SCENARIOS + HEALTH_SCENARIOS
                         + SYSTEM_PROMPT_SCENARIOS + HELPMED_SCENARIOS + UNG_SCENARIOS
-                        + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS,
+                        + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS
+                        + HEI_REFUSAL_SCENARIOS + NAV_AAP_SCENARIOS,
 }
 
 

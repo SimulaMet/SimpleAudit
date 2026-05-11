@@ -23,6 +23,86 @@
             }
         }
     </script>
+    <script>
+        // authentication helpers
+        async function apiFetch(path, opts = {}) {
+            opts = opts || {};
+            opts.headers = opts.headers || {};
+            const token = localStorage.getItem('visualizer_secret');
+            if (token) {
+                opts.headers['X-Secret'] = token;
+            }
+            const resp = await fetch(path, opts);
+            if (resp.status === 401) {
+                localStorage.removeItem('visualizer_secret');
+                // window.location.href = '/';
+                throw new Error('Unauthorized');
+            }
+            return resp;
+        }
+
+        function logout() {
+            localStorage.removeItem('visualizer_secret');
+            window.location.href = '/';
+        }
+
+        async function ensureLoggedIn() {
+            // call the server to learn whether auth is enabled and whether the
+            // stored token (if any) is valid.  The endpoint returns
+            // {ok:True, enabled:bool}.
+            const token = localStorage.getItem('visualizer_secret');
+            const headers = token ? {'X-Secret': token} : {};
+            const resp = await fetch('/api/auth', {headers});
+            if (resp.status === 401) {
+                // key required
+                document.getElementById('auth-overlay').classList.remove('hidden');
+                document.getElementById('logout-button').classList.add('hidden');
+                return false;
+            }
+            const data = await resp.json();
+            // update contact email link based on server response
+            const contactEmail = data.contact_email || 'sushant@simula.no';
+            const contactLink = document.getElementById('contact-email-link');
+            if (contactLink) {
+                contactLink.href = `mailto:${contactEmail}`;
+                contactLink.textContent = contactEmail;
+            }
+            if (!data.enabled) {
+                // auth disabled on server side
+                document.getElementById('logout-button').classList.add('hidden');
+            } else {
+                document.getElementById('logout-button').classList.remove('hidden');
+            }
+            // initialization every time we are authorized
+            loadFileTree();
+            initResizer();
+            return true;
+        }
+
+        window.addEventListener('load', async () => {
+            const submit = document.getElementById('auth-submit');
+            if (submit) {
+                submit.addEventListener('click', async () => {
+                    const val = document.getElementById('auth-input').value;
+                    try {
+                        const resp = await fetch('/api/auth', {headers:{'X-Secret': val}});
+                        if (!resp.ok) throw new Error('invalid');
+                        localStorage.setItem('visualizer_secret', val);
+                        document.getElementById('auth-overlay').classList.add('hidden');
+                        // login successful, now re-run ensureLoggedIn which will
+                        // also do the normal post-auth work
+                        await ensureLoggedIn();
+                        window.location.reload();
+                    } catch (e) {
+                        const err = document.getElementById('auth-error');
+                        err.textContent = 'Invalid secret';
+                        err.classList.remove('hidden');
+                    }
+                });
+            }
+            await ensureLoggedIn();
+        });
+    </script>
     <style>
         .folder-icon::before {
             content: "📁";
@@ -140,6 +220,32 @@
 
 <body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col">
 
+    <!-- authentication overlay shown when a secret is required and not yet stored -->
+    <div id="auth-overlay" class="fixed inset-0 bg-white/90 z-50 flex items-center justify-center hidden">
+        <div class="p-8 bg-white rounded-xl shadow-lg border border-gray-200 w-full max-w-sm space-y-5">
+            <div class="flex flex-col items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-indigo-500 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c1.104 0 2-.896 2-2V7a2 2 0 10-4 0v2c0 1.104.896 2 2 2zm6 2v5a2 2 0 01-2 2H8a2 2 0 01-2-2v-5a6 6 0 1112 0z" />
+                </svg>
+                <h2 class="text-xl font-bold text-gray-800">Protected Resource</h2>
+            </div>
+            <p class="text-gray-600 text-sm text-center">
+                This is a protected resource! Contact
+                <a href="#" id="contact-email-link" class="text-indigo-600 underline">sushant@simula.no</a>
+                for a key.
+            </p>
+            <a href="/scenario_viewer.html"
+               class="inline-flex items-center justify-center px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg shadow hover:bg-indigo-100 text-sm font-medium border border-indigo-200 w-full mb-2">
+                Or, access scenario viewer with local JSON
+            </a>
+            <input type="password" id="auth-input" class="bg-gray-100 border border-gray-300 rounded-md px-3 py-2 w-full text-sm focus:ring-2 focus:ring-indigo-500" placeholder="Enter secret key" autocomplete="current-password" />
+            <button id="auth-submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
+                Submit
+            </button>
+            <p id="auth-error" class="text-red-500 text-sm text-center hidden"></p>
+        </div>
+    </div>
+
     <main class="flex-1 flex flex-col">
     <!-- Header -->
     <header class="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
@@ -162,13 +268,16 @@
                 <p class="text-sm text-gray-500 mt-1 hidden sm:block" id="file-info">No file loaded</p>
             </div>
         </div>
-        <div>
+        <div class="flex items-center gap-2">
             <input type="file" id="upload-json-input" accept=".json" class="hidden" onchange="handleUploadedFile(event)">
             <button onclick="document.getElementById('upload-json-input').click()" class="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
                 <span class="hidden md:inline">Upload JSON</span>
+            </button>
+            <button id="logout-button" onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors hidden">
+                Logout
             </button>
         </div>
     </header>
@@ -324,6 +433,7 @@
             'high': 'bg-severity-high',
             'critical': 'bg-severity-critical',
             'ERROR': 'bg-severity-error',
+            'custom': 'bg-purple-300',
         };
 
         const SEVERITY_TEXT_COLORS = {
@@ -333,6 +443,7 @@
             'high': 'text-severity-high',
             'critical': 'text-severity-critical',
             'ERROR': 'text-severity-error',
+            'custom': 'text-purple-500',
         };
 
         const SEVERITY_ORDER = {
@@ -353,15 +464,36 @@
             'ERROR': 0,
         };
 
+        // Returns true if this scenario used a custom judge schema (no fixed severity/issues fields)
+        function isCustomSchema(s) {
+            return s.judgment && typeof s.judgment === 'object' && !('severity' in s.judgment);
+        }
+
+        // Render a single judgment value based on its JS type
+        function renderJudgmentValue(value) {
+            if (typeof value === 'number') {
+                return `<span class="text-2xl font-bold text-indigo-600">${value}</span>`;
+            }
+            if (typeof value === 'boolean') {
+                return `<span class="font-medium ${value ? 'text-green-600' : 'text-red-600'}">${value}</span>`;
+            }
+            if (Array.isArray(value)) {
+                if (value.length === 0) return '<span class="text-gray-400 italic">none</span>';
+                return `<ul class="list-disc list-inside space-y-1">${value.map(v => `<li>${escapeHtml(String(v))}</li>`).join('')}</ul>`;
+            }
+            if (typeof value === 'object' && value !== null) {
+                return `<pre class="text-xs bg-gray-50 p-2 rounded border border-gray-100 overflow-auto">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+            }
+            return `<span class="whitespace-pre-wrap">${escapeHtml(String(value))}</span>`;
+        }
+
         // Initialize
         document.getElementById('search-input').addEventListener('input', handleFilter);
         document.getElementById('sort-select').addEventListener('change', handleFilter);
 
-        // Load file tree on page load
-        loadFileTree();
-
-        // Initialize resizer
-        initResizer();
+        // the actual loading of data and resizer must wait until auth is settled;
+        // the window 'load' handler configured earlier will call ensureLoggedIn
+        // and then populate the UI.
 
         // --- Sidebar Toggle Functions ---
 
@@ -439,7 +571,7 @@
             container.innerHTML = '<div class="text-center text-gray-400"><div class="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto mb-2"></div>Loading files...</div>';
             
             try {
-                const response = await fetch('/api/files');
+                        const response = await apiFetch('/api/files');
                 if (!response.ok) throw new Error('Failed to load files');
                 
                 const data = await response.json();
@@ -603,7 +735,7 @@
             document.getElementById('scenario-list').innerHTML = '<div class="text-center text-gray-400 mt-10"><div class="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto mb-2"></div>Loading...</div>';
 
             try {
-                const response = await fetch(`/api/json/${encodeURIComponent(path)}`);
+                const response = await apiFetch(`/api/json/${encodeURIComponent(path)}`);
                 if (!response.ok) throw new Error('Failed to load JSON file');
 
                 const data = await response.json();
@@ -651,32 +783,46 @@
                     s.history = s.conversation;
                 }
 
-                // Severity normalization
-                if (!s.severity) {
-                    if (s.score === 10) s.severity = 'pass';
-                    else if (s.issues_found && s.issues_found.length > 0) s.severity = 'medium';
-                    else s.severity = 'medium';
+                if (isCustomSchema(s)) {
+                    // Custom judge schema — pick the first numeric judgment field as the display score
+                    if (s.score === undefined) {
+                        const numVal = Object.values(s.judgment).find(v => typeof v === 'number');
+                        if (numVal !== undefined) s.score = numVal;
+                    }
+                    if (!s.severity) s.severity = 'custom';
+                } else {
+                    // Default schema normalization
+                    if (!s.severity) {
+                        if (s.score === 10) s.severity = 'pass';
+                        else if (s.issues_found && s.issues_found.length > 0) s.severity = 'medium';
+                        else s.severity = 'medium';
+                    }
+                    if (s.score === undefined && s.severity) {
+                        s.score = SEVERITY_SCORES_MAP[s.severity.toLowerCase()] || 0;
+                    }
+                    if (!s.reasoning) {
+                        let parts = [];
+                        if (s.summary) parts.push(`### Summary\n${s.summary}`);
+                        if (s.issues_found && s.issues_found.length > 0) {
+                            parts.push(`### Issues Found\n- ${s.issues_found.join('\n- ')}`);
+                        }
+                        if (s.positive_behaviors && s.positive_behaviors.length > 0) {
+                            parts.push(`### Positive Behaviors\n- ${s.positive_behaviors.join('\n- ')}`);
+                        }
+                        if (s.recommendations && s.recommendations.length > 0) {
+                            parts.push(`### Recommendations\n- ${s.recommendations.join('\n- ')}`);
+                        }
+                        s.reasoning = parts.join('\n\n');
+                    }
                 }
 
-                // Score normalization
-                if (s.score === undefined && s.severity) {
-                    s.score = SEVERITY_SCORES_MAP[s.severity.toLowerCase()] || 0;
-                }
-
-                // Judge Feedback normalization
-                if (!s.reasoning) {
-                    let parts = [];
-                    if (s.summary) parts.push(`### Summary\n${s.summary}`);
-                    if (s.issues_found && s.issues_found.length > 0) {
-                        parts.push(`### Issues Found\n- ${s.issues_found.join('\n- ')}`);
+                // Expected behavior normalization – keep as array
+                if (s.expected_behavior) {
+                    if (typeof s.expected_behavior === 'string') {
+                        s.expected_behavior = [s.expected_behavior];
                     }
-                    if (s.positive_behaviors && s.positive_behaviors.length > 0) {
-                        parts.push(`### Positive Behaviors\n- ${s.positive_behaviors.join('\n- ')}`);
-                    }
-                    if (s.recommendations && s.recommendations.length > 0) {
-                        parts.push(`### Recommendations\n- ${s.recommendations.join('\n- ')}`);
-                    }
-                    s.reasoning = parts.join('\n\n');
+                } else {
+                    s.expected_behavior = [];
                 }
             });
 
@@ -700,54 +846,61 @@
 
         function updateStats(globalScore) {
             const total = allScenarios.length;
-            const passed = allScenarios.filter(s => s.severity === 'pass' || s.score === 10).length;
-            const passRate = total === 0 ? 0 : Math.round((passed / total) * 100);
+            const fileIsCustom = total > 0 && isCustomSchema(allScenarios[0]);
 
-            let avgScore = 'N/A';
-            if (globalScore !== null && globalScore !== undefined) {
-                avgScore = globalScore;
-            } else {
-                const scores = allScenarios.map(s => s.score).filter(s => s !== undefined);
-                const totalScore = scores.reduce((sum, s) => sum + s, 0);
-                avgScore = scores.length === 0 ? 'N/A' : (totalScore / scores.length).toFixed(1);
-            }
-
-            document.getElementById('stat-pass-rate').textContent = `${passRate}%`;
-            document.getElementById('stat-avg-score').textContent = avgScore;
-            document.getElementById('stat-total-cases').textContent = `${total} cases`;
-
-            // Severity Bar
-            const counts = {
-                'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'pass': 0
-            };
-            allScenarios.forEach(s => {
-                const sev = (s.severity || 'low').toLowerCase();
-                if (counts[sev] !== undefined) counts[sev]++;
-            });
+            const scores = allScenarios.map(s => s.score).filter(s => s !== undefined);
+            const totalScore = scores.reduce((sum, s) => sum + s, 0);
+            const avgScore = globalScore !== null && globalScore !== undefined
+                ? globalScore
+                : (scores.length === 0 ? 'N/A' : (totalScore / scores.length).toFixed(1));
 
             const barContainer = document.getElementById('severity-bar');
-            barContainer.innerHTML = '';
-
             const legendContainer = document.getElementById('severity-legend');
+            barContainer.innerHTML = '';
             legendContainer.innerHTML = '';
 
-            Object.keys(counts).forEach(sev => {
-                const count = counts[sev];
-                if (count > 0) {
-                    const pct = (count / total) * 100;
+            if (fileIsCustom) {
+                // Custom schema: show avg score, hide pass rate, note custom schema in bar area
+                document.getElementById('stat-pass-rate').textContent = avgScore;
+                document.getElementById('stat-pass-rate').previousElementSibling.textContent = 'Avg Score';
+                document.getElementById('stat-avg-score').textContent = `${total}`;
+                document.getElementById('stat-avg-score').previousElementSibling.textContent = 'Scenarios';
+                document.getElementById('stat-total-cases').textContent = `${total} cases`;
 
-                    const segment = document.createElement('div');
-                    segment.className = `${SEVERITY_COLORS[sev]} h-full transition-all duration-500`;
-                    segment.style.width = `${pct}%`;
-                    segment.title = `${sev}: ${count}`;
-                    barContainer.appendChild(segment);
+                legendContainer.innerHTML = `<span class="text-xs text-purple-500 italic">Custom judge schema — see individual results for full output</span>`;
+            } else {
+                // Default schema: pass rate + severity bar
+                const passed = allScenarios.filter(s => s.severity === 'pass' || s.score === 10).length;
+                const passRate = total === 0 ? 0 : Math.round((passed / total) * 100);
+                document.getElementById('stat-pass-rate').textContent = `${passRate}%`;
+                document.getElementById('stat-pass-rate').previousElementSibling.textContent = 'Pass Rate';
+                document.getElementById('stat-avg-score').textContent = avgScore;
+                document.getElementById('stat-avg-score').previousElementSibling.textContent = 'Avg Score';
+                document.getElementById('stat-total-cases').textContent = `${total} cases`;
 
-                    const item = document.createElement('div');
-                    item.className = "flex items-center gap-1 text-xs bg-white px-2 py-1 rounded border border-gray-100 shadow-sm";
-                    item.innerHTML = `<span class="w-2 h-2 rounded-full ${SEVERITY_COLORS[sev]}"></span> <span class="capitalize">${sev}</span> <span class="font-bold text-gray-700">${count}</span>`;
-                    legendContainer.appendChild(item);
-                }
-            });
+                const counts = { 'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'pass': 0 };
+                allScenarios.forEach(s => {
+                    const sev = (s.severity || 'low').toLowerCase();
+                    if (counts[sev] !== undefined) counts[sev]++;
+                });
+
+                Object.keys(counts).forEach(sev => {
+                    const count = counts[sev];
+                    if (count > 0) {
+                        const pct = (count / total) * 100;
+                        const segment = document.createElement('div');
+                        segment.className = `${SEVERITY_COLORS[sev]} h-full transition-all duration-500`;
+                        segment.style.width = `${pct}%`;
+                        segment.title = `${sev}: ${count}`;
+                        barContainer.appendChild(segment);
+
+                        const item = document.createElement('div');
+                        item.className = "flex items-center gap-1 text-xs bg-white px-2 py-1 rounded border border-gray-100 shadow-sm";
+                        item.innerHTML = `<span class="w-2 h-2 rounded-full ${SEVERITY_COLORS[sev]}"></span> <span class="capitalize">${sev}</span> <span class="font-bold text-gray-700">${count}</span>`;
+                        legendContainer.appendChild(item);
+                    }
+                });
+            }
         }
 
         // --- Filtering and List Rendering ---
@@ -792,12 +945,15 @@
                 el.className = `p-3 rounded-lg border cursor-pointer hover:bg-gray-50 transition-colors flex gap-3 ${isSelected ? 'border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50' : 'border-gray-200 bg-white'}`;
                 el.onclick = () => selectScenario(s);
 
+                const scoreLabel = s.score !== undefined
+                    ? (isCustomSchema(s) ? String(s.score) : s.score + '/10')
+                    : '';
                 el.innerHTML = `
                     <div class="w-1.5 self-stretch rounded-full ${statusColor} shrink-0"></div>
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-start">
                             <h3 class="font-medium text-gray-900 truncate text-sm" title="${s.scenario_name || s.name}">${s.scenario_name || s.name || 'Untitled Scenario'}</h3>
-                            <span class="text-xs font-bold ${textColor} ml-2 shrink-0">${s.score !== undefined ? s.score + '/10' : ''}</span>
+                            <span class="text-xs font-bold ${textColor} ml-2 shrink-0">${scoreLabel}</span>
                         </div>
                         <p class="text-xs text-gray-500 mt-1 line-clamp-2">${s.scenario_description || s.description || 'No description'}</p>
                     </div>
@@ -892,6 +1048,18 @@
                     </div>
             `;
 
+            // show expected behavior if available
+            if (s.expected_behavior && s.expected_behavior.length > 0) {
+                html += `
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                        <h3 class="font-semibold text-gray-700 mb-2">Expected Behavior</h3>
+                        <ul class="list-disc list-inside text-gray-600">
+                            ${s.expected_behavior.map(b => `<li>${escapeHtml(b)}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+
             // Only show Copy URL if not a custom upload (from global or forced)
             const showCopyUrl = !(window.__customUpload || forceCustomUpload);
 
@@ -933,7 +1101,28 @@
                 html += `<div class="p-6 text-center text-gray-400 italic">No conversation history data found.</div>`;
             }
 
-            html += `
+            if (isCustomSchema(s) && s.judgment) {
+                // Custom schema: render each judgment field as a labeled card entry
+                const fields = Object.entries(s.judgment)
+                    .map(([key, value]) => `
+                        <div class="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
+                            <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">${escapeHtml(key)}</div>
+                            <div class="text-sm text-gray-800">${renderJudgmentValue(value)}</div>
+                        </div>
+                    `).join('');
+                html += `
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="bg-purple-50 px-6 py-3 border-b border-purple-100 flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-purple-600" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                            </svg>
+                            <h3 class="font-semibold text-purple-900">Judge Output</h3>
+                        </div>
+                        <div class="p-6 space-y-4">${fields}</div>
+                    </div>
+                `;
+            } else {
+                html += `
                     <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                         <div class="bg-indigo-50 px-6 py-3 border-b border-indigo-100 flex items-center gap-2">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
@@ -945,8 +1134,10 @@
                             <pre class="whitespace-pre-wrap font-sans text-sm text-gray-700">${escapeHtml(judgeFeedback)}</pre>
                         </div>
                     </div>
-                </div>
-            `;
+                `;
+            }
+
+            html += `</div>`;
 
             container.innerHTML = html;
         }

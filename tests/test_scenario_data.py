@@ -14,10 +14,13 @@ class TestScenarioDataIntegrity:
 
     REQUIRED_FIELDS = {"name", "description"}
 
+    # Packs that are composites of other packs — excluded from union/sum tests
+    COMPOSITE_PACKS = {"all", "bullshitbench", "epistemic_safety"}
+
     @pytest.fixture
     def all_pack_names(self):
-        """Return all pack names except 'all' (which is a composite)."""
-        return [name for name in SCENARIO_PACKS if name != "all"]
+        """Return all non-composite pack names."""
+        return [name for name in SCENARIO_PACKS if name not in self.COMPOSITE_PACKS]
 
     def test_all_packs_non_empty(self, all_pack_names):
         """Every scenario pack should contain at least one scenario."""

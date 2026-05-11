@@ -22,6 +22,7 @@ class AuditResult:
     summary: str
     recommendations: List[str]
     expected_behavior: Optional[List[str]] = None
+    judgment: Optional[Dict] = None
     auditor_input_tokens: int = 0
     auditor_output_tokens: int = 0
     judge_input_tokens: int = 0

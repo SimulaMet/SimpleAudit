@@ -17,10 +17,14 @@ class TestScenarioDataIntegrity:
     # Packs that are composites of other packs — excluded from union/sum tests
     COMPOSITE_PACKS = {"all", "bullshitbench", "epistemic_safety"}
 
+    # Packs registered but not yet populated with scenarios
+    IN_DEVELOPMENT_PACKS: set = set()
+
     @pytest.fixture
     def all_pack_names(self):
-        """Return all non-composite pack names."""
-        return [name for name in SCENARIO_PACKS if name not in self.COMPOSITE_PACKS]
+        """Return all non-composite, non-development pack names."""
+        excluded = self.COMPOSITE_PACKS | self.IN_DEVELOPMENT_PACKS
+        return [name for name in SCENARIO_PACKS if name not in excluded]
 
     def test_all_packs_non_empty(self, all_pack_names):
         """Every scenario pack should contain at least one scenario."""

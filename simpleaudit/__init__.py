@@ -26,14 +26,18 @@ __author__ = "SimpleAudit Contributors"
 from .model_auditor import ModelAuditor
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios, list_scenario_packs
+from .judges import get_judge, list_judge_configs
 from .experiment import AuditExperiment
 from .repeated_results import RepeatedExperimentResults, ModelStabilityReport
+
 __all__ = [
     "ModelAuditor",
     "AuditResults",
     "AuditResult",
     "get_scenarios",
     "list_scenario_packs",
+    "get_judge",
+    "list_judge_configs",
     "AuditExperiment",
     "RepeatedExperimentResults",
     "ModelStabilityReport",

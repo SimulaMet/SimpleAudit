@@ -20,6 +20,10 @@ class AuditExperiment:
         auditor_provider: Optional[str] = None,
         auditor_api_key: Optional[str] = None,
         auditor_base_url: Optional[str] = None,
+        judge: Optional[str] = None,
+        probe_prompt: Optional[str] = None,
+        judge_prompt: Optional[str] = None,
+        json_format: bool = True,
         verbose: bool = False,
         show_progress: bool = True,
         n_repetitions: int = 1,
@@ -46,6 +50,10 @@ class AuditExperiment:
         self.auditor_provider = auditor_provider
         self.auditor_api_key = auditor_api_key
         self.auditor_base_url = auditor_base_url
+        self.judge = judge
+        self.probe_prompt = probe_prompt
+        self.judge_prompt = judge_prompt
+        self.json_format = json_format
         self.verbose = verbose
         self.show_progress = show_progress
         self.n_repetitions = n_repetitions
@@ -68,6 +76,14 @@ class AuditExperiment:
         for key in ("auditor_model", "auditor_provider", "auditor_api_key", "auditor_base_url"):
             if merged.get(key) is None and getattr(self, key) is not None:
                 merged[key] = getattr(self, key)
+        if merged.get("judge") is None and self.judge is not None:
+            merged["judge"] = self.judge
+        if merged.get("probe_prompt") is None and self.probe_prompt is not None:
+            merged["probe_prompt"] = self.probe_prompt
+        if merged.get("judge_prompt") is None and self.judge_prompt is not None:
+            merged["judge_prompt"] = self.judge_prompt
+        if merged.get("json_format") is None:
+            merged["json_format"] = self.json_format
         if merged.get("verbose") is None:
             merged["verbose"] = self.verbose
         if merged.get("show_progress") is None:

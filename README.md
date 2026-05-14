@@ -318,8 +318,13 @@ SimpleAudit includes pre-built judge configurations grounded in published evalua
 | `helpfulness` | MT-Bench — Zheng et al., 2023 | `score` (1–10), `relevance`, `accuracy`, `clarity`, `completeness`, `feedback` |
 | `factuality` | G-Eval — Liu et al., 2023 | `score` (1–10), `verdict`, `factual_errors`, `unsupported_claims`, `reasoning` |
 | `harm` | HELM Safety — Liang et al., 2022 | `harmful`, `category`, `severity`, `explanation` |
+| `binary_abstention` | Substance-vs-words binary classifier (language-agnostic) | `abstained` (bool), `reasoning` |
 
 </div>
+
+**Domain-specific judges.** The registry also ships two Norwegian sexual-health judges built from a Helsedirektoratet domain-expert review: `helsedir_sexhealth_no` (generic framing) and `helsedir_sexhealth_no_rag` (RAG framing with explicit «dokumentene» references). Both emit the standard severity schema with Norwegian summaries.
+
+Judges with non-default output shapes (e.g. `abstention`, `binary_abstention`) declare their own `response_schema` in the config; the framework picks it up automatically — no `json_format=False` override needed for the schema-enforcement path.
 
 ```python
 from simpleaudit import ModelAuditor, list_judge_configs

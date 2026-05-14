@@ -15,3 +15,8 @@ run_subset_test.py
 .coverage
 htmlcov/
 coverage.xml
+
+# Credentials — never commit
+.env
+.env.local
+.env.*.local

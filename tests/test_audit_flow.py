@@ -10,11 +10,19 @@ import tempfile
 import threading
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.experiment import AuditExperiment
+from tests.fakes import (
+    FakeClient,
+    cycling_probe_auditor,
+    cycling_target,
+    fixed_probe_auditor,
+    fixed_severity_judge,
+    fixed_target,
+    make_auditor,
+)
 
 
 # Check for optional dependencies
@@ -23,54 +31,6 @@ try:
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
-
-
-# --- Helpers ---
-
-
-def _make_mock_client(responses: list[str]) -> MagicMock:
-    """
-    Create a mock AnyLLM client that returns responses in sequence.
-    Each call to acompletion pops the next response.
-    """
-    client = MagicMock()
-    response_iter = iter(responses)
-
-    async def mock_acompletion(**kwargs):
-        text = next(response_iter)
-        mock_msg = MagicMock()
-        mock_msg.content = text
-        mock_choice = MagicMock()
-        mock_choice.message = mock_msg
-        mock_resp = MagicMock()
-        mock_resp.choices = [mock_choice]
-        return mock_resp
-
-    client.acompletion = mock_acompletion
-    return client
-
-
-def _make_auditor_with_mock(responses: list[str], max_turns: int = 1, system_prompt=None):
-    """
-    Create a ModelAuditor with mocked clients using patch to avoid real AnyLLM.
-    """
-    mock_client = _make_mock_client(responses)
-
-    with patch.object(ModelAuditor, '_create_anyllm_client', return_value=mock_client):
-        auditor = ModelAuditor(
-            model="target-model",
-            provider="openai",
-            judge_model="judge-model",
-            judge_provider="openai",
-            system_prompt=system_prompt,
-            max_turns=max_turns,
-            verbose=False,
-            show_progress=False,
-        )
-    # Replace the clients with our mock (since __init__ already ran)
-    auditor.target_client = mock_client
-    auditor.judge_client = mock_client
-    return auditor
 
 
 def _make_audit_result(
@@ -103,20 +63,14 @@ class TestEndToEndMockAudit:
 
     def test_run_scenario_produces_valid_result(self):
         """run_scenario should produce a valid AuditResult with mocked clients."""
-        judge_response = json.dumps({
-            "severity": "pass",
-            "issues_found": [],
-            "positive_behaviors": ["Accurate response"],
-            "summary": "Model performed well",
-            "recommendations": [],
-        })
-        # 2 turns: probe1, target1, probe2, target2, judge
-        all_responses = [
-            "What is 2+2?", "2+2 equals 4.",
-            "Can you explain more?", "Sure, it's basic arithmetic.",
-            judge_response,
-        ]
-        auditor = _make_auditor_with_mock(all_responses, max_turns=2)
+        # 2 turns: separate clients per role make the sequence explicit
+        auditor = make_auditor(
+            target=cycling_target(["2+2 equals 4.", "Sure, it's basic arithmetic."]),
+            judge=fixed_severity_judge("pass"),
+            auditor=cycling_probe_auditor(["What is 2+2?", "Can you explain more?"]),
+            max_turns=2,
+            show_progress=False,
+        )
 
         result = asyncio.run(
             auditor.run_scenario(
@@ -133,16 +87,13 @@ class TestEndToEndMockAudit:
 
     def test_run_async_with_custom_scenarios(self):
         """run_async with a list of custom scenarios should work."""
-        judge_response = json.dumps({
-            "severity": "low",
-            "issues_found": ["Minor issue"],
-            "positive_behaviors": ["Good"],
-            "summary": "Mostly fine",
-            "recommendations": ["Be better"],
-        })
-        # 1 scenario, 1 turn: probe, target, judge
-        all_responses = ["Probe message", "Target response", judge_response]
-        auditor = _make_auditor_with_mock(all_responses, max_turns=1)
+        auditor = make_auditor(
+            target=fixed_target("Target response"),
+            judge=fixed_severity_judge("low"),
+            auditor=fixed_probe_auditor("Probe message"),
+            max_turns=1,
+            show_progress=False,
+        )
 
         scenarios = [{"name": "Custom Test", "description": "A custom test scenario"}]
 
@@ -155,15 +106,13 @@ class TestEndToEndMockAudit:
 
     def test_run_sync_wrapper(self):
         """The synchronous run() wrapper should work when no event loop is running."""
-        judge_response = json.dumps({
-            "severity": "pass",
-            "issues_found": [],
-            "positive_behaviors": ["Safe"],
-            "summary": "All good",
-            "recommendations": [],
-        })
-        all_responses = ["Probe", "Target reply", judge_response]
-        auditor = _make_auditor_with_mock(all_responses, max_turns=1)
+        auditor = make_auditor(
+            target=fixed_target("Target reply"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("Probe"),
+            max_turns=1,
+            show_progress=False,
+        )
 
         scenarios = [{"name": "Sync Test", "description": "Test sync wrapper"}]
         results = auditor.run(scenarios=scenarios, max_turns=1)
@@ -173,16 +122,13 @@ class TestEndToEndMockAudit:
 
     def test_run_scenario_with_system_prompt(self):
         """run_scenario should work correctly when a system prompt is set."""
-        judge_response = json.dumps({
-            "severity": "pass",
-            "issues_found": [],
-            "positive_behaviors": ["Followed system prompt"],
-            "summary": "Good",
-            "recommendations": [],
-        })
-        all_responses = ["Test probe", "System prompt response", judge_response]
-        auditor = _make_auditor_with_mock(
-            all_responses, max_turns=1, system_prompt="You are a helpful assistant."
+        auditor = make_auditor(
+            target=fixed_target("System prompt response"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("Test probe"),
+            max_turns=1,
+            system_prompt="You are a helpful assistant.",
+            show_progress=False,
         )
 
         result = asyncio.run(
@@ -198,15 +144,13 @@ class TestEndToEndMockAudit:
 
     def test_run_scenario_with_expected_behavior(self):
         """run_scenario should pass expected_behavior to the result."""
-        judge_response = json.dumps({
-            "severity": "pass",
-            "issues_found": [],
-            "positive_behaviors": ["Met expectations"],
-            "summary": "Model behaved as expected",
-            "recommendations": [],
-        })
-        all_responses = ["Probe", "Response", judge_response]
-        auditor = _make_auditor_with_mock(all_responses, max_turns=1)
+        auditor = make_auditor(
+            target=fixed_target("Response"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("Probe"),
+            max_turns=1,
+            show_progress=False,
+        )
 
         expected = ["Should refuse harmful requests", "Should cite sources"]
         result = asyncio.run(
@@ -531,13 +475,13 @@ class TestErrorResilience:
 
     def test_run_scenario_with_bad_judge_response(self):
         """When the judge returns invalid JSON, should still produce a result."""
-        # 1-turn: probe, target, bad judge
-        all_responses = [
-            "What about X?",
-            "Here's info about X.",
-            "This is NOT valid JSON at all!!!"
-        ]
-        auditor = _make_auditor_with_mock(all_responses, max_turns=1)
+        auditor = make_auditor(
+            target=fixed_target("Here's info about X."),
+            judge=FakeClient(lambda **_: "This is NOT valid JSON at all!!!"),
+            auditor=fixed_probe_auditor("What about X?"),
+            max_turns=1,
+            show_progress=False,
+        )
 
         result = asyncio.run(
             auditor.run_scenario(

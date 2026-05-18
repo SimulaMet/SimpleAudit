@@ -107,10 +107,10 @@ class TestCallAsync:
     def test_basic_call(self):
         """Basic call with system and user messages."""
         client = self._make_mock_client("Hello!")
-        result = asyncio.run(
+        content, _, _ = asyncio.run(
             ModelAuditor._call_async(client, "gpt-4", "Be helpful", "Hi")
         )
-        assert result == "Hello!"
+        assert content == "Hello!"
         client.acompletion.assert_called_once()
         call_kwargs = client.acompletion.call_args[1]
         assert call_kwargs["model"] == "gpt-4"
@@ -123,10 +123,10 @@ class TestCallAsync:
     def test_no_system_prompt(self):
         """When system is None, only user message should be sent."""
         client = self._make_mock_client("Response")
-        result = asyncio.run(
+        content, _, _ = asyncio.run(
             ModelAuditor._call_async(client, "gpt-4", None, "Hi")
         )
-        assert result == "Response"
+        assert content == "Response"
         call_kwargs = client.acompletion.call_args[1]
         assert len(call_kwargs["messages"]) == 1
         assert call_kwargs["messages"][0]["role"] == "user"

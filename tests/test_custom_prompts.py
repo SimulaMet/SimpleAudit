@@ -21,49 +21,7 @@ import pytest
 from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.experiment import AuditExperiment
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _make_auditor(probe_prompt=None, judge_prompt=None, max_turns=1):
-    """Create a ModelAuditor with patched AnyLLM (no real API calls)."""
-    mock_client = MagicMock()
-    with patch.object(ModelAuditor, "_create_anyllm_client", return_value=mock_client):
-        auditor = ModelAuditor(
-            model="target-model",
-            provider="openai",
-            judge_model="judge-model",
-            judge_provider="openai",
-            probe_prompt=probe_prompt,
-            judge_prompt=judge_prompt,
-            max_turns=max_turns,
-            verbose=False,
-            show_progress=False,
-        )
-    auditor.target_client = mock_client
-    auditor.judge_client = mock_client
-    return auditor
-
-
-def _mock_client_with_responses(responses: list[str]) -> MagicMock:
-    """Mock AnyLLM client that returns responses in sequence."""
-    client = MagicMock()
-    response_iter = iter(responses)
-
-    async def mock_acompletion(**kwargs):
-        text = next(response_iter)
-        mock_msg = MagicMock()
-        mock_msg.content = text
-        mock_choice = MagicMock()
-        mock_choice.message = mock_msg
-        mock_resp = MagicMock()
-        mock_resp.choices = [mock_choice]
-        return mock_resp
-
-    client.acompletion = mock_acompletion
-    return client
+from tests.fakes import FakeClient, fixed_probe_auditor, fixed_severity_judge, fixed_target, make_auditor
 
 
 # ---------------------------------------------------------------------------
@@ -72,19 +30,25 @@ def _mock_client_with_responses(responses: list[str]) -> MagicMock:
 
 class TestModelAuditorInit:
     def test_probe_prompt_stored(self):
-        auditor = _make_auditor(probe_prompt="my probe prompt")
+        auditor = make_auditor(
+            target=fixed_target("x"), judge=fixed_severity_judge("pass"),
+            probe_prompt="my probe prompt",
+        )
         assert auditor.probe_prompt == "my probe prompt"
 
     def test_judge_prompt_stored(self):
-        auditor = _make_auditor(judge_prompt="my judge prompt")
+        auditor = make_auditor(
+            target=fixed_target("x"), judge=fixed_severity_judge("pass"),
+            judge_prompt="my judge prompt",
+        )
         assert auditor.judge_prompt == "my judge prompt"
 
     def test_probe_prompt_defaults_to_none(self):
-        auditor = _make_auditor()
+        auditor = make_auditor(target=fixed_target("x"), judge=fixed_severity_judge("pass"))
         assert auditor.probe_prompt is None
 
     def test_judge_prompt_defaults_to_none(self):
-        auditor = _make_auditor()
+        auditor = make_auditor(target=fixed_target("x"), judge=fixed_severity_judge("pass"))
         assert auditor.judge_prompt is None
 
 
@@ -97,9 +61,9 @@ class TestGenerateProbeAsync:
         """Return a list that will be populated with the system arg from _call_async."""
         captured = []
 
-        async def fake_call(client, model, system, user, response_format=None):
+        async def fake_call(client, model, system, user, response_format=None, history=None):
             captured.append(system)
-            return "probe text"
+            return ("probe text", 0, 0)
 
         return captured, fake_call
 
@@ -176,9 +140,9 @@ class TestJudgeConversationAsync:
     def _capture_system(self):
         captured = []
 
-        async def fake_call(client, model, system, user, response_format=None):
+        async def fake_call(client, model, system, user, response_format=None, history=None):
             captured.append(system)
-            return json.dumps({"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []})
+            return (json.dumps({"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []}), 0, 0)
 
         return captured, fake_call
 
@@ -286,14 +250,12 @@ class TestJudgmentField:
             "summary": "Mostly fine",
             "recommendations": ["improve"],
         }
-        mock_client = _mock_client_with_responses([
-            "probe text",
-            "target response",
-            json.dumps(judge_output),
-        ])
-        auditor = _make_auditor()
-        auditor.target_client = mock_client
-        auditor.judge_client = mock_client
+        auditor = make_auditor(
+            target=fixed_target("target response"),
+            judge=FakeClient(lambda **_: json.dumps(judge_output)),
+            auditor=fixed_probe_auditor("probe text"),
+            show_progress=False,
+        )
 
         result = asyncio.run(
             auditor.run_scenario(
@@ -310,14 +272,13 @@ class TestJudgmentField:
     def test_custom_schema_judgment_stored(self):
         """Custom judge schema (no severity) is stored verbatim in result.judgment."""
         custom_output = {"score": 7, "reasoning": "Model bullshitted a lot."}
-        mock_client = _mock_client_with_responses([
-            "probe text",
-            "target response",
-            json.dumps(custom_output),
-        ])
-        auditor = _make_auditor(judge_prompt="Rate bullshitting 1-10. Return JSON: {score, reasoning}")
-        auditor.target_client = mock_client
-        auditor.judge_client = mock_client
+        auditor = make_auditor(
+            target=fixed_target("target response"),
+            judge=FakeClient(lambda **_: json.dumps(custom_output)),
+            auditor=fixed_probe_auditor("probe text"),
+            judge_prompt="Rate bullshitting 1-10. Return JSON: {score, reasoning}",
+            show_progress=False,
+        )
 
         result = asyncio.run(
             auditor.run_scenario(
@@ -334,14 +295,13 @@ class TestJudgmentField:
     def test_custom_schema_severity_fallback(self):
         """When custom judge returns no severity, result.severity falls back to 'medium'."""
         custom_output = {"score": 7, "reasoning": "lots of bullshit"}
-        mock_client = _mock_client_with_responses([
-            "probe text",
-            "target response",
-            json.dumps(custom_output),
-        ])
-        auditor = _make_auditor(judge_prompt="Rate bullshitting 1-10.")
-        auditor.target_client = mock_client
-        auditor.judge_client = mock_client
+        auditor = make_auditor(
+            target=fixed_target("target response"),
+            judge=FakeClient(lambda **_: json.dumps(custom_output)),
+            auditor=fixed_probe_auditor("probe text"),
+            judge_prompt="Rate bullshitting 1-10.",
+            show_progress=False,
+        )
 
         result = asyncio.run(
             auditor.run_scenario(
@@ -487,7 +447,7 @@ class TestExpectedBehaviorInCustomPath:
 
         async def fake_call(client, model, system, user, response_format=None, history=None):
             captured_user.append(user)
-            return '{"score": 8, "verdict": "accurate"}'
+            return ('{"score": 8, "verdict": "accurate"}', 0, 0)
 
         with patch.object(ModelAuditor, "_call_async", side_effect=fake_call):
             asyncio.run(ModelAuditor._judge_conversation_async(
@@ -511,7 +471,7 @@ class TestExpectedBehaviorInCustomPath:
 
         async def fake_call(client, model, system, user, response_format=None, history=None):
             captured_user.append(user)
-            return '{"score": 8}'
+            return ('{"score": 8}', 0, 0)
 
         with patch.object(ModelAuditor, "_call_async", side_effect=fake_call):
             asyncio.run(ModelAuditor._judge_conversation_async(
@@ -586,13 +546,13 @@ class TestTestPromptVerbatim:
 
         async def fake_call(client, model, system, user, response_format=None, history=None):
             captured.append({"system": system, "user": user, "history": list(history or [])})
-            return "target reply"
+            return ("target reply", 0, 0)
 
         async def fake_probe(*args, **kwargs):
             pytest.fail("probe generator must not be called when test_prompt is present")
 
         async def fake_judge(*args, **kwargs):
-            return {"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []}
+            return ({"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []}, 0, 0)
 
         with patch.object(ModelAuditor, "_call_async", side_effect=fake_call), \
              patch.object(ModelAuditor, "_generate_probe_async", side_effect=fake_probe), \
@@ -614,14 +574,14 @@ class TestTestPromptVerbatim:
         probe_calls = []
 
         async def fake_call(*args, **kwargs):
-            return "target reply"
+            return ("target reply", 0, 0)
 
         async def fake_probe(client, model, scenario, conversation, language="English", probe_prompt=None):
             probe_calls.append(scenario)
-            return "generated probe"
+            return ("generated probe", 0, 0)
 
         async def fake_judge(*args, **kwargs):
-            return {"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []}
+            return ({"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []}, 0, 0)
 
         with patch.object(ModelAuditor, "_call_async", side_effect=fake_call), \
              patch.object(ModelAuditor, "_generate_probe_async", side_effect=fake_probe), \
@@ -643,14 +603,14 @@ class TestTestPromptVerbatim:
         probe_calls = []
 
         async def fake_call(*args, **kwargs):
-            return "target reply"
+            return ("target reply", 0, 0)
 
         async def fake_probe(client, model, scenario, conversation, language="English", probe_prompt=None):
             probe_calls.append(len(conversation))
-            return "follow-up probe"
+            return ("follow-up probe", 0, 0)
 
         async def fake_judge(*args, **kwargs):
-            return {"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []}
+            return ({"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []}, 0, 0)
 
         with patch.object(ModelAuditor, "_call_async", side_effect=fake_call), \
              patch.object(ModelAuditor, "_generate_probe_async", side_effect=fake_probe), \

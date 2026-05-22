@@ -272,4 +272,4 @@ class RepeatedExperimentResults:
                 reconstructed.append(instance)
             runs_by_model[label] = reconstructed
 
-        return cls(runs_by_model)
+        return cls(runs_by_model, judge=data.get("judge"))

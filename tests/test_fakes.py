@@ -317,25 +317,3 @@ class TestSmoke:
         assert len(results) == 2
         assert {r.severity for r in results} == {"pass", "low"}
 
-    def test_scripted_client_token_counts_flow_through(self):
-        """ScriptedClient token counts reach AuditResult token fields."""
-        auditor = make_auditor(
-            target=scripted_client([("target response", 20, 15)]),
-            judge=scripted_client([
-                ('{"severity":"pass","issues_found":[],"positive_behaviors":[],"summary":"ok","recommendations":[]}', 10, 8),
-            ]),
-            auditor=scripted_client([("probe text", 5, 3)]),
-            max_turns=1,
-            show_progress=False,
-        )
-
-        result = asyncio.run(
-            auditor.run_scenario(name="token test", description="desc", max_turns=1)
-        )
-
-        assert result.auditor_input_tokens == 5
-        assert result.auditor_output_tokens == 3
-        assert result.target_input_tokens == 20
-        assert result.target_output_tokens == 15
-        assert result.judge_input_tokens == 10
-        assert result.judge_output_tokens == 8

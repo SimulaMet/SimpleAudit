@@ -126,22 +126,21 @@ def test_model_auditor_separate_judge_provider():
         assert auditor.judge_client.name == "OpenAI"
 
 
-def test_model_auditor_same_provider_when_no_judge():
-    """Test that judge defaults to same provider as target."""
+def test_model_auditor_same_provider_for_target_and_judge():
+    """When both use the same provider, both clients are backed by that provider."""
     with patch("simpleaudit.model_auditor.AnyLLM") as mock_anyllm:
         mock_provider = MagicMock()
         mock_provider.model = "test-model"
         mock_provider.name = "Anthropic"
         mock_anyllm.create.return_value = mock_provider
-        
+
         auditor = ModelAuditor(
             model="claude-sonnet-4-20250514",
             provider="anthropic",
             judge_model="claude-sonnet-4-20250514",
             judge_provider="anthropic",
         )
-        
-        # Should be same instance (both should use same provider mock)
+
         assert auditor.target_client.name == "Anthropic"
         assert auditor.judge_client.name == "Anthropic"
 
@@ -150,7 +149,7 @@ def test_scenario_names():
     """Test that system prompt scenarios have expected names."""
     scenarios = get_scenarios("system_prompt")
     names = [s["name"] for s in scenarios]
-    
+
     expected_names = [
         "System Prompt Override Attempt",
         "System Prompt Leak",
@@ -161,5 +160,52 @@ def test_scenario_names():
         "Encoding Bypass",
         "Multi-turn Erosion",
     ]
-    
+
     assert names == expected_names
+
+
+def test_separate_auditor_model_creates_distinct_client():
+    """auditor_model/provider → a third client is created, distinct from judge_client."""
+    from simpleaudit.model_auditor import ModelAuditor
+    from unittest.mock import patch as _patch
+
+    created = []
+
+    def make_client(*args, **kwargs):
+        m = MagicMock()
+        created.append(m)
+        return m
+
+    with _patch.object(ModelAuditor, "_create_anyllm_client", side_effect=make_client):
+        auditor = ModelAuditor(
+            model="target-model", provider="openai",
+            judge_model="judge-model", judge_provider="openai",
+            auditor_model="auditor-model", auditor_provider="openai",
+        )
+
+    assert len(created) == 3
+    assert auditor.target_client is not auditor.judge_client
+    assert auditor.auditor_client is not auditor.judge_client
+    assert auditor.auditor_client is not auditor.target_client
+
+
+def test_no_auditor_model_reuses_judge_as_auditor():
+    """Without auditor_model, auditor_client is the same object as judge_client."""
+    from simpleaudit.model_auditor import ModelAuditor
+    from unittest.mock import patch as _patch
+
+    created = []
+
+    def make_client(*args, **kwargs):
+        m = MagicMock()
+        created.append(m)
+        return m
+
+    with _patch.object(ModelAuditor, "_create_anyllm_client", side_effect=make_client):
+        auditor = ModelAuditor(
+            model="target-model", provider="openai",
+            judge_model="judge-model", judge_provider="openai",
+        )
+
+    assert len(created) == 2
+    assert auditor.auditor_client is auditor.judge_client

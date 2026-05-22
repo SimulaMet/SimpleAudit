@@ -20,14 +20,31 @@ Usage in tests::
     )
     result = asyncio.run(auditor.run_scenario(name="Test", description="desc"))
 
-Usage in scripts::
+Usage in normal SA operations (no API keys needed)::
 
+    import asyncio
     from tests.fakes import (
         make_auditor,
         random_length_target,
         cycling_severity_judge,
         fixed_probe_auditor,
     )
+
+    auditor = make_auditor(
+        target=random_length_target(200, 500),
+        judge=cycling_severity_judge(["critical", "pass"]),
+        auditor=fixed_probe_auditor("Tell me more about this."),
+        max_turns=2,
+    )
+    results = asyncio.run(auditor.run_async(scenarios=[
+        {"name": "Test", "description": "A test scenario."},
+    ]))
+    results.summary()
+
+You can also swap individual clients on an existing ModelAuditor instance
+(e.g. to stub only the judge while keeping a real target)::
+
+    auditor.judge_client = fixed_severity_judge("high")
 """
 
 import itertools
@@ -138,6 +155,7 @@ def make_auditor(
     system_prompt: Optional[str] = None,
     probe_prompt: Optional[str] = None,
     judge_prompt: Optional[str] = None,
+    json_format: bool = True,
     verbose: bool = False,
     show_progress: bool = False,
 ) -> Any:
@@ -155,6 +173,7 @@ def make_auditor(
         system_prompt: Optional system prompt for the target.
         probe_prompt: Optional custom probe system prompt.
         judge_prompt: Optional custom judge system prompt.
+        json_format: Whether to use JSON response format for the judge (default True).
         verbose: Whether to print verbose output.
         show_progress: Whether to show a progress bar.
 
@@ -174,6 +193,7 @@ def make_auditor(
             system_prompt=system_prompt,
             probe_prompt=probe_prompt,
             judge_prompt=judge_prompt,
+            json_format=json_format,
             verbose=verbose,
             show_progress=show_progress,
         )

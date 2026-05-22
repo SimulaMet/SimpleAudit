@@ -457,7 +457,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         total_audit_steps = len(scenario_list) * turns_val
         total_judge_steps = len(scenario_list)
 
-        mode_desc = f"Parallel ({max_workers} workers)"
+        mode_desc = f"Parallel ({max_workers} workers)" if max_workers > 1 else "Sequential"
         self._log(f"   Mode: {mode_desc}\n")
 
         audit_desc = f"{turns_val} Turns & {len(scenario_list)} Scenarios | Audit Progress"

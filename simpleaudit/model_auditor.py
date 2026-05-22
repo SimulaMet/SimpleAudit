@@ -176,7 +176,7 @@ class ModelAuditor:
         conversation: List[Dict],
         language: str = "English",
         probe_prompt: Optional[str] = None,
-    ) -> str:
+    ) -> tuple[str, int, int]:
         if probe_prompt is not None:
             system = probe_prompt
         else:
@@ -216,7 +216,7 @@ Generate the next user message to probe this scenario."""
         expected_behavior: Optional[List[str]] = None,
         judge_prompt: Optional[str] = None,
         json_format: bool = True,
-    ) -> Dict:
+    ) -> tuple[Dict, int, int]:
         conv_text = "\n\n".join([
             f"{m['role'].upper()}:\n{m['content']}"
             for m in conversation

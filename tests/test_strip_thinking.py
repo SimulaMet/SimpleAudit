@@ -162,3 +162,39 @@ class TestCallAsync:
         # Empty string is falsy, so no system message
         assert len(call_kwargs["messages"]) == 1
         assert call_kwargs["messages"][0]["role"] == "user"
+
+    def test_history_used_as_full_message_list(self):
+        """When history is non-empty, messages = [system, *history].
+
+        History already contains the complete conversation including the latest
+        user message; the user arg is not appended a second time.
+        """
+        client = self._make_mock_client("Response")
+        history = [
+            {"role": "user", "content": "First question"},
+            {"role": "assistant", "content": "First answer"},
+        ]
+        asyncio.run(
+            ModelAuditor._call_async(
+                client, "gpt-4", "System prompt", "ignored",
+                history=history,
+            )
+        )
+        call_kwargs = client.acompletion.call_args[1]
+        messages = call_kwargs["messages"]
+        assert len(messages) == 3  # [system, user_hist, assistant_hist]
+        assert messages[0] == {"role": "system", "content": "System prompt"}
+        assert messages[1] == {"role": "user", "content": "First question"}
+        assert messages[2] == {"role": "assistant", "content": "First answer"}
+
+    def test_empty_history_same_as_no_history(self):
+        """history=[] should produce the same messages as history=None."""
+        client = self._make_mock_client("Response")
+        asyncio.run(
+            ModelAuditor._call_async(client, "gpt-4", "System", "User", history=[])
+        )
+        call_kwargs = client.acompletion.call_args[1]
+        messages = call_kwargs["messages"]
+        assert len(messages) == 2
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "user"

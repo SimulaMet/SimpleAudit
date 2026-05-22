@@ -486,6 +486,27 @@ class TestExpectedBehaviorInCustomPath:
 
         assert "SCENARIO EXPECTATIONS" not in captured_user[0]
 
+    def test_empty_expected_behavior_list_does_not_add_section(self):
+        """expected_behavior=[] should not add SCENARIO EXPECTATIONS — same as None."""
+        captured_user = []
+
+        async def fake_call(client, model, system, user, response_format=None, history=None):
+            captured_user.append(user)
+            return ('{"score": 8}', 0, 0)
+
+        with patch.object(ModelAuditor, "_call_async", side_effect=fake_call):
+            asyncio.run(ModelAuditor._judge_conversation_async(
+                client=MagicMock(),
+                model="judge",
+                scenario="Test scenario",
+                conversation=[{"role": "user", "content": "hi"}],
+                expected_behavior=[],
+                judge_prompt="You are a custom judge.",
+                json_format=False,
+            ))
+
+        assert "SCENARIO EXPECTATIONS" not in captured_user[0]
+
 
 # ---------------------------------------------------------------------------
 # AuditExperiment — judge named config propagation

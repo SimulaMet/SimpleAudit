@@ -8,6 +8,7 @@ import json
 import os
 import tempfile
 import threading
+from unittest.mock import patch
 
 import pytest
 
@@ -16,6 +17,7 @@ from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.experiment import AuditExperiment
 from tests.fakes import (
     FakeClient,
+    _make_response,
     cycling_probe_auditor,
     cycling_target,
     fixed_probe_auditor,
@@ -141,6 +143,34 @@ class TestEndToEndMockAudit:
 
         assert isinstance(result, AuditResult)
         assert result.severity == "pass"
+
+    def test_run_scenario_system_prompt_forwarded_to_target(self):
+        """system_prompt is forwarded as the system arg to target _call_async calls."""
+        captured = []
+
+        async def spy_call(client, model, system, user, response_format=None, history=None):
+            captured.append({"model": model, "system": system})
+            return ("response", 0, 0)
+
+        auditor = make_auditor(
+            target=fixed_target("response"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("probe"),
+            max_turns=1,
+            system_prompt="Be helpful and safe.",
+            show_progress=False,
+        )
+
+        with patch.object(ModelAuditor, "_call_async", side_effect=spy_call):
+            asyncio.run(auditor.run_scenario(
+                name="System Prompt Test",
+                description="desc",
+                max_turns=1,
+            ))
+
+        target_calls = [c for c in captured if c["model"] == "fake-model"]
+        assert len(target_calls) >= 1
+        assert target_calls[0]["system"] == "Be helpful and safe."
 
     def test_run_scenario_with_expected_behavior(self):
         """run_scenario should pass expected_behavior to the result."""
@@ -550,3 +580,185 @@ class TestErrorResilience:
         assert dist["high"] == 1
         assert dist["critical"] == 1
         assert dist.get("medium", 0) == 0
+
+
+# --- Language parameter ---
+
+
+class TestLanguageParameter:
+    """run_scenario forwards the language argument to _generate_probe_async."""
+
+    def test_language_forwarded_from_run_scenario(self):
+        captured_lang = []
+
+        async def spy_probe(client, model, scenario, conversation,
+                            language="English", probe_prompt=None):
+            captured_lang.append(language)
+            return ("probe", 0, 0)
+
+        auditor = make_auditor(
+            target=fixed_target("response"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("probe"),
+            max_turns=1, show_progress=False,
+        )
+
+        with patch.object(ModelAuditor, "_generate_probe_async", side_effect=spy_probe):
+            asyncio.run(auditor.run_scenario(
+                name="test", description="desc",
+                max_turns=1, language="Norwegian",
+            ))
+
+        assert captured_lang[0] == "Norwegian"
+
+    def test_language_defaults_to_english(self):
+        captured_lang = []
+
+        async def spy_probe(client, model, scenario, conversation,
+                            language="English", probe_prompt=None):
+            captured_lang.append(language)
+            return ("probe", 0, 0)
+
+        auditor = make_auditor(
+            target=fixed_target("response"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("probe"),
+            max_turns=1, show_progress=False,
+        )
+
+        with patch.object(ModelAuditor, "_generate_probe_async", side_effect=spy_probe):
+            asyncio.run(auditor.run_scenario(name="test", description="desc", max_turns=1))
+
+        assert captured_lang[0] == "English"
+
+
+# --- max_workers parameter ---
+
+
+class TestMaxWorkers:
+    """run() / run_async() respect the max_workers concurrency cap."""
+
+    def test_max_workers_all_scenarios_complete(self):
+        """All scenarios complete and none are dropped."""
+        auditor = make_auditor(
+            target=fixed_target("response"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("probe"),
+            max_turns=1, show_progress=False,
+        )
+        scenarios = [{"name": f"s{i}", "description": f"d{i}"} for i in range(6)]
+        results = auditor.run(scenarios=scenarios, max_workers=2)
+        assert len(results) == 6
+
+    def test_max_workers_1_all_scenarios_complete(self):
+        """max_workers=1 serializes execution; all scenarios still complete."""
+        auditor = make_auditor(
+            target=fixed_target("response"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("probe"),
+            max_turns=1, show_progress=False,
+        )
+        scenarios = [{"name": f"s{i}", "description": f"d{i}"} for i in range(4)]
+        results = auditor.run(scenarios=scenarios, max_workers=1)
+        assert len(results) == 4
+
+    def test_max_workers_concurrency_cap(self):
+        """In-flight target calls never exceed max_workers simultaneously."""
+        active = [0]
+        peak = [0]
+
+        class ConcurrencyTrackingTarget:
+            async def acompletion(self, **kwargs):
+                active[0] += 1
+                if active[0] > peak[0]:
+                    peak[0] = active[0]
+                await asyncio.sleep(0)
+                active[0] -= 1
+                return _make_response("response")
+
+        max_workers = 2
+        auditor = make_auditor(
+            target=ConcurrencyTrackingTarget(),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("probe"),
+            max_turns=1, show_progress=False,
+        )
+        scenarios = [{"name": f"s{i}", "description": f"d{i}"} for i in range(6)]
+        asyncio.run(auditor.run_async(scenarios=scenarios, max_workers=max_workers))
+        assert peak[0] <= max_workers
+
+
+# --- String pack name in run() ---
+
+
+class TestRunWithPackName:
+    """run('pack_name') fetches the pack and runs all scenarios."""
+
+    def test_run_safety_string_resolves_and_runs(self):
+        from simpleaudit import get_scenarios
+        auditor = make_auditor(
+            target=fixed_target("response"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("probe"),
+            max_turns=1, show_progress=False,
+        )
+        results = auditor.run("safety", max_turns=1)
+        assert len(results) == len(get_scenarios("safety"))
+
+    def test_run_invalid_pack_name_raises(self):
+        auditor = make_auditor(
+            target=fixed_target("response"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("probe"),
+            max_turns=1, show_progress=False,
+        )
+        with pytest.raises(ValueError):
+            auditor.run("nonexistent_pack_xyz", max_turns=1)
+
+
+# --- Save/load: judgment and expected_behavior fields ---
+
+
+class TestSaveLoadExtendedFields:
+    """save/load round-trip preserves judgment and expected_behavior on AuditResult."""
+
+    def test_save_load_preserves_judgment(self):
+        results = AuditResults([AuditResult(
+            scenario_name="T", scenario_description="D", conversation=[],
+            severity="low", issues_found=[], positive_behaviors=[], summary="",
+            recommendations=[], judgment={"score": 7, "reasoning": "test reasoning"},
+        )])
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            filepath = f.name
+        try:
+            results.save(filepath)
+            loaded = AuditResults.load(filepath)
+            assert loaded[0].judgment == {"score": 7, "reasoning": "test reasoning"}
+        finally:
+            os.unlink(filepath)
+
+    def test_save_load_preserves_expected_behavior(self):
+        results = AuditResults([AuditResult(
+            scenario_name="T", scenario_description="D", conversation=[],
+            severity="pass", issues_found=[], positive_behaviors=[], summary="",
+            recommendations=[], expected_behavior=["Should refuse", "Should cite sources"],
+        )])
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            filepath = f.name
+        try:
+            results.save(filepath)
+            loaded = AuditResults.load(filepath)
+            assert loaded[0].expected_behavior == ["Should refuse", "Should cite sources"]
+        finally:
+            os.unlink(filepath)
+
+    def test_save_load_none_judgment_stays_none(self):
+        results = AuditResults([_make_audit_result()])
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            filepath = f.name
+        try:
+            results.save(filepath)
+            loaded = AuditResults.load(filepath)
+            assert loaded[0].judgment is None
+        finally:
+            os.unlink(filepath)

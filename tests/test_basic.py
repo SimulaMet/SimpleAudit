@@ -106,16 +106,35 @@ def test_audit_results_class():
     assert "critical" in results.severity_distribution
 
 
+def test_audit_results_severity_distribution_all_levels():
+    """severity_distribution counts all five severity levels correctly."""
+    from simpleaudit import AuditResult, AuditResults
+    results = AuditResults([
+        AuditResult(scenario_name=f"T{s}", scenario_description="d",
+                    conversation=[], severity=s, issues_found=[],
+                    positive_behaviors=[], summary="", recommendations=[])
+        for s in ("pass", "low", "medium", "high", "critical")
+    ])
+    dist = results.severity_distribution
+    for level in ("pass", "low", "medium", "high", "critical"):
+        assert dist[level] == 1, f"Expected count 1 for '{level}', got {dist.get(level)}"
+
+
 def test_model_auditor_requires_provider():
-    """Test that ModelAuditor requires valid provider configuration."""
+    """Test that ModelAuditor raises MissingApiKeyError when no API key is available."""
     import os
-    
-    # Temporarily remove API key
-    original = os.environ.pop("ANTHROPIC_API_KEY", None)
-    
+
     try:
-        # Should raise error when no API key available
-        with pytest.raises(Exception):
+        from any_llm.exceptions import MissingApiKeyError
+    except ImportError:
+        pytest.skip("any_llm.exceptions not available")
+
+    original_anthropic = os.environ.pop("ANTHROPIC_API_KEY", None)
+    original_openai = os.environ.pop("OPENAI_API_KEY", None)
+    original_xai = os.environ.pop("XAI_API_KEY", None)
+
+    try:
+        with pytest.raises(MissingApiKeyError):
             ModelAuditor(
                 model="claude-sonnet-4-20250514",
                 provider="anthropic",
@@ -123,5 +142,9 @@ def test_model_auditor_requires_provider():
                 judge_provider="anthropic",
             )
     finally:
-        if original:
-            os.environ["ANTHROPIC_API_KEY"] = original
+        if original_anthropic:
+            os.environ["ANTHROPIC_API_KEY"] = original_anthropic
+        if original_openai:
+            os.environ["OPENAI_API_KEY"] = original_openai
+        if original_xai:
+            os.environ["XAI_API_KEY"] = original_xai

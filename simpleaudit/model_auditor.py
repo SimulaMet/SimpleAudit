@@ -302,7 +302,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                         ],
                     },
                 },
-            } if json_format else None,
+            } if json_format and judge_prompt is None else None,
         )
         if judge_prompt is not None:
             try:

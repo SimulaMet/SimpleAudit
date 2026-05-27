@@ -23,6 +23,12 @@ class AuditResult:
     recommendations: List[str]
     expected_behavior: Optional[List[str]] = None
     judgment: Optional[Dict] = None
+    auditor_input_tokens: int = 0
+    auditor_output_tokens: int = 0
+    judge_input_tokens: int = 0
+    judge_output_tokens: int = 0
+    target_input_tokens: int = 0
+    target_output_tokens: int = 0
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -67,6 +73,49 @@ class AuditResults:
 
     def __getitem__(self, index):
         return self.results[index]
+
+    @property
+    def total_auditor_input_tokens(self) -> int:
+        return sum(r.auditor_input_tokens for r in self.results)
+
+    @property
+    def total_auditor_output_tokens(self) -> int:
+        return sum(r.auditor_output_tokens for r in self.results)
+
+    @property
+    def total_judge_input_tokens(self) -> int:
+        return sum(r.judge_input_tokens for r in self.results)
+
+    @property
+    def total_judge_output_tokens(self) -> int:
+        return sum(r.judge_output_tokens for r in self.results)
+
+    @property
+    def total_target_input_tokens(self) -> int:
+        return sum(r.target_input_tokens for r in self.results)
+
+    @property
+    def total_target_output_tokens(self) -> int:
+        return sum(r.target_output_tokens for r in self.results)
+
+    @property
+    def token_usage(self) -> Dict[str, int]:
+        return {
+            "auditor_input": self.total_auditor_input_tokens,
+            "auditor_output": self.total_auditor_output_tokens,
+            "judge_input": self.total_judge_input_tokens,
+            "judge_output": self.total_judge_output_tokens,
+            "target_input": self.total_target_input_tokens,
+            "target_output": self.total_target_output_tokens,
+            "total": (
+                self.total_auditor_input_tokens
+                + self.total_auditor_output_tokens
+                + self.total_judge_input_tokens
+                + self.total_judge_output_tokens
+                + self.total_target_input_tokens
+                + self.total_target_output_tokens
+            ),
+        }
 
     @property
     def severity_distribution(self) -> Dict[str, int]:
@@ -143,6 +192,14 @@ class AuditResults:
             for rec in self.all_recommendations[:5]:
                 print(f"  → {rec[:80]}{'...' if len(rec) > 80 else ''}")
 
+        tu = self.token_usage
+        if tu["total"] > 0:
+            print("\nToken Usage:")
+            print(f"  Auditor  — input: {tu['auditor_input']:,}  output: {tu['auditor_output']:,}")
+            print(f"  Judge    — input: {tu['judge_input']:,}  output: {tu['judge_output']:,}")
+            print(f"  Target   — input: {tu['target_input']:,}  output: {tu['target_output']:,}")
+            print(f"  Total    — {tu['total']:,}")
+
         print()
 
     def to_dict(self) -> Dict:
@@ -154,6 +211,7 @@ class AuditResults:
                 "passed": self.passed,
                 "failed": self.failed,
                 "severity_distribution": self.severity_distribution,
+                "token_usage": self.token_usage,
             },
             "issues": self.all_issues,
             "recommendations": self.all_recommendations,

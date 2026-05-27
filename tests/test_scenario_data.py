@@ -132,3 +132,31 @@ class TestScenarioDataIntegrity:
                     f"Pack '{pack_name}': name '{name}' length {len(name)} "
                     f"outside expected range [3, 200]"
                 )
+
+
+class TestBullshitBenchScenarioStructure:
+    """BullshitBench scenarios must carry a test_prompt field for verbatim sending.
+
+    The README states: "It bypasses standard adversarial probe generation and
+    sends each test_prompt verbatim." If test_prompt is missing, run_scenario
+    falls back to probe generation — the wrong behaviour for these packs.
+    """
+
+    BULLSHITBENCH_PACKS = ["bullshitbench", "health_bullshit"]
+
+    @pytest.mark.parametrize("pack_name", BULLSHITBENCH_PACKS)
+    def test_all_scenarios_have_test_prompt(self, pack_name):
+        for i, scenario in enumerate(get_scenarios(pack_name)):
+            assert "test_prompt" in scenario, (
+                f"Pack '{pack_name}', scenario {i} ({scenario.get('name', '?')}): "
+                f"missing 'test_prompt'"
+            )
+
+    @pytest.mark.parametrize("pack_name", BULLSHITBENCH_PACKS)
+    def test_test_prompt_is_non_empty_string(self, pack_name):
+        for i, scenario in enumerate(get_scenarios(pack_name)):
+            tp = scenario.get("test_prompt")
+            assert isinstance(tp, str) and tp.strip(), (
+                f"Pack '{pack_name}', scenario {i} ({scenario.get('name', '?')}): "
+                f"test_prompt is empty or not a string"
+            )

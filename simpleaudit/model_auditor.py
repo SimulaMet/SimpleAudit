@@ -60,6 +60,10 @@ class ModelAuditor:
         system_prompt: Optional[str] = None,
         judge_api_key: Optional[str] = None,
         judge_base_url: Optional[str] = None,
+        auditor_model: Optional[str] = None,
+        auditor_provider: Optional[str] = None,
+        auditor_api_key: Optional[str] = None,
+        auditor_base_url: Optional[str] = None,
         judge: Optional[str] = None,
         probe_prompt: Optional[str] = None,
         judge_prompt: Optional[str] = None,
@@ -109,6 +113,18 @@ class ModelAuditor:
             "provider": judge_provider,
         }
         self.judge_client = self._create_anyllm_client(**self._judge_client_config)
+
+        # Auditor model: falls back to judge config if not separately specified
+        self.auditor_model = auditor_model or judge_model
+        self._auditor_client_config = {
+            "api_key": auditor_api_key or judge_api_key,
+            "base_url": auditor_base_url or judge_base_url,
+            "provider": auditor_provider or judge_provider,
+        }
+        if self._auditor_client_config == self._judge_client_config and self.auditor_model == self.judge_model:
+            self.auditor_client = self.judge_client
+        else:
+            self.auditor_client = self._create_anyllm_client(**self._auditor_client_config)
 
     def _create_anyllm_client(
         self,
@@ -160,7 +176,8 @@ class ModelAuditor:
         user: str,
         response_format: Optional[Dict[str, Any]] = None,
         history: Optional[List[Dict]] = None,
-    ) -> str:
+    ) -> tuple[str, int, int]:
+        """Returns (content, input_tokens, output_tokens)."""
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -176,7 +193,11 @@ class ModelAuditor:
         if response_format:
             kwargs["response_format"] = response_format
         response = await client.acompletion(**kwargs)
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        usage = getattr(response, "usage", None)
+        input_tokens = getattr(usage, "prompt_tokens", 0) or 0
+        output_tokens = getattr(usage, "completion_tokens", 0) or 0
+        return content, input_tokens, output_tokens
 
     @staticmethod
     async def _generate_probe_async(
@@ -186,7 +207,7 @@ class ModelAuditor:
         conversation: List[Dict],
         language: str = "English",
         probe_prompt: Optional[str] = None,
-    ) -> str:
+    ) -> tuple[str, int, int]:
         if probe_prompt is not None:
             system = probe_prompt
         else:
@@ -214,7 +235,8 @@ CONVERSATION SO FAR:
 
 Generate the next user message to probe this scenario."""
 
-        return await ModelAuditor._call_async(client, model, system, user)
+        content, input_tokens, output_tokens = await ModelAuditor._call_async(client, model, system, user)
+        return content, input_tokens, output_tokens
 
     @staticmethod
     async def _judge_conversation_async(
@@ -226,7 +248,7 @@ Generate the next user message to probe this scenario."""
         judge_prompt: Optional[str] = None,
         json_format: bool = True,
         response_schema: Optional[Dict[str, Any]] = None,
-    ) -> Dict:
+    ) -> tuple[Dict, int, int]:
         conv_text = "\n\n".join([
             f"{m['role'].upper()}:\n{m['content']}"
             for m in conversation
@@ -298,18 +320,23 @@ Evaluate this conversation and respond with this exact JSON structure:
         else:
             response_format = None
 
-        response = await ModelAuditor._call_async(
+        call_result = await ModelAuditor._call_async(
             client, model, system, user,
             response_format=response_format,
         )
+        if isinstance(call_result, tuple):
+            response, input_tokens, output_tokens = call_result
+        else:
+            response = call_result
+            input_tokens = 0
+            output_tokens = 0
         if judge_prompt is not None:
-            # Custom schema — return raw JSON, preserving all fields as-is.
-            # Use _extract_json_payload to handle markdown code fences.
             try:
-                return json.loads(_extract_json_payload(response))
+                judgment = json.loads(_extract_json_payload(response))
             except Exception:
-                return {"severity": "ERROR", "issues_found": ["Could not parse judge response"], "summary": response[:500]}
-        return ModelAuditor.parse_json_response(response)
+                judgment = {"severity": "ERROR", "issues_found": ["Could not parse judge response"], "summary": response[:500]}
+            return judgment, input_tokens, output_tokens
+        return ModelAuditor.parse_json_response(response), input_tokens, output_tokens
 
     async def run_scenario(
         self,
@@ -329,25 +356,31 @@ Evaluate this conversation and respond with this exact JSON structure:
         self._log(f"--- Started Scenario: {name}{mode_str} ---")
 
         conversation: List[Dict] = []
+        auditor_input_tokens = 0
+        auditor_output_tokens = 0
+        judge_input_tokens = 0
+        judge_output_tokens = 0
+        target_input_tokens = 0
+        target_output_tokens = 0
+
         for turn in range(turns):
             self._log(f"--- Turn {turn + 1}/{turns} ---", name=name)
 
-            # First turn: if the scenario defines a test_prompt (v2 schema),
-            # send it verbatim. The v2 guidelines describe test_prompt as
-            # "the exact prompt to send to the AI system", so we honour that
-            # directly rather than regenerating via the probe LLM. Subsequent
-            # turns still use probe generation for multi-turn follow-ups.
+            # First turn: if the scenario defines a test_prompt, send it verbatim.
+            # Subsequent turns use the auditor model for probe generation.
             if turn == 0 and test_prompt:
                 probe = test_prompt
             else:
-                probe = await self._generate_probe_async(
-                    self.judge_client,
-                    self.judge_model,
+                probe, a_in, a_out = await self._generate_probe_async(
+                    self.auditor_client,
+                    self.auditor_model,
                     description,
                     conversation,
                     language,
                     probe_prompt=self.probe_prompt,
                 )
+                auditor_input_tokens += a_in
+                auditor_output_tokens += a_out
                 probe = ModelAuditor.strip_thinking(probe)
 
             probe_preview = probe[:80] + "..." if len(probe) > 80 else probe
@@ -355,13 +388,15 @@ Evaluate this conversation and respond with this exact JSON structure:
 
             conversation.append({"role": "user", "content": probe})
 
-            response = await self._call_async(
+            response, t_in, t_out = await self._call_async(
                 self.target_client,
                 self.target_model,
                 self.system_prompt,
                 probe,
                 history=conversation,
             )
+            target_input_tokens += t_in
+            target_output_tokens += t_out
             response = ModelAuditor.strip_thinking(response)
 
             response_preview = response[:80] + "..." if len(response) > 80 else response
@@ -372,7 +407,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                 pbar_audit.update(1)
 
         self._log("Judging conversation...", name=name)
-        judgment = await self._judge_conversation_async(
+        judgment, j_in, j_out = await self._judge_conversation_async(
             self.judge_client,
             self.judge_model,
             description,
@@ -382,6 +417,8 @@ Evaluate this conversation and respond with this exact JSON structure:
             json_format=self.json_format,
             response_schema=self.judge_response_schema,
         )
+        judge_input_tokens += j_in
+        judge_output_tokens += j_out
 
         if pbar_judge:
             pbar_judge.update(1)
@@ -399,6 +436,12 @@ Evaluate this conversation and respond with this exact JSON structure:
             recommendations=judgment.get("recommendations", []),
             expected_behavior=expected_behavior,
             judgment=judgment,
+            auditor_input_tokens=auditor_input_tokens,
+            auditor_output_tokens=auditor_output_tokens,
+            judge_input_tokens=judge_input_tokens,
+            judge_output_tokens=judge_output_tokens,
+            target_input_tokens=target_input_tokens,
+            target_output_tokens=target_output_tokens,
         )
 
         icon = AuditResults.SEVERITY_ICONS.get(result.severity, "⚪")
@@ -425,9 +468,15 @@ Evaluate this conversation and respond with this exact JSON structure:
 
         target_info = f"{self._target_client_config['provider']} ({self.target_model})"
         judge_info = f"{self._judge_client_config['provider']} ({self.judge_model})"
+        auditor_info = (
+            f"{self._auditor_client_config['provider']} ({self.auditor_model})"
+            if self.auditor_model != self.judge_model or self._auditor_client_config != self._judge_client_config
+            else judge_info
+        )
 
         self._log(f"\n🔍 ModelAuditor - Running {len(scenario_list)} scenarios")
         self._log(f"   Target: {target_info}")
+        self._log(f"   Auditor: {auditor_info}")
         self._log(f"   Judge: {judge_info}")
         self._log(f"   System Prompt: {'Yes' if self.system_prompt else 'No'}\n")
 
@@ -435,7 +484,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         total_audit_steps = len(scenario_list) * turns_val
         total_judge_steps = len(scenario_list)
 
-        mode_desc = f"Parallel ({max_workers} workers)"
+        mode_desc = f"Parallel ({max_workers} workers)" if max_workers > 1 else "Sequential"
         self._log(f"   Mode: {mode_desc}\n")
 
         audit_desc = f"{turns_val} Turns & {len(scenario_list)} Scenarios | Audit Progress"

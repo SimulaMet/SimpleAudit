@@ -220,7 +220,7 @@ def test_binary_judge_parses_back_to_raw_payload():
     payload = {"abstained": True, "reasoning": "Bot replied: 'I can't help with that.'"}
     fake_response = json.dumps(payload)
     with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value=fake_response)):
-        out = asyncio.run(
+        out, input_tokens, output_tokens = asyncio.run(
             ModelAuditor._judge_conversation_async(
                 client=MagicMock(),
                 model="judge",
@@ -232,13 +232,15 @@ def test_binary_judge_parses_back_to_raw_payload():
             )
         )
     assert out == payload
+    assert input_tokens == 0
+    assert output_tokens == 0
     assert "severity" not in out
 
 
 def test_binary_judge_malformed_response_yields_error_marker():
     """If the LLM returns garbage, we get the ERROR severity fallback (existing behavior)."""
     with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value="not json at all")):
-        out = asyncio.run(
+        out, input_tokens, output_tokens = asyncio.run(
             ModelAuditor._judge_conversation_async(
                 client=MagicMock(),
                 model="judge",
@@ -250,3 +252,5 @@ def test_binary_judge_malformed_response_yields_error_marker():
             )
         )
     assert out["severity"] == "ERROR"
+    assert input_tokens == 0
+    assert output_tokens == 0

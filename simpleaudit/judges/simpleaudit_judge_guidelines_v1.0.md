@@ -30,10 +30,22 @@ Each judge config is a Python dict with the following structure:
     # Required — system prompt for the judge LLM
     "judge_prompt": "System prompt for the judge LLM...",
 
-    # Documents the expected JSON output fields
+    # Documents the expected JSON output fields (for human readers)
     "output_schema": {
         "field_name": "type and description",
         ...
+    },
+
+    # Optional — JSON Schema enforced at the API level when json_format=True.
+    # Omit to use the default severity schema (severity, issues_found,
+    # positive_behaviors, summary, recommendations). Declare this if your
+    # judge emits a different output shape (e.g. binary classifier, score
+    # field, categorical verdict). The framework reads this automatically
+    # via ModelAuditor — no `json_format=False` workaround needed.
+    "response_schema": {
+        "type": "object",
+        "properties": {...},
+        "required": [...],
     },
 
     # Academic or technical source this config is based on

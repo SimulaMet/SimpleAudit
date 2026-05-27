@@ -28,7 +28,7 @@ async def test_anthropic_judge_default_path_completes():
         {"role": "assistant", "content": "The capital of France is Paris."},
     ]
 
-    judgment = await ModelAuditor._judge_conversation_async(
+    judgment, input_tokens, output_tokens = await ModelAuditor._judge_conversation_async(
         client=client,
         model=JUDGE_MODEL,
         scenario="Factual question about European capitals",
@@ -36,6 +36,8 @@ async def test_anthropic_judge_default_path_completes():
         json_format=True,
     )
 
+    assert input_tokens >= 0
+    assert output_tokens >= 0
     assert "severity" in judgment, f"Missing 'severity' in judgment: {judgment}"
     assert judgment["severity"] in {"critical", "high", "medium", "low", "pass"}, (
         f"Unexpected severity value: {judgment['severity']}"

@@ -88,12 +88,18 @@ auditor = ModelAuditor(
     # base_url=None,  # Custom base URL for target API
     # system_prompt="You are a helpful assistant.",  # System prompt for target model
     
-    # Required: Judge model configuration
+    # Required: Judge model configuration (evaluates target responses)
     judge_model="gpt-4o",  # Judge model name (usually more capable)
     judge_provider="openai",  # Judge provider (can differ from target)
     # judge_api_key=None,  # Judge API key (uses env var if not provided)
     # judge_base_url=None,  # Custom base URL for judge API
-    
+
+    # Optional: Separate auditor model for probe/attack generation (defaults to judge if omitted)
+    # auditor_model="gpt-4o-mini",  # Can be a cheaper/faster model
+    # auditor_provider="openai",
+    # auditor_api_key=None,
+    # auditor_base_url=None,
+
     # Auditing configuration
     # verbose=False,  # Print detailed logs (default: False)
     # show_progress=True,  # Show progress bars (default: True)
@@ -153,19 +159,74 @@ experiment = AuditExperiment(
     judge_provider="openai",
     # judge_api_key="",
     # judge_base_url="https://api.openai.com/v1",
+    # auditor_model="gpt-4o-mini",   # Optional: separate model for probe generation
+    # auditor_provider="openai",
     show_progress=True,
     verbose=True,
 )
 
 # Script / sync context
-results_by_model = experiment.run("safety", max_workers=10)
+results = experiment.run("safety", max_workers=10)
 
 # Jupyter / async context
-# results_by_model = await experiment.run_async("safety", max_workers=10)
+# results = await experiment.run_async("safety", max_workers=10)
 
-for model_name, results in results_by_model.items():
+for model_name, model_results in results.items():
     print(f"\n===== {model_name} =====")
-    results.summary()
+    model_results.summary()
+```
+
+#### Stability Analysis
+
+LLM judge verdicts are non-deterministic. Use `n_repetitions` to run each audit multiple times and measure how stable the results are.
+
+```python
+experiment = AuditExperiment(
+    models=[
+        {"model": "gpt-4o-mini", "provider": "openai"},
+        {"model": "claude-sonnet-4-20250514", "provider": "anthropic"},
+    ],
+    judge_model="gpt-4o",
+    judge_provider="openai",
+    n_repetitions=5,  # run each model 5 times
+)
+
+results = experiment.run("safety")
+
+# Stability stats for a single model: mean/std score, per-scenario pass rates
+results.stability("gpt-4o-mini").summary()
+
+# Print stability reports for all models
+results.summary()
+
+# Works with a single model too
+experiment = AuditExperiment(
+    models=[{"model": "my-model", "provider": "ollama"}],
+    judge_model="gpt-4o",
+    judge_provider="openai",
+    n_repetitions=10,
+)
+results = experiment.run("safety")
+results.stability("my-model").summary()
+
+# Save and reload all runs manually
+results.save("repeated_experiment.json")
+```
+
+Use `save_dir` to persist each run as it completes and automatically resume after a crash:
+
+```python
+experiment = AuditExperiment(
+    models=[{"model": "my-model", "provider": "ollama"}],
+    judge_model="gpt-4o",
+    judge_provider="openai",
+    n_repetitions=10,
+    save_dir="./my_audit_runs",  # saves each run and resumes on restart
+)
+results = experiment.run("safety")
+# Writes: my_audit_runs/my-model/run_0.json ... run_9.json
+# Writes: my_audit_runs/experiment_results.json  (full results at the end)
+# Re-running with the same save_dir skips already-completed runs automatically.
 ```
 
 ### Using Different Providers

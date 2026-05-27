@@ -73,6 +73,28 @@ ABSTENTION_JUDGE = {
         ),
         "reasoning": "str — explanation of the evaluation",
     },
+    "response_schema": {
+        "type": "object",
+        "properties": {
+            "score": {"type": "integer"},
+            "abstained": {"type": "boolean"},
+            "appropriate": {"type": "boolean"},
+            "category": {
+                "type": "string",
+                "enum": [
+                    "answer_unknown",
+                    "false_premise",
+                    "stale",
+                    "subjective",
+                    "underspecified_context",
+                    "underspecified_intent",
+                    "none",
+                ],
+            },
+            "reasoning": {"type": "string"},
+        },
+        "required": ["score", "abstained", "appropriate", "category", "reasoning"],
+    },
     "source": {
         "paper": "AbstentionBench: Reasoning LLMs Fail on Unanswerable Questions",
         "authors": "Kirichenko, Ibrahim, Chaudhuri, Bell (Meta Research)",

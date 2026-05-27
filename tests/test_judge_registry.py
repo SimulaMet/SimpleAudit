@@ -2,7 +2,7 @@
 Tests for the built-in judge configuration registry.
 
 Covers:
-- list_judge_configs() returns exactly the five expected judges
+- list_judge_configs() returns exactly the expected built-in judges
 - get_judge(name) returns a dict with required keys
 - get_judge("unknown") raises ValueError
 - Each config has non-empty probe_prompt and judge_prompt strings
@@ -16,7 +16,16 @@ from simpleaudit.judges import get_judge, list_judge_configs, JUDGE_CONFIGS
 from simpleaudit.model_auditor import ModelAuditor
 
 
-EXPECTED_JUDGES = {"safety", "abstention", "helpfulness", "factuality", "harm"}
+EXPECTED_JUDGES = {
+    "safety",
+    "abstention",
+    "helpfulness",
+    "factuality",
+    "harm",
+    "binary_abstention",
+    "helsedir_sexhealth_no",
+    "helsedir_sexhealth_no_rag",
+}
 REQUIRED_CONFIG_KEYS = {"probe_prompt", "judge_prompt", "description"}
 
 
@@ -25,7 +34,7 @@ REQUIRED_CONFIG_KEYS = {"probe_prompt", "judge_prompt", "description"}
 # ---------------------------------------------------------------------------
 
 class TestListJudgeConfigs:
-    def test_returns_all_five_judges(self):
+    def test_returns_all_expected_judges(self):
         configs = list_judge_configs()
         assert set(configs.keys()) == EXPECTED_JUDGES
 

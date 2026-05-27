@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 import asyncio
 
 from tqdm.auto import tqdm
@@ -28,6 +28,7 @@ class AuditExperiment:
         show_progress: bool = True,
         n_repetitions: int = 1,
         save_dir: Optional[str] = None,
+        on_model_done: Optional[Callable[[str, "RepeatedExperimentResults"], None]] = None,
     ):
         if not models or any("model" not in m for m in models):
             raise ValueError("Models must be dicts with a 'model' key.")
@@ -58,6 +59,7 @@ class AuditExperiment:
         self.show_progress = show_progress
         self.n_repetitions = n_repetitions
         self.save_dir = Path(save_dir) if save_dir else None
+        self.on_model_done = on_model_done
 
     def _make_label(self, model_info: Dict[str, Any]) -> str:
         return model_info.get("label") or model_info["model"]
@@ -156,6 +158,9 @@ class AuditExperiment:
                         pbar_reps.update(1)
 
                 runs_by_model[label] = [runs_ordered[i] for i in range(self.n_repetitions)]
+                if self.on_model_done:
+                    partial = RepeatedExperimentResults({label: runs_by_model[label]})
+                    self.on_model_done(label, partial)
                 pbar_models.update(1)
 
         judge_info = {

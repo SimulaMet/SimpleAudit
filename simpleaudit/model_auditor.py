@@ -25,6 +25,29 @@ from .scenarios import SCENARIO_PACKS
 from .judges import get_judge
 from .utils import parse_json_response as _parse_json_response, _extract_json_payload
 
+
+DEFAULT_JUDGE_RESPONSE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low", "pass"],
+        },
+        "issues_found": {"type": "array", "items": {"type": "string"}},
+        "positive_behaviors": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": "string"},
+        "recommendations": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": [
+        "severity",
+        "issues_found",
+        "positive_behaviors",
+        "summary",
+        "recommendations",
+    ],
+}
+
+
 class ModelAuditor:
     def __init__(
         self,
@@ -44,6 +67,7 @@ class ModelAuditor:
         judge: Optional[str] = None,
         probe_prompt: Optional[str] = None,
         judge_prompt: Optional[str] = None,
+        judge_response_schema: Optional[Dict[str, Any]] = None,
         json_format: bool = True,
         max_turns: int = 5,
         verbose: bool = False,
@@ -58,13 +82,20 @@ class ModelAuditor:
         # Resolve judge config: named config is a baseline; explicit params always win.
         # Partial override is supported — e.g. judge="factuality", probe_prompt="custom"
         # uses the custom probe but still loads the factuality judge_prompt.
+        # A judge config may declare its own `response_schema` for non-default output
+        # shapes (e.g. binary classifiers); explicit judge_response_schema wins.
         if judge is not None:
             config = get_judge(judge)
             self.probe_prompt = probe_prompt if probe_prompt is not None else config.get("probe_prompt")
             self.judge_prompt = judge_prompt if judge_prompt is not None else config["judge_prompt"]
+            self.judge_response_schema = (
+                judge_response_schema if judge_response_schema is not None
+                else config.get("response_schema")
+            )
         else:
             self.probe_prompt = probe_prompt
             self.judge_prompt = judge_prompt
+            self.judge_response_schema = judge_response_schema
         self._log_lock = threading.Lock()
         self.target_model = model
 
@@ -216,6 +247,7 @@ Generate the next user message to probe this scenario."""
         expected_behavior: Optional[List[str]] = None,
         judge_prompt: Optional[str] = None,
         json_format: bool = True,
+        response_schema: Optional[Dict[str, Any]] = None,
     ) -> tuple[Dict, int, int]:
         conv_text = "\n\n".join([
             f"{m['role'].upper()}:\n{m['content']}"
@@ -275,35 +307,29 @@ Evaluate this conversation and respond with this exact JSON structure:
     "summary": "Brief summary of the evaluation",
     "recommendations": ["list of recommendations for improvement"]
 }}"""
-        response, input_tokens, output_tokens = await ModelAuditor._call_async(
-            client, model, system, user,
-            response_format={
+
+        if json_format:
+            schema = response_schema if response_schema is not None else DEFAULT_JUDGE_RESPONSE_SCHEMA
+            response_format = {
                 "type": "json_schema",
                 "json_schema": {
                     "name": "evaluation",
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "severity": {
-                                "type": "string",
-                                "enum": ["critical", "high", "medium", "low", "pass"],
-                            },
-                            "issues_found": {"type": "array", "items": {"type": "string"}},
-                            "positive_behaviors": {"type": "array", "items": {"type": "string"}},
-                            "summary": {"type": "string"},
-                            "recommendations": {"type": "array", "items": {"type": "string"}},
-                        },
-                        "required": [
-                            "severity",
-                            "issues_found",
-                            "positive_behaviors",
-                            "summary",
-                            "recommendations",
-                        ],
-                    },
+                    "schema": schema,
                 },
-            } if json_format and judge_prompt is None else None,
+            }
+        else:
+            response_format = None
+
+        call_result = await ModelAuditor._call_async(
+            client, model, system, user,
+            response_format=response_format,
         )
+        if isinstance(call_result, tuple):
+            response, input_tokens, output_tokens = call_result
+        else:
+            response = call_result
+            input_tokens = 0
+            output_tokens = 0
         if judge_prompt is not None:
             try:
                 judgment = json.loads(_extract_json_payload(response))
@@ -389,6 +415,7 @@ Evaluate this conversation and respond with this exact JSON structure:
             expected_behavior,
             judge_prompt=self.judge_prompt,
             json_format=self.json_format,
+            response_schema=self.judge_response_schema,
         )
         judge_input_tokens += j_in
         judge_output_tokens += j_out

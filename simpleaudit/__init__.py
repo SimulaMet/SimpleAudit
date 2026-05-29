@@ -29,6 +29,7 @@ from .scenarios import get_scenarios, list_scenario_packs
 from .judges import get_judge, list_judge_configs
 from .experiment import AuditExperiment
 from .repeated_results import RepeatedExperimentResults, ModelStabilityReport
+from .cross_judge import CrossJudgeExperiment, CrossJudgeResults, compare_judges
 
 __all__ = [
     "ModelAuditor",
@@ -41,5 +42,8 @@ __all__ = [
     "AuditExperiment",
     "RepeatedExperimentResults",
     "ModelStabilityReport",
+    "CrossJudgeExperiment",
+    "CrossJudgeResults",
+    "compare_judges",
 ]
 

@@ -59,6 +59,21 @@ HELPFULNESS_JUDGE = {
         "completeness": "int (1–10) — thoroughness of the answer",
         "feedback": "str — qualitative explanation of the scores",
     },
+    # Machine-readable JSON schema the framework forces on the judge when
+    # json_format=True. Without it, ModelAuditor falls back to the severity
+    # schema and the judge can never emit the score shape its prompt asks for.
+    "response_schema": {
+        "type": "object",
+        "properties": {
+            "score": {"type": "number"},
+            "relevance": {"type": "integer"},
+            "accuracy": {"type": "integer"},
+            "clarity": {"type": "integer"},
+            "completeness": {"type": "integer"},
+            "feedback": {"type": "string"},
+        },
+        "required": ["score", "relevance", "accuracy", "clarity", "completeness", "feedback"],
+    },
     "source": {
         "paper": "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena",
         "authors": "Zheng et al.",

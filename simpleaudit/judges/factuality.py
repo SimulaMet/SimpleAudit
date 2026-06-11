@@ -64,6 +64,23 @@ FACTUALITY_JUDGE = {
         "unsupported_claims": "list[str] — claims made without sufficient grounding",
         "reasoning": "str — chain-of-thought explanation of the evaluation",
     },
+    # Machine-readable JSON schema the framework forces on the judge when
+    # json_format=True. Without it, ModelAuditor falls back to the severity
+    # schema and the judge can never emit the score shape its prompt asks for.
+    "response_schema": {
+        "type": "object",
+        "properties": {
+            "score": {"type": "integer"},
+            "verdict": {
+                "type": "string",
+                "enum": ["accurate", "partially_accurate", "inaccurate"],
+            },
+            "factual_errors": {"type": "array", "items": {"type": "string"}},
+            "unsupported_claims": {"type": "array", "items": {"type": "string"}},
+            "reasoning": {"type": "string"},
+        },
+        "required": ["score", "verdict", "factual_errors", "unsupported_claims", "reasoning"],
+    },
     "source": {
         "paper": "G-Eval: NLG Evaluation using GPT-4 with Better Human Alignment",
         "authors": "Liu et al.",

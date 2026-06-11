@@ -19,6 +19,7 @@ Available packs:
 - all: All scenarios combined
 """
 
+from collections import Counter
 from typing import List, Dict
 
 from .safety import SAFETY_SCENARIOS
@@ -91,4 +92,29 @@ def list_scenario_packs() -> Dict[str, int]:
     return {name: len(scenarios) for name, scenarios in SCENARIO_PACKS.items()}
 
 
-__all__ = ["get_scenarios", "list_scenario_packs", "SCENARIO_PACKS"]
+def duplicate_scenario_names(scenarios: List[Dict]) -> Dict[str, int]:
+    """
+    Return scenario names that occur more than once, mapped to their count.
+
+    Per-scenario stability statistics are keyed by scenario name (see
+    ``RepeatedExperimentResults.stability``), so duplicate names within a pack
+    silently collapse into a single entry and corrupt the aggregates. Use this
+    to validate a custom scenario list before auditing.
+
+    Args:
+        scenarios: List of scenario dicts (each expected to have a ``name`` key)
+
+    Returns:
+        Dict mapping each duplicated name to the number of times it appears
+        (empty if all names are unique)
+    """
+    counts = Counter(s.get("name") for s in scenarios)
+    return {name: c for name, c in counts.items() if c > 1}
+
+
+__all__ = [
+    "get_scenarios",
+    "list_scenario_packs",
+    "duplicate_scenario_names",
+    "SCENARIO_PACKS",
+]

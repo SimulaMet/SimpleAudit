@@ -3,6 +3,7 @@ FastAPI server for visualizing SimpleAudit results.
 """
 import json
 import os
+import secrets
 from pathlib import Path
 from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException
@@ -154,8 +155,12 @@ def check_secret(request: Request):
     """
     if not SECRET:
         return
-    token = request.headers.get("X-Secret")
-    if token != SECRET:
+    token = request.headers.get("X-Secret") or ""
+    # Constant-time comparison to avoid leaking the secret via timing. Compare
+    # UTF-8 bytes: compare_digest raises TypeError on non-ASCII str operands, so
+    # a non-ASCII header (or a non-ASCII configured secret) would otherwise turn
+    # a clean 401 into a 500.
+    if not secrets.compare_digest(token.encode("utf-8"), SECRET.encode("utf-8")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
 @app.get("/api/auth")
@@ -196,19 +201,23 @@ async def get_json_file(file_path: str):
     """Get the contents of a specific JSON file."""
     if not RESULTS_DIR:
         raise HTTPException(status_code=500, detail="Results directory not set")
-    
-    # Security: Ensure the path doesn't escape the results directory
-    full_path = os.path.normpath(os.path.join(RESULTS_DIR, file_path))
-    
-    if not full_path.startswith(os.path.normpath(RESULTS_DIR)):
+
+    # Security: resolve symlinks and ".." then require the result to live
+    # inside RESULTS_DIR. A plain string-prefix check is unsafe — e.g.
+    # "../results_private/x" normalises to a sibling that still shares the
+    # prefix — and normpath does not follow symlinks out of the tree.
+    root = Path(RESULTS_DIR).resolve()
+    full_path = (root / file_path).resolve()
+
+    if root != full_path and root not in full_path.parents:
         raise HTTPException(status_code=403, detail="Access denied")
-    
-    if not os.path.exists(full_path):
+
+    if not full_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
-    
-    if not full_path.endswith('.json'):
+
+    if full_path.suffix != ".json":
         raise HTTPException(status_code=400, detail="Not a JSON file")
-    
+
     try:
         with open(full_path, "r", encoding="utf-8") as f:
             data = json.load(f)

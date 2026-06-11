@@ -148,12 +148,19 @@ class ModelAuditor:
 
     @staticmethod
     def strip_thinking(text: str) -> str:
-        opens = re.findall(r"(?i)<\s*(think|thinking)\s*>", text)
-        closes = re.findall(r"(?i)<\s*/\s*(think|thinking)\s*>", text)
-        if len(opens) > len(closes):
-            return ""
-
-        cleaned = re.sub(r"(?is)<\s*(think|thinking)\s*>.*?<\s*/\s*(think|thinking)\s*>", "", text)
+        # Remove complete <think>...</think> / <thinking>...</thinking> blocks.
+        cleaned = re.sub(
+            r"(?is)<\s*(think|thinking)\s*>.*?<\s*/\s*(think|thinking)\s*>",
+            "",
+            text,
+        )
+        # A remaining unclosed opening tag means the model started reasoning and
+        # never closed it. Everything from that tag onward is incomplete
+        # reasoning, so drop it — but keep any real content that came before it
+        # (a literal "<think>" mid-prose should not blank the whole response).
+        dangling = re.search(r"(?is)<\s*(think|thinking)\s*>", cleaned)
+        if dangling:
+            cleaned = cleaned[: dangling.start()]
         return cleaned.strip()
 
     @staticmethod
@@ -495,22 +502,50 @@ Evaluate this conversation and respond with this exact JSON structure:
 
         async def _run_one(scenario: Dict) -> AuditResult:
             async with semaphore:
-                return await self.run_scenario(
-                    name=scenario["name"],
-                    description=scenario["description"],
-                    expected_behavior=scenario.get("expected_behavior"),
-                    test_prompt=scenario.get("test_prompt"),
-                    max_turns=max_turns,
-                    language=language,
-                    pbar_audit=pbar_audit,
-                    pbar_judge=pbar_judge,
-                    max_workers=max_workers,
-                )
+                try:
+                    return await self.run_scenario(
+                        name=scenario["name"],
+                        description=scenario["description"],
+                        expected_behavior=scenario.get("expected_behavior"),
+                        test_prompt=scenario.get("test_prompt"),
+                        max_turns=max_turns,
+                        language=language,
+                        pbar_audit=pbar_audit,
+                        pbar_judge=pbar_judge,
+                        max_workers=max_workers,
+                    )
+                except Exception as exc:
+                    # Don't let one failing scenario abort the whole batch and
+                    # discard every other (possibly expensive) result. Record an
+                    # ERROR result instead. CancelledError/KeyboardInterrupt are
+                    # BaseException subclasses and still propagate.
+                    name = scenario.get("name", "<unknown>")
+                    self._log(f"--- Scenario FAILED: {name} [{type(exc).__name__}: {exc}] ---")
+                    if pbar_judge:
+                        pbar_judge.update(1)
+                    return AuditResult(
+                        scenario_name=name,
+                        scenario_description=scenario.get("description", ""),
+                        conversation=[],
+                        severity="ERROR",
+                        issues_found=[f"Scenario execution failed: {type(exc).__name__}: {exc}"],
+                        positive_behaviors=[],
+                        summary=f"Scenario did not complete due to an error: {exc}"[:500],
+                        recommendations=["Re-run this scenario; check API credentials, rate limits, and connectivity."],
+                        expected_behavior=scenario.get("expected_behavior"),
+                        judgment={"severity": "ERROR", "error": f"{type(exc).__name__}: {exc}"},
+                    )
         with tqdm(total=total_audit_steps, desc=audit_desc, disable=not self.show_progress, position=0) as pbar_audit:
             with tqdm(total=total_judge_steps, desc=judge_desc, disable=not self.show_progress, position=1) as pbar_judge:
                 tasks = [asyncio.create_task(_run_one(scenario)) for scenario in scenario_list]
                 for task in tasks:
                     results.append(await task)
+                # A scenario that errors out skips some of its per-turn audit
+                # ticks, so top both bars up to their totals at the end rather
+                # than leaving them visually stuck below 100%.
+                for bar in (pbar_audit, pbar_judge):
+                    if bar.total is not None and bar.n < bar.total:
+                        bar.update(bar.total - bar.n)
 
         return AuditResults(results)
 

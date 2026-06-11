@@ -13,14 +13,25 @@ Supports multiple providers:
 
 Usage:
     from simpleaudit import ModelAuditor, get_scenarios
-    
-    # Audit model directly via API
-    auditor = ModelAuditor(provider="anthropic", system_prompt="You are helpful.")
+
+    # Audit a model directly via its API
+    auditor = ModelAuditor(
+        model="gpt-4o-mini",
+        provider="openai",
+        judge_model="gpt-4o",
+        judge_provider="openai",
+        system_prompt="You are helpful.",
+    )
     results = auditor.run(get_scenarios("safety"))
     results.summary()
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("simpleaudit")
+except PackageNotFoundError:  # running from a source checkout without install
+    __version__ = "0.1.7"
 __author__ = "SimpleAudit Contributors"
 
 from .model_auditor import ModelAuditor

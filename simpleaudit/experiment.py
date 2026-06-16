@@ -98,12 +98,21 @@ class AuditExperiment:
         return self.save_dir / safe_label / f"run_{index}.json"
 
     def _load_cached_runs(self, label: str) -> Dict[int, AuditResults]:
-        """Return {index: AuditResults} for every run_N.json that exists on disk."""
+        """Return {index: AuditResults} for every reusable run_N.json on disk.
+
+        Runs containing an ERROR result (a scenario that failed to complete,
+        e.g. a transient API error) are treated as not-yet-cached so they are
+        re-attempted on resume rather than baked permanently into the
+        aggregates. The stale file is overwritten when the run re-executes.
+        """
         cached: Dict[int, AuditResults] = {}
         for i in range(self.n_repetitions):
             path = self._run_path(label, i)
             if path.exists():
-                cached[i] = AuditResults.load(str(path))
+                results = AuditResults.load(str(path))
+                if any(r.severity == "ERROR" for r in results):
+                    continue
+                cached[i] = results
         return cached
 
     async def run_async(

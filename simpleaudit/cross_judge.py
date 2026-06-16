@@ -165,8 +165,10 @@ class CrossJudgeExperiment:
         Must contain at least two entries.
     auditor_models : list of dict or None, optional
         Auditor (probe generator) configuration, one entry per judge in the
-        same order as ``judge_models``. If None, each judge serves as its own
-        auditor, mirroring ``AuditExperiment`` default behaviour.
+        same order as ``judge_models``. Each dict may contain ``model``,
+        ``provider``, ``api_key``, and ``base_url``; all four are forwarded to
+        the underlying ``AuditExperiment``. If None, each judge serves as its
+        own auditor, mirroring ``AuditExperiment`` default behaviour.
     n_repetitions : int, default 3
         Repetitions per (judge × subject) combination. Passed through to each
         ``AuditExperiment``.
@@ -243,6 +245,8 @@ class CrossJudgeExperiment:
                 judge_base_url=judge_info.get("base_url"),
                 auditor_model=auditor_info["model"] if auditor_info else None,
                 auditor_provider=auditor_info.get("provider") if auditor_info else None,
+                auditor_api_key=auditor_info.get("api_key") if auditor_info else None,
+                auditor_base_url=auditor_info.get("base_url") if auditor_info else None,
                 n_repetitions=n_repetitions,
                 save_dir=judge_save_dir,
                 **experiment_kwargs,
@@ -382,7 +386,9 @@ def compare_judges(
           severity differs, each with ``scenario``, ``modal_a``, ``modal_b``,
           and ``direction`` (positive = stricter under judge_b).
         - ``n_shifted``: count of shifted scenarios
-        - ``n_total``: total scenario count
+        - ``n_total``: scenario count for the reference judge (results_a)
+        - ``n_compared``: scenarios present in BOTH judges and actually
+          compared (``<= n_total``; the correct denominator for a shift rate)
 
     Raises:
         KeyError: If subject_label is not found in either results object.
@@ -401,9 +407,11 @@ def compare_judges(
         }
 
     shifts = []
+    n_compared = 0
     for name, stats_a in report_a.per_scenario.items():
         if name not in report_b.per_scenario:
             continue
+        n_compared += 1
         modal_a = stats_a.most_common_severity
         modal_b = report_b.per_scenario[name].most_common_severity
         if modal_a != modal_b:
@@ -427,4 +435,5 @@ def compare_judges(
         "severity_shifts": shifts,
         "n_shifted": len(shifts),
         "n_total": len(report_a.per_scenario),
+        "n_compared": n_compared,
     }

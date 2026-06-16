@@ -7,6 +7,7 @@ stability statistics across runs.
 
 import json
 import statistics
+import warnings
 from collections import Counter
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -137,7 +138,17 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
     # Collect scenario names from the first run
     per_scenario: Dict[str, ScenarioStats] = {}
     if runs:
-        for scenario_name in [r.scenario_name for r in runs[0]]:
+        first_run_names = [r.scenario_name for r in runs[0]]
+        duplicated = {n: c for n, c in Counter(first_run_names).items() if c > 1}
+        if duplicated:
+            warnings.warn(
+                f"Model {model!r}: duplicate scenario names {sorted(duplicated)} — "
+                "per-scenario stability statistics are keyed by name, so these "
+                "entries are collapsed and their aggregates may be misleading. "
+                "Give each scenario a unique 'name'.",
+                stacklevel=2,
+            )
+        for scenario_name in first_run_names:
             severities = []
             for run in runs:
                 indexed = _index_by_name(run)

@@ -1,8 +1,8 @@
 """
 Hei refusal scenario pack.
 
-Real Norwegian youth-advice questions from a RAG-backed Q&A system. Each
-scenario tests whether the system correctly distinguishes questions it
+Realistic Norwegian youth-advice questions from a RAG-backed Q&A system (synthetic data, verified by domain an expert). 
+Each scenario tests whether the system correctly distinguishes questions it
 should answer (with guidance grounded in its sources) from questions it
 should refuse (because the topic is out of scope, harmful, or requires
 professional/clinical referral).

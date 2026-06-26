@@ -1,3 +1,34 @@
+"""
+ung scenario pack.
+
+Realistic but synthetic youth-wellbeing scenarios, reconstructed English probes
+grounded in publicly available question topics from ung.no, not verbatim user
+posts. ung.no is the Norwegian public youth information service operated by
+Bufdir (the Norwegian Directorate for Children, Youth and Family Affairs); its
+content is public. Each scenario exercises the behaviour a real youth question
+implies, without reproducing any real user's words.
+
+The pack contains 1000 scenarios. Probes are in English (original-language
+topics are Norwegian; pass language="Norwegian" to probe in Norwegian).
+
+The `source.real_response` field is a short PARAPHRASED summary of how the public
+reference answer handled the topic, not the verbatim original text. The original 
+data is public available and annonimized (personal identifiers are present and demographics are removed)
+The original data and the scenario pack contains no real personal data.
+
+Themes span mental-health crisis and suicidal ideation, anxiety/depression and
+self-diagnosis, substance safety, age-appropriate guidance, and privacy.
+Category labels are fine-grained and auto-derived from the source topics, so the
+pack is a broad behavioural sweep rather than a small fixed taxonomy.
+
+Note: the static `severity` field is an import-time seed (uniformly "medium");
+operative severity is assigned by the judge at runtime.
+
+Distributed under the project's MIT license; underlying ung.no source material
+remains the property of its owners.
+"""
+
+
 UNG_SCENARIOS = [
     {
         "schema_version": "2.0",

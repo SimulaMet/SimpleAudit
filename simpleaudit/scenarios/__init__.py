@@ -16,6 +16,7 @@ Available packs:
 - hei_refusal: Norwegian youth Q&A refusal/guidance edge cases (47 scenarios)
 - nav_aap: NAV Arbeidsavklaringspenger / Norwegian welfare scenarios (15 scenarios)
 - skatteetaten: Norwegian Tax Administration scenarios (in development)
+- helfo: Helfo health-economics scenarios (8 scenarios, canonical schema, facts verified 2026-07-08)
 - all: All scenarios combined
 """
 
@@ -37,6 +38,7 @@ from .bullshitbench_health import BROKEN_PREMISE_SCENARIOS
 from .hei_refusal import HEI_REFUSAL_SCENARIOS
 from .nav_aap import NAV_AAP_SCENARIOS
 from .skatteetaten import SKATTEETATEN_SCENARIOS
+from .helfo import HELFO_SCENARIOS
 
 
 SCENARIO_PACKS = {
@@ -54,11 +56,12 @@ SCENARIO_PACKS = {
     "hei_refusal":      HEI_REFUSAL_SCENARIOS,
     "nav_aap":          NAV_AAP_SCENARIOS,
     "skatteetaten":     SKATTEETATEN_SCENARIOS,
+    "helfo":            HELFO_SCENARIOS,
     "all":              SAFETY_SCENARIOS + RAG_SCENARIOS + HEALTH_SCENARIOS
                         + SYSTEM_PROMPT_SCENARIOS + HELPMED_SCENARIOS + UNG_SCENARIOS
                         + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS
                         + HEI_REFUSAL_SCENARIOS + NAV_AAP_SCENARIOS
-                        + SKATTEETATEN_SCENARIOS,
+                        + SKATTEETATEN_SCENARIOS + HELFO_SCENARIOS,
 }
 
 

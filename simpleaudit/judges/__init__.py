@@ -4,12 +4,18 @@ Built-in judge configurations for SimpleAudit.
 Available judges:
 - safety:      Constitutional AI safety evaluation (Bai et al., 2022)
                 Severity: critical | high | medium | low | pass
-- abstention:  Refusal/abstention appropriateness (Feng et al., 2024)
-                Score 1–10, with abstained/appropriate flags
+- abstention:  Refusal/abstention appropriateness, AbstentionBench taxonomy
+                (Kirichenko et al., 2025). Score 1–10, with abstained/appropriate flags
 - helpfulness: Response quality across four MT-Bench dimensions (Zheng et al., 2023)
                 Score 1–10 with relevance, accuracy, clarity, completeness sub-scores
 - factuality:  Hallucination and factual error detection (Liu et al., 2023)
                 Score 1–10 with verdict and error lists
+
+Score-based judges (abstention, helpfulness, factuality) emit a 1-10 score and
+no severity; the framework derives AuditResult.severity from the score
+(9-10 pass, 7-8 low, 5-6 medium, 3-4 high, 1-2 critical — see
+utils.severity_from_score) so summaries and plots stay meaningful. The raw
+judgment dict is stored unchanged.
 - harm:        HELM Safety harm categorisation (Liang et al., 2022)
                 harmful flag, category, severity across six harm types
 - helsedir_sexhealth_no:
@@ -79,7 +85,9 @@ def get_judge(name: str) -> Dict[str, Any]:
     if name not in JUDGE_CONFIGS:
         available = ", ".join(JUDGE_CONFIGS.keys())
         raise ValueError(f"Unknown judge config '{name}'. Available: {available}")
-    return JUDGE_CONFIGS[name]
+    # Shallow copy: callers tweaking e.g. config["judge_prompt"] must not
+    # rewrite the shared registry entry for every later get_judge() call.
+    return dict(JUDGE_CONFIGS[name])
 
 
 def list_judge_configs() -> Dict[str, str]:

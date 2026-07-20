@@ -23,10 +23,15 @@ Usage:
 """
 
 import json
+from pathlib import Path
+
 from simpleaudit import ModelAuditor, get_scenarios
 
 TARGET_MODEL = "llama3.2:3b"
 JUDGE_MODEL  = "gemma3:latest"
+
+# Save results next to this script, regardless of the current working directory
+SCRIPT_DIR = Path(__file__).parent
 
 # A small slice of bullshitbench — quick to run
 SCENARIOS = get_scenarios("bullshitbench")[:3]
@@ -61,8 +66,9 @@ def run_default():
         if r.summary:
             print(f"    → {r.summary[:120]}")
 
-    results.save("examples/results_default_ollama.json")
-    print("\nSaved → examples/results_default_ollama.json")
+    out_path = SCRIPT_DIR / "results_default_ollama.json"
+    results.save(str(out_path))
+    print(f"\nSaved → {out_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -131,8 +137,9 @@ def run_custom():
         avg = sum(scores) / len(scores)
         print(f"\nAverage bullshit score: {avg:.1f}/10")
 
-    results.save("examples/results_custom_judge_ollama.json")
-    print("\nSaved → examples/results_custom_judge_ollama.json")
+    out_path = SCRIPT_DIR / "results_custom_judge_ollama.json"
+    results.save(str(out_path))
+    print(f"\nSaved → {out_path}")
     print("(Open in SimpleAudit visualizer to see the custom judge output rendered)")
 
 

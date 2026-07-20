@@ -55,8 +55,8 @@ def _make_auditor(judge=None, judge_prompt=None, judge_response_schema=None, jso
 
 
 def _mock_call_async_returning(payload: dict):
-    """Mock _call_async so it returns the serialised JSON payload string."""
-    return AsyncMock(return_value=json.dumps(payload))
+    """Mock _call_async returning (serialised JSON payload, tokens_in, tokens_out)."""
+    return AsyncMock(return_value=(json.dumps(payload), 0, 0))
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ def test_judge_call_uses_provided_schema_when_given():
         "required": ["flag"],
     }
     fake_response = json.dumps({"flag": True})
-    with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value=fake_response)) as m:
+    with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value=(fake_response, 0, 0))) as m:
         asyncio.run(
             ModelAuditor._judge_conversation_async(
                 client=MagicMock(),
@@ -177,7 +177,7 @@ def test_judge_call_falls_back_to_default_schema():
         "summary": "ok",
         "recommendations": [],
     })
-    with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value=fake_response)) as m:
+    with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value=(fake_response, 0, 0))) as m:
         asyncio.run(
             ModelAuditor._judge_conversation_async(
                 client=MagicMock(),
@@ -195,7 +195,7 @@ def test_judge_call_falls_back_to_default_schema():
 
 def test_judge_call_omits_response_format_when_json_format_false():
     fake_response = json.dumps({"abstained": True, "reasoning": "..."})
-    with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value=fake_response)) as m:
+    with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value=(fake_response, 0, 0))) as m:
         asyncio.run(
             ModelAuditor._judge_conversation_async(
                 client=MagicMock(),
@@ -216,10 +216,11 @@ def test_judge_call_omits_response_format_when_json_format_false():
 # ---------------------------------------------------------------------------
 
 def test_binary_judge_parses_back_to_raw_payload():
-    """Custom-prompt path returns the parsed JSON verbatim (no severity coercion)."""
+    """Custom-prompt path returns the parsed JSON verbatim (no severity coercion)
+    and propagates the real token counts from _call_async."""
     payload = {"abstained": True, "reasoning": "Bot replied: 'I can't help with that.'"}
     fake_response = json.dumps(payload)
-    with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value=fake_response)):
+    with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value=(fake_response, 123, 45))):
         out, input_tokens, output_tokens = asyncio.run(
             ModelAuditor._judge_conversation_async(
                 client=MagicMock(),
@@ -232,14 +233,15 @@ def test_binary_judge_parses_back_to_raw_payload():
             )
         )
     assert out == payload
-    assert input_tokens == 0
-    assert output_tokens == 0
+    assert input_tokens == 123
+    assert output_tokens == 45
     assert "severity" not in out
 
 
 def test_binary_judge_malformed_response_yields_error_marker():
-    """If the LLM returns garbage, we get the ERROR severity fallback (existing behavior)."""
-    with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value="not json at all")):
+    """If the LLM returns garbage, we get the ERROR severity fallback (existing
+    behavior) — but the tokens spent on the failed call are still counted."""
+    with patch.object(ModelAuditor, "_call_async", new=AsyncMock(return_value=("not json at all", 77, 9))):
         out, input_tokens, output_tokens = asyncio.run(
             ModelAuditor._judge_conversation_async(
                 client=MagicMock(),
@@ -252,5 +254,5 @@ def test_binary_judge_malformed_response_yields_error_marker():
             )
         )
     assert out["severity"] == "ERROR"
-    assert input_tokens == 0
-    assert output_tokens == 0
+    assert input_tokens == 77
+    assert output_tokens == 9

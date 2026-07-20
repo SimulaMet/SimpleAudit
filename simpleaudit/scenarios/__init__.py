@@ -79,7 +79,9 @@ def get_scenarios(pack_name: str) -> List[Dict]:
         available = ", ".join(SCENARIO_PACKS.keys())
         raise ValueError(f"Unknown scenario pack '{pack_name}'. Available: {available}")
 
-    return SCENARIO_PACKS[pack_name]
+    # Shallow copy: callers appending/filtering must not mutate the shared
+    # registry list that every later get_scenarios() call hands out.
+    return list(SCENARIO_PACKS[pack_name])
 
 
 def list_scenario_packs() -> Dict[str, int]:

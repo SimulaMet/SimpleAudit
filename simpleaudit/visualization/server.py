@@ -27,29 +27,33 @@ CONTACT_EMAIL = os.getenv("SIMPLEAUDIT_VISUALIZER_EMAIL", "sushant@simula.no")
 RESULTS_DIR = None
 
 
+def is_valid_audit_data(data) -> bool:
+    """Check whether parsed JSON has the shape of audit results."""
+    # An array of results
+    if isinstance(data, list):
+        return len(data) > 0
+
+    # An object with a 'results' key that's a non-empty array
+    if isinstance(data, dict) and 'results' in data:
+        return isinstance(data['results'], list) and len(data['results']) > 0
+
+    return False
+
+
 def is_valid_audit_json(file_path: str) -> bool:
     """
     Check if a JSON file contains valid audit results.
-    
+
     Args:
         file_path: Full path to the JSON file
-    
+
     Returns:
         True if the file contains valid audit results, False otherwise
     """
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        
-        # Check if it's an array
-        if isinstance(data, list):
-            return len(data) > 0
-        
-        # Check if it's an object with a 'results' key that's an array
-        if isinstance(data, dict) and 'results' in data:
-            return isinstance(data['results'], list) and len(data['results']) > 0
-        
-        return False
+        return is_valid_audit_data(data)
     except (json.JSONDecodeError, IOError, Exception):
         return False
 
@@ -183,7 +187,10 @@ async def auth_check(request: Request):
     return JSONResponse(content={"ok": True, "enabled": bool(SECRET), "contact_email": CONTACT_EMAIL})
 
 @app.get("/api/files", dependencies=[Depends(check_secret)])
-async def get_files():
+def get_files():
+    # Plain def (not async): building the tree opens and json-parses every
+    # result file, and FastAPI runs sync endpoints in its threadpool instead
+    # of blocking the event loop for all concurrent requests.
     """Get the file tree of JSON files in the results directory."""
     if not RESULTS_DIR:
         raise HTTPException(status_code=500, detail="Results directory not set")
@@ -197,7 +204,9 @@ async def get_files():
 
 
 @app.get("/api/json/{file_path:path}", dependencies=[Depends(check_secret)])
-async def get_json_file(file_path: str):
+def get_json_file(file_path: str):
+    # Plain def for the same reason as get_files: file reads + json.load of
+    # arbitrarily large result files must not stall the event loop.
     """Get the contents of a specific JSON file."""
     if not RESULTS_DIR:
         raise HTTPException(status_code=500, detail="Results directory not set")
@@ -221,11 +230,18 @@ async def get_json_file(file_path: str):
     try:
         with open(full_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return JSONResponse(content=data)
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
+
+    # Serve only what /api/files lists: files shaped like audit results.
+    # Arbitrary .json files under the tree (configs, credentials dumps,
+    # unrelated data) stay unreachable through this endpoint.
+    if not is_valid_audit_data(data):
+        raise HTTPException(status_code=403, detail="Not an audit results file")
+
+    return JSONResponse(content=data)
 
 
 def start_server(results_dir: str, host: str = "127.0.0.1", port: int = 8000):

@@ -7,6 +7,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from simpleaudit.model_auditor import ModelAuditor
+from tests.fakes import (
+    fixed_probe_auditor,
+    fixed_severity_judge,
+    fixed_target,
+    make_auditor,
+)
 
 
 # --- strip_thinking tests ---
@@ -84,6 +90,63 @@ class TestStripThinking:
         """Result should be stripped of leading/trailing whitespace."""
         text = "<think>Thoughts.</think>   Answer with spaces   "
         assert ModelAuditor.strip_thinking(text) == "Answer with spaces"
+
+
+class TestStripThinkingOrphanClose:
+    """R1-style prefilled reasoning: a closing tag with no opening tag before
+    it means everything up to and including the tag is chain-of-thought."""
+
+    def test_orphan_close_drops_leading_reasoning(self):
+        assert ModelAuditor.strip_thinking("I reason...</think>Answer.") == "Answer."
+
+    def test_orphan_thinking_variant(self):
+        assert ModelAuditor.strip_thinking("step 1\nstep 2</thinking>Done.") == "Done."
+
+    def test_orphan_close_with_whitespace_in_tag(self):
+        assert ModelAuditor.strip_thinking("hmm</ think >Result.") == "Result."
+
+    def test_orphan_close_only_reasoning_returns_empty(self):
+        assert ModelAuditor.strip_thinking("only thoughts</think>") == ""
+
+    def test_complete_block_then_stray_close_yields_clean_text(self):
+        """A stray close after a complete block still resolves to tag-free
+        output: the text after the last stray close is what survives."""
+        text = "<think>plan</think>Answer.</think>Final."
+        result = ModelAuditor.strip_thinking(text)
+        assert result == "Final."
+        assert "<think>" not in result
+        assert "</think>" not in result
+
+    def test_complete_block_alone_is_unaffected_by_orphan_rule(self):
+        text = "<think>plan</think>The answer."
+        assert ModelAuditor.strip_thinking(text) == "The answer."
+
+
+class TestStripThinkingIntegration:
+    """run_scenario strips thinking from both probe and target output before
+    recording the conversation, so judges and transcripts never see it."""
+
+    def test_conversation_records_stripped_probe_and_target(self):
+        auditor = make_auditor(
+            target=fixed_target("<think>secret</think>Refused."),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("<think>x</think>probe"),
+            max_turns=2,
+            show_progress=False,
+        )
+
+        result = asyncio.run(
+            auditor.run_scenario(name="Strip", description="desc", max_turns=2)
+        )
+
+        assert len(result.conversation) == 4  # 2 turns x (user + assistant)
+        user_msgs = [m["content"] for m in result.conversation if m["role"] == "user"]
+        assistant_msgs = [m["content"] for m in result.conversation if m["role"] == "assistant"]
+        assert user_msgs == ["probe", "probe"]
+        assert assistant_msgs == ["Refused.", "Refused."]
+        for message in result.conversation:
+            assert "<think>" not in message["content"]
+            assert "secret" not in message["content"]
 
 
 # --- _call_async tests ---

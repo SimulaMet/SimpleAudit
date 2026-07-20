@@ -6,12 +6,16 @@ Covers:
 - experiment_results.json written at save_dir root
 - Resuming a partial experiment only re-runs missing slots
 - Final RepeatedExperimentResults still has the expected total run count
+- Corrupt/unreadable cached run files are re-run instead of crashing the resume
+- Labels are sanitized for the filesystem and collisions are rejected upfront
 """
 
 import asyncio
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from simpleaudit.experiment import AuditExperiment
 from simpleaudit.model_auditor import ModelAuditor
@@ -148,3 +152,154 @@ class TestResumeFromPartialRuns:
         _run_experiment(exp, counter)
 
         assert counter["count"] == 0
+
+
+class TestCorruptCachedRuns:
+    def test_garbage_bytes_run_file_is_rerun(self, tmp_path, capsys):
+        """A truncated/corrupt run_0.json must be treated as uncached: warn,
+        re-run the slot, and overwrite the bad file with a clean result."""
+        run_dir = tmp_path / "m1"
+        run_dir.mkdir()
+        (run_dir / "run_0.json").write_bytes(b"garbage not json{{{")
+
+        exp = _make_experiment(str(tmp_path), n_repetitions=1)
+        counter = {"count": 0}
+        results = _run_experiment(exp, counter, return_severity="pass")
+
+        assert counter["count"] == 1
+        assert results._runs["m1"][0][0].severity == "pass"
+        assert "ignoring unreadable cached run" in capsys.readouterr().out
+        # The corrupt file was overwritten by the fresh run.
+        reloaded = AuditResults.load(str(run_dir / "run_0.json"))
+        assert reloaded[0].severity == "pass"
+
+    def test_schema_incompatible_run_file_is_rerun(self, tmp_path):
+        """Valid JSON that does not match the AuditResults schema is also
+        treated as uncached rather than crashing the resume."""
+        run_dir = tmp_path / "m1"
+        run_dir.mkdir()
+        (run_dir / "run_0.json").write_text('{"unexpected": "shape"}')
+
+        exp = _make_experiment(str(tmp_path), n_repetitions=1)
+        counter = {"count": 0}
+        results = _run_experiment(exp, counter, return_severity="low")
+
+        assert counter["count"] == 1
+        assert results._runs["m1"][0][0].severity == "low"
+
+    def test_corrupt_file_does_not_invalidate_other_slots(self, tmp_path):
+        """Only the corrupt slot is re-run; intact cached runs are still reused."""
+        run_dir = tmp_path / "m1"
+        run_dir.mkdir()
+        _make_results("medium").save(str(run_dir / "run_0.json"))
+        (run_dir / "run_1.json").write_text("not json")
+
+        exp = _make_experiment(str(tmp_path), n_repetitions=2)
+        counter = {"count": 0}
+        results = _run_experiment(exp, counter, return_severity="critical")
+
+        assert counter["count"] == 1
+        assert results._runs["m1"][0][0].severity == "medium"
+        assert results._runs["m1"][1][0].severity == "critical"
+
+
+class TestLabelSanitization:
+    def test_labels_colliding_after_sanitization_raise(self):
+        """'org/model' and 'org:model' share a cache directory once sanitized
+        — the experiment must reject them upfront."""
+        with pytest.raises(ValueError, match="sanitization"):
+            AuditExperiment(
+                models=[
+                    {"model": "org/model", "provider": "openai"},
+                    {"model": "org:model", "provider": "openai"},
+                ],
+                judge_model="judge",
+                judge_provider="openai",
+                show_progress=False,
+            )
+
+    def test_sanitized_label_path_saves_and_resumes(self, tmp_path):
+        """A model named 'org/model:tag' caches under org_model_tag/ and a
+        second experiment resumes from that directory without live calls."""
+        exp = _make_experiment(str(tmp_path), n_repetitions=1, label="org/model:tag")
+        counter = {"count": 0}
+        _run_experiment(exp, counter, return_severity="high")
+
+        assert counter["count"] == 1
+        run_path = tmp_path / "org_model_tag" / "run_0.json"
+        assert run_path.exists()
+        assert AuditResults.load(str(run_path))[0].severity == "high"
+
+        resumed = _make_experiment(str(tmp_path), n_repetitions=1, label="org/model:tag")
+        counter2 = {"count": 0}
+        results = _run_experiment(resumed, counter2, return_severity="pass")
+
+        assert counter2["count"] == 0
+        assert results._runs["org/model:tag"][0][0].severity == "high"
+
+
+class TestConfigFingerprint:
+    """Cached runs are only reused under the configuration that produced them."""
+
+    def test_same_config_resumes(self, tmp_path):
+        exp = _make_experiment(str(tmp_path), n_repetitions=1)
+        counter = {"count": 0}
+        _run_experiment(exp, counter, return_severity="high")
+        assert counter["count"] == 1
+        assert (tmp_path / "m1" / "config.json").exists()
+
+        resumed = _make_experiment(str(tmp_path), n_repetitions=1)
+        counter2 = {"count": 0}
+        results = _run_experiment(resumed, counter2)
+        assert counter2["count"] == 0
+        assert results._runs["m1"][0][0].severity == "high"
+
+    def test_changed_judge_invalidates_cache(self, tmp_path, capsys):
+        exp = _make_experiment(str(tmp_path), n_repetitions=1)
+        counter = {"count": 0}
+        _run_experiment(exp, counter, return_severity="high")
+        assert counter["count"] == 1
+
+        changed = AuditExperiment(
+            models=[{"model": "m1", "provider": "openai"}],
+            judge_model="a-different-judge",
+            judge_provider="openai",
+            show_progress=False,
+            n_repetitions=1,
+            save_dir=str(tmp_path),
+        )
+        counter2 = {"count": 0}
+        results = _run_experiment(changed, counter2, return_severity="pass")
+
+        assert counter2["count"] == 1  # cache rejected, run re-executed
+        assert results._runs["m1"][0][0].severity == "pass"
+        assert "different configuration" in capsys.readouterr().out
+
+    def test_legacy_cache_without_marker_is_accepted(self, tmp_path):
+        exp = _make_experiment(str(tmp_path), n_repetitions=1)
+        counter = {"count": 0}
+        _run_experiment(exp, counter, return_severity="high")
+        (tmp_path / "m1" / "config.json").unlink()
+
+        resumed = _make_experiment(str(tmp_path), n_repetitions=1)
+        counter2 = {"count": 0}
+        results = _run_experiment(resumed, counter2)
+        assert counter2["count"] == 0
+        assert results._runs["m1"][0][0].severity == "high"
+        # marker rewritten for the next resume
+        assert (tmp_path / "m1" / "config.json").exists()
+
+    def test_fingerprint_excludes_api_keys(self, tmp_path):
+        exp = AuditExperiment(
+            models=[{"model": "m1", "provider": "openai"}],
+            judge_model="judge",
+            judge_provider="openai",
+            judge_api_key="super-secret",
+            show_progress=False,
+            n_repetitions=1,
+            save_dir=str(tmp_path),
+        )
+        counter = {"count": 0}
+        _run_experiment(exp, counter)
+        stored = json.loads((tmp_path / "m1" / "config.json").read_text())
+        assert "super-secret" not in json.dumps(stored)

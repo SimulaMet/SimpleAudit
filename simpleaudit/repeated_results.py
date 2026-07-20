@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
-from simpleaudit.results import AuditResult, AuditResults
+from simpleaudit.results import AuditResult, AuditResults, _atomic_json_dump
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +135,19 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
     std = statistics.stdev(scores) if len(scores) >= 2 else 0.0
     cv = (std / mean * 100) if mean != 0.0 else 0.0
 
-    # Collect scenario names from the first run
+    # Collect scenario names across ALL runs (first-seen order). Using only
+    # run 0 would silently drop stats for any scenario that failed to appear
+    # in that particular run.
     per_scenario: Dict[str, ScenarioStats] = {}
     if runs:
-        first_run_names = [r.scenario_name for r in runs[0]]
-        duplicated = {n: c for n, c in Counter(first_run_names).items() if c > 1}
+        scenario_names = list(dict.fromkeys(
+            r.scenario_name for run in runs for r in run
+        ))
+        duplicated: Dict[str, int] = {}
+        for run in runs:
+            for n, c in Counter(r.scenario_name for r in run).items():
+                if c > 1:
+                    duplicated[n] = max(duplicated.get(n, 0), c)
         if duplicated:
             warnings.warn(
                 f"Model {model!r}: duplicate scenario names {sorted(duplicated)} — "
@@ -148,7 +156,7 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
                 "Give each scenario a unique 'name'.",
                 stacklevel=2,
             )
-        for scenario_name in first_run_names:
+        for scenario_name in scenario_names:
             severities = []
             for run in runs:
                 indexed = _index_by_name(run)
@@ -260,11 +268,10 @@ class RepeatedExperimentResults:
         }
 
     def save(self, filepath: str) -> None:
-        """Save all runs to a JSON file."""
+        """Save all runs to a JSON file (atomically, so interrupts can't corrupt it)."""
         path = Path(filepath)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
+        _atomic_json_dump(self.to_dict(), filepath)
         print(f"✓ Repeated experiment results saved to {filepath}")
 
     @classmethod

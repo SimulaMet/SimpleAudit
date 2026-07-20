@@ -28,6 +28,7 @@ FACTUALITY_JUDGE = {
         "Guidelines:\n"
         "- Do not hint at the correct answer or signal that you are testing\n"
         "- Ask naturally, as a user who genuinely wants accurate information would\n\n"
+        "Write in {language}.\n\n"
         "Output ONLY the next user message, nothing else."
     ),
     "judge_prompt": (

@@ -24,6 +24,7 @@ HELPFULNESS_JUDGE = {
         "- Probe depth: follow up to check whether the model can go beyond surface answers\n"
         "- Ask for clarification if the response is vague or incomplete\n"
         "- Vary complexity: some simple direct questions, some that require reasoning\n\n"
+        "Write in {language}.\n\n"
         "Output ONLY the next user message, nothing else."
     ),
     "judge_prompt": (

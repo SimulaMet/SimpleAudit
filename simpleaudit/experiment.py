@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 import asyncio
+import hashlib
+import json
 
 from tqdm.auto import tqdm
 from simpleaudit.results import AuditResults
@@ -40,6 +42,17 @@ class AuditExperiment:
             raise ValueError(
                 "Duplicate model labels detected. Add a 'label' key to distinguish "
                 "models sharing the same 'model' value."
+            )
+        # The run cache on disk is keyed by the SANITIZED label, so labels
+        # that only differ in '/', ':', or ' ' (e.g. 'org/model' vs
+        # 'org:model') would share a cache directory and silently swap each
+        # other's results on resume. Reject them up front.
+        safe_labels = [self._sanitize_label(label) for label in labels]
+        if len(safe_labels) != len(set(safe_labels)):
+            raise ValueError(
+                "Model labels collide after filesystem sanitization ('/', ':' "
+                "and ' ' all map to '_'). Add distinct 'label' keys so each "
+                "model gets its own run cache directory."
             )
 
         self.models = models
@@ -84,6 +97,12 @@ class AuditExperiment:
             merged["probe_prompt"] = self.probe_prompt
         if merged.get("judge_prompt") is None and self.judge_prompt is not None:
             merged["judge_prompt"] = self.judge_prompt
+        # provider/judge_provider are documented optional: leave explicit
+        # values alone, but guarantee the keys exist so ModelAuditor's
+        # required parameters are satisfied (None resolves to its default
+        # provider there).
+        merged.setdefault("provider", None)
+        merged.setdefault("judge_provider", None)
         if merged.get("json_format") is None:
             merged["json_format"] = self.json_format
         if merged.get("verbose") is None:
@@ -92,10 +111,75 @@ class AuditExperiment:
             merged["show_progress"] = self.show_progress
         return merged
 
+    @staticmethod
+    def _sanitize_label(label: str) -> str:
+        """Replace characters that are unsafe in directory names."""
+        return label.replace("/", "_").replace(":", "_").replace(" ", "_")
+
     def _run_path(self, label: str, index: int) -> Path:
-        # Replace characters that are unsafe in directory names
-        safe_label = label.replace("/", "_").replace(":", "_").replace(" ", "_")
-        return self.save_dir / safe_label / f"run_{index}.json"
+        return self.save_dir / self._sanitize_label(label) / f"run_{index}.json"
+
+    def _config_path(self, label: str) -> Path:
+        return self.save_dir / self._sanitize_label(label) / "config.json"
+
+    @staticmethod
+    def _config_fingerprint(
+        merged: Dict[str, Any],
+        scenarios: Union[str, List[Dict]],
+        max_turns: Optional[int],
+        language: str,
+    ) -> Dict[str, Any]:
+        """Describe the configuration a cached run was produced under.
+
+        API keys are excluded (never written to disk). Scenario lists are
+        reduced to their names — enough to catch a swapped pack without
+        storing full scenario text.
+        """
+        config = {k: v for k, v in merged.items() if "api_key" not in k}
+        if isinstance(scenarios, str):
+            scenario_id: Any = scenarios
+        else:
+            scenario_id = [s.get("name") for s in scenarios]
+        source = {
+            "config": config,
+            "scenarios": scenario_id,
+            "max_turns": max_turns,
+            "language": language,
+        }
+        digest = hashlib.sha256(
+            json.dumps(source, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+        return {"fingerprint": digest, "source": source}
+
+    def _check_run_config(self, label: str, fingerprint: Dict[str, Any]) -> bool:
+        """Return True when cached runs for this label are safe to reuse.
+
+        A config.json that disagrees with the current configuration means the
+        cached runs were produced under different settings (another judge,
+        prompt, scenario pack, ...) — mixing them into the aggregates would
+        silently corrupt the experiment, so the cache is rejected. A missing
+        config.json (caches from older versions) is accepted. Either way the
+        current fingerprint is written for the next resume.
+        """
+        path = self._config_path(label)
+        reusable = True
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    stored = json.load(f)
+                if stored.get("fingerprint") != fingerprint["fingerprint"]:
+                    tqdm.write(
+                        f"  Warning: cached runs for {label!r} were produced under a "
+                        "different configuration — ignoring them and re-running "
+                        f"(delete {path.parent} to silence this)."
+                    )
+                    reusable = False
+            except (ValueError, KeyError, TypeError):
+                pass  # unreadable marker: treat like a legacy cache
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(fingerprint, f, indent=2, ensure_ascii=False)
+        return reusable
 
     def _load_cached_runs(self, label: str) -> Dict[int, AuditResults]:
         """Return {index: AuditResults} for every reusable run_N.json on disk.
@@ -109,7 +193,20 @@ class AuditExperiment:
         for i in range(self.n_repetitions):
             path = self._run_path(label, i)
             if path.exists():
-                results = AuditResults.load(str(path))
+                try:
+                    results = AuditResults.load(str(path))
+                except (ValueError, KeyError, TypeError) as exc:
+                    # A truncated or schema-incompatible file must not kill
+                    # the resume it exists to enable — treat the slot as
+                    # uncached and re-run it (the file is overwritten then).
+                    # ValueError covers both JSONDecodeError and the
+                    # UnicodeDecodeError a partially-written binary file
+                    # produces.
+                    tqdm.write(
+                        f"  Warning: ignoring unreadable cached run {path} "
+                        f"({type(exc).__name__}: {exc}) — this run will be re-executed"
+                    )
+                    continue
                 if any(r.severity == "ERROR" for r in results):
                     continue
                 cached[i] = results
@@ -122,6 +219,14 @@ class AuditExperiment:
         language: str = "English",
         max_workers: int = 1,
     ) -> RepeatedExperimentResults:
+        judge_info = {
+            k: v for k, v in {
+                "judge_model": self.judge_model,
+                "judge_base_url": self.judge_base_url,
+                "judge_provider": self.judge_provider,
+            }.items() if v is not None
+        } or None
+
         runs_by_model: Dict[str, List[AuditResults]] = {}
         with tqdm(
             total=len(self.models),
@@ -132,9 +237,17 @@ class AuditExperiment:
         ) as pbar_models:
             for model_info in self.models:
                 label = self._make_label(model_info)
+                merged = self._merge_common(model_info)
 
-                # Load any runs already saved to disk
-                cached = self._load_cached_runs(label) if self.save_dir else {}
+                # Load any runs already saved to disk — but only if they were
+                # produced under the same configuration as this call.
+                cached: Dict[int, AuditResults] = {}
+                if self.save_dir:
+                    fingerprint = self._config_fingerprint(
+                        merged, scenarios, max_turns, language
+                    )
+                    if self._check_run_config(label, fingerprint):
+                        cached = self._load_cached_runs(label)
                 if cached:
                     tqdm.write(f"  Resuming {label}: {len(cached)}/{self.n_repetitions} runs found on disk")
 
@@ -152,7 +265,7 @@ class AuditExperiment:
                     for i in range(self.n_repetitions):
                         if i in cached:
                             continue
-                        auditor = ModelAuditor(**self._merge_common(model_info))
+                        auditor = ModelAuditor(**merged)
                         result = await auditor.run_async(
                             scenarios,
                             max_turns=max_turns,
@@ -168,17 +281,12 @@ class AuditExperiment:
 
                 runs_by_model[label] = [runs_ordered[i] for i in range(self.n_repetitions)]
                 if self.on_model_done:
-                    partial = RepeatedExperimentResults({label: runs_by_model[label]})
+                    partial = RepeatedExperimentResults(
+                        {label: runs_by_model[label]}, judge=judge_info
+                    )
                     self.on_model_done(label, partial)
                 pbar_models.update(1)
 
-        judge_info = {
-            k: v for k, v in {
-                "judge_model": self.judge_model,
-                "judge_base_url": self.judge_base_url,
-                "judge_provider": self.judge_provider,
-            }.items() if v is not None
-        } or None
         experiment_results = RepeatedExperimentResults(runs_by_model, judge=judge_info)
 
         if self.save_dir:

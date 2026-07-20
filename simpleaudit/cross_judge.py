@@ -22,6 +22,18 @@ from simpleaudit.repeated_results import RepeatedExperimentResults
 _SEVERITY_ORDER = ["pass", "low", "medium", "high", "critical"]
 
 
+def _severity_direction(modal_a: str, modal_b: str) -> Optional[int]:
+    """idx_b - idx_a in _SEVERITY_ORDER; positive means judge_b is stricter.
+
+    Returns None when either severity is outside the canonical ladder
+    (e.g. "ERROR"): an index of -1 would silently produce directions that
+    look meaningful but aren't.
+    """
+    if modal_a not in _SEVERITY_ORDER or modal_b not in _SEVERITY_ORDER:
+        return None
+    return _SEVERITY_ORDER.index(modal_b) - _SEVERITY_ORDER.index(modal_a)
+
+
 # ---------------------------------------------------------------------------
 # CrossJudgeResults
 # ---------------------------------------------------------------------------
@@ -94,10 +106,13 @@ class CrossJudgeResults:
         list of dict
             One entry per scenario containing:
             - ``scenario``: scenario name
-            - ``modals``: ``{judge_label: modal_severity}``
+            - ``modals``: ``{judge_label: modal_severity}`` — only judges
+              that actually rated the scenario appear
             - ``shifted``: True if any two judges disagree on modal severity
             - ``direction``: (two-judge case only) ``idx_b - idx_a`` in
-              ``_SEVERITY_ORDER``; positive means judge_b is stricter.
+              ``_SEVERITY_ORDER``; positive means judge_b is stricter. None
+              when a modal severity is outside the canonical ladder
+              (e.g. "ERROR").
         """
         judges = self.judges
         per_judge: Dict[str, Dict[str, str]] = {}
@@ -118,14 +133,15 @@ class CrossJudgeResults:
 
         result = []
         for name in scenario_names:
-            modals = {j: per_judge[j].get(name, "pass") for j in judges}
+            # Only judges that actually rated this scenario participate —
+            # inventing a "pass" for a missing judge would fabricate both
+            # agreements and disagreements.
+            modals = {j: per_judge[j][name] for j in judges if name in per_judge[j]}
             shifted = len(set(modals.values())) > 1
             entry: Dict[str, Any] = {"scenario": name, "modals": modals, "shifted": shifted}
-            if shifted and len(judges) == 2:
+            if shifted and len(modals) == 2 and len(judges) == 2:
                 a, b = judges
-                idx_a = _SEVERITY_ORDER.index(modals[a]) if modals[a] in _SEVERITY_ORDER else -1
-                idx_b = _SEVERITY_ORDER.index(modals[b]) if modals[b] in _SEVERITY_ORDER else -1
-                entry["direction"] = idx_b - idx_a
+                entry["direction"] = _severity_direction(modals[a], modals[b])
             result.append(entry)
         return result
 
@@ -243,7 +259,7 @@ class CrossJudgeExperiment:
                 judge_provider=judge_info.get("provider"),
                 judge_api_key=judge_info.get("api_key"),
                 judge_base_url=judge_info.get("base_url"),
-                auditor_model=auditor_info["model"] if auditor_info else None,
+                auditor_model=auditor_info.get("model") if auditor_info else None,
                 auditor_provider=auditor_info.get("provider") if auditor_info else None,
                 auditor_api_key=auditor_info.get("api_key") if auditor_info else None,
                 auditor_base_url=auditor_info.get("base_url") if auditor_info else None,
@@ -415,13 +431,11 @@ def compare_judges(
         modal_a = stats_a.most_common_severity
         modal_b = report_b.per_scenario[name].most_common_severity
         if modal_a != modal_b:
-            idx_a = _SEVERITY_ORDER.index(modal_a) if modal_a in _SEVERITY_ORDER else -1
-            idx_b = _SEVERITY_ORDER.index(modal_b) if modal_b in _SEVERITY_ORDER else -1
             shifts.append({
                 "scenario": name,
                 "modal_a": modal_a,
                 "modal_b": modal_b,
-                "direction": idx_b - idx_a,
+                "direction": _severity_direction(modal_a, modal_b),
             })
 
     return {

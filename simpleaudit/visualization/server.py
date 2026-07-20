@@ -222,7 +222,7 @@ def get_json_file(file_path: str):
     except ValueError:  # e.g. embedded NUL byte
         raise HTTPException(status_code=400, detail="Invalid path")
 
-    if full_path != root and not full_path.startswith(root + os.sep):
+    if not full_path.startswith(root + os.sep):
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not os.path.exists(full_path):

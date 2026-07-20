@@ -211,20 +211,24 @@ def get_json_file(file_path: str):
     if not RESULTS_DIR:
         raise HTTPException(status_code=500, detail="Results directory not set")
 
-    # Security: resolve symlinks and ".." then require the result to live
-    # inside RESULTS_DIR. A plain string-prefix check is unsafe — e.g.
-    # "../results_private/x" normalises to a sibling that still shares the
-    # prefix — and normpath does not follow symlinks out of the tree.
-    root = Path(RESULTS_DIR).resolve()
-    full_path = (root / file_path).resolve()
+    # Security: canonicalize (collapses "..", follows symlinks) and require
+    # the result to stay inside RESULTS_DIR. Comparing against root + os.sep
+    # (not a bare string prefix) avoids the sibling-prefix bypass — e.g.
+    # "/data/results_private" sharing the prefix "/data/results". realpath +
+    # startswith is also the containment idiom static analyzers recognize.
+    root = os.path.realpath(RESULTS_DIR)
+    try:
+        full_path = os.path.realpath(os.path.join(root, file_path))
+    except ValueError:  # e.g. embedded NUL byte
+        raise HTTPException(status_code=400, detail="Invalid path")
 
-    if root != full_path and root not in full_path.parents:
+    if full_path != root and not full_path.startswith(root + os.sep):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    if not full_path.exists():
+    if not os.path.exists(full_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    if full_path.suffix != ".json":
+    if os.path.splitext(full_path)[1] != ".json":
         raise HTTPException(status_code=400, detail="Not a JSON file")
 
     try:

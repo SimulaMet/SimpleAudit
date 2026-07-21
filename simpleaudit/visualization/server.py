@@ -226,21 +226,13 @@ def get_json_file(file_path: str):
 
     root = os.path.realpath(os.path.abspath(RESULTS_DIR))
 
-    # Validate user-controlled path as a relative path under RESULTS_DIR.
-    if not file_path or os.path.isabs(file_path):
-        raise HTTPException(status_code=400, detail="Invalid path")
-
-    normalized_rel_path = os.path.normpath(file_path)
-    if normalized_rel_path == ".." or normalized_rel_path.startswith(".." + os.sep):
-        raise HTTPException(status_code=403, detail="Access denied")
-
     try:
-        full_path = os.path.realpath(os.path.join(root, normalized_rel_path))
-
-        if os.path.commonpath([root, full_path]) != root:
-            raise HTTPException(status_code=403, detail="Access denied")
-    except ValueError:
+        full_path = os.path.realpath(os.path.join(root, file_path))
+    except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid path")
+
+    if not full_path.startswith(root + os.sep):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     if not os.path.isfile(full_path):
         raise HTTPException(status_code=404, detail="File not found")

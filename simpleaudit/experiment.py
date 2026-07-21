@@ -177,8 +177,13 @@ class AuditExperiment:
             except (ValueError, KeyError, TypeError):
                 pass  # unreadable marker: treat like a legacy cache
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(fingerprint, f, indent=2, ensure_ascii=False)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(fingerprint, f, indent=2, ensure_ascii=False)
+            tmp_path.replace(path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
         return reusable
 
     def _load_cached_runs(self, label: str) -> Dict[int, AuditResults]:

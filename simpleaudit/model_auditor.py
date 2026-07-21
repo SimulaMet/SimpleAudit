@@ -241,6 +241,8 @@ class ModelAuditor:
             try:
                 response = await client.acompletion(**kwargs)
                 break
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 if attempt >= max_retries:
                     raise

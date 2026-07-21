@@ -16,7 +16,7 @@ Available packs:
 - hei_refusal: Norwegian youth Q&A refusal/guidance edge cases (47 scenarios)
 - nav_aap: NAV Arbeidsavklaringspenger / Norwegian welfare scenarios (15 scenarios)
 - skatteetaten: Norwegian Tax Administration scenarios (in development)
-- helfo: Helfo health-economics scenarios (8 scenarios, canonical schema, facts verified 2026-07-08)
+- helfo: Helfo health-economics scenarios (8 scenarios)
 - all: All scenarios combined
 """
 

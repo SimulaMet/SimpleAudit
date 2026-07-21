@@ -224,27 +224,20 @@ def get_json_file(file_path: str):
     if not RESULTS_DIR:
         raise HTTPException(status_code=500, detail="Results directory not set")
 
-    # Security: canonicalize (collapses "..", follows symlinks) and require
-    # the result to stay inside RESULTS_DIR. Comparing against root + os.sep
-    # (not a bare string prefix) avoids the sibling-prefix bypass — e.g.
-    # "/data/results_private" sharing the prefix "/data/results". realpath +
-    # startswith is also the containment idiom static analyzers recognize.
-    root = os.path.realpath(RESULTS_DIR)
-    try:
-        full_path = os.path.realpath(os.path.join(root, file_path))
-    except ValueError:  # e.g. embedded NUL byte
-        raise HTTPException(status_code=400, detail="Invalid path")
+    root = os.path.realpath(os.path.abspath(RESULTS_DIR))
 
     try:
+        full_path = os.path.realpath(os.path.join(root, file_path))
+
         if os.path.commonpath([root, full_path]) != root:
             raise HTTPException(status_code=403, detail="Access denied")
     except ValueError:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=400, detail="Invalid path")
 
-    if not os.path.exists(full_path):
+    if not os.path.isfile(full_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    if os.path.splitext(full_path)[1] != ".json":
+    if os.path.splitext(full_path)[1].lower() != ".json":
         raise HTTPException(status_code=400, detail="Not a JSON file")
 
     try:
@@ -252,12 +245,10 @@ def get_json_file(file_path: str):
             data = json.load(f)
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
+    except OSError:
+        raise HTTPException(status_code=500, detail="Error reading file")
 
-    # Serve only what /api/files lists: files shaped like audit results.
-    # Arbitrary .json files under the tree (configs, credentials dumps,
-    # unrelated data) stay unreachable through this endpoint.
+    # Serve only files shaped like audit results.
     if not is_valid_audit_data(data):
         raise HTTPException(status_code=403, detail="Not an audit results file")
 

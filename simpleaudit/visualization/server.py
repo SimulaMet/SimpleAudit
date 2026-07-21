@@ -29,13 +29,26 @@ RESULTS_DIR = None
 
 def is_valid_audit_data(data) -> bool:
     """Check whether parsed JSON has the shape of audit results."""
-    # An array of results
-    if isinstance(data, list):
-        return len(data) > 0
 
-    # An object with a 'results' key that's a non-empty array
-    if isinstance(data, dict) and 'results' in data:
-        return isinstance(data['results'], list) and len(data['results']) > 0
+    def _looks_like_audit_result(obj: object) -> bool:
+        return (
+            isinstance(obj, dict)
+            and ("scenario_name" in obj or "name" in obj)
+            and "severity" in obj
+        )
+
+    # Legacy shape: a list[AuditResult]
+    if isinstance(data, list):
+        return bool(data) and all(_looks_like_audit_result(item) for item in data)
+
+    # Current shape: {"results": list[AuditResult], ...}
+    if isinstance(data, dict) and "results" in data:
+        results = data["results"]
+        return (
+            isinstance(results, list)
+            and bool(results)
+            and all(_looks_like_audit_result(item) for item in results)
+        )
 
     return False
 

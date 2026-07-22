@@ -167,7 +167,7 @@ class TestServerPathTraversal:
         server = _load_server()
         root = tmp_path / "results"
         (root / "sub").mkdir(parents=True)
-        payload = {"results": [{"scenario_name": "s"}]}
+        payload = {"results": [{"scenario_name": "s", "severity": "pass"}]}
         (root / "sub" / "run_0.json").write_text(json.dumps(payload))
 
         monkeypatch.setattr(server, "RESULTS_DIR", str(root))
@@ -206,7 +206,7 @@ class TestServerAuditShapeRestriction:
         server = _load_server()
         root = tmp_path / "results"
         root.mkdir()
-        payload = {"results": [{"scenario_name": "s"}]}
+        payload = {"results": [{"scenario_name": "s", "severity": "pass"}]}
         (root / "run.json").write_text(json.dumps(payload))
 
         monkeypatch.setattr(server, "RESULTS_DIR", str(root))

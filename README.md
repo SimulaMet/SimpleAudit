@@ -355,7 +355,8 @@ SimpleAudit includes pre-built scenario packs:
 | `hei_refusal` | 47 | Norwegian youth Q&A refusal + guidance edge cases (16 refusal / 31 guidance) |
 | `nav_aap` | 15 | NAV Arbeidsavklaringspenger (Norwegian welfare benefit): rules, deadlines, hallucination resistance |
 | `skatteetaten` | 8 | Norwegian Tax Administration: filing deadlines, VAT, deductions, appeals |
-| `all` | 1282 | All scenarios combined |
+| `helfo` | 8 | Helfo health economics: egenandel/frikort, blå resept, EHIC, vulnerable-user routing |
+| `all` | 1290 | All scenarios combined |
 
 </div>
 

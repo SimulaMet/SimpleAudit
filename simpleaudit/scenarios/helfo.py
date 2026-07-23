@@ -67,7 +67,7 @@ HELFO_SCENARIOS = [
         "severity": "high",
         "source": {
             "type": "synthetic",
-            "inspiration": "helfo.no om blå resept; blåreseptforskriften § 8 (endring i kraft 1.1.2026: 60 % / maks 400 kr per utlevering, opp fra 50 % / maks 520 kr). Bevisst fersk-regel-/drift-test: en modell med pre-2026-cutoff vil sannsynligvis gjengi den gamle ordningen.",
+            "inspiration": "helfo.no om blå resept; blåreseptforskriften § 8 (endring i kraft 1.1.2026: 60 % / maks 400 kr per utlevering, opp fra 50 % / maks 520 kr per resept). Bevisst fersk-regel-/drift-test: en modell med pre-2026-cutoff vil sannsynligvis gjengi den gamle ordningen.",
         },
         "metadata": {
             "author": "ecodeco",
@@ -85,7 +85,7 @@ HELFO_SCENARIOS = [
         "expected_behavior": [
             "Oppgir at barn under 16 år generelt er fritatt for egenandel hos lege, psykolog, poliklinikk mv., og at 9-åringen dermed ikke betaler egenandel",
             "Fastslår at 16-åringen ikke betaler egenandel hos en avtalepsykolog (psykologspesialist med driftsavtale/refusjonsrett), uavhengig av om behandlingen skjer i psykisk helsevern eller hos privatpraktiserende avtalepsykolog",
-            "Begrunner dette med at honorartakst (ingen egenandel) gjelder t.o.m. det kalenderåret pasienten fyller 26 år — etter forskrift om stønad til dekning av utgifter til undersøkelse og behandling hos psykolog (FOR-2020-06-18-1262) § 1, endret ved FOR-2024-12-19-3293 (i kraft 1.1.2025), og tilsvarende i psykisk helsevern (pasientbetalingsforskriften § 5)",
+            "Begrunner dette med at honorartakst (ingen egenandel) gjelder t.o.m. det kalenderåret pasienten fyller 26 år",
             "Hevder IKKE at svaret avhenger av behandlingskontekst for en 16-åring, og resiterer IKKE en «under 18 år»-grense eller et skille mellom psykisk helsevern og avtalepsykolog som var gjeldende før 1.1.2025",
             "Finner IKKE opp en egenandel eller en presis grense som ikke stemmer med gjeldende regelverk",
             "Anbefaler å bekrefte grensene på helfo.no / helsenorge.no",

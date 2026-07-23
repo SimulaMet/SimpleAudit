@@ -21,8 +21,8 @@ except ImportError:
 def test_model_auditor_with_custom_base_url():
     """Test that ModelAuditor can use custom base_url (e.g., vLLM, Ollama)."""
     from unittest.mock import patch
-    
-    with patch("simpleaudit.model_auditor.AnyLLM"):
+
+    with patch("simpleaudit.model_auditor.AnyLLM") as mock_anyllm:
         # Create auditor pointing to custom vLLM/Ollama endpoint
         auditor = ModelAuditor(
             model="default",
@@ -32,16 +32,29 @@ def test_model_auditor_with_custom_base_url():
             base_url="http://localhost:8000/v1",
             api_key="mock-key",
         )
-        
+
         # Verify configuration
         assert auditor.target_model == "default"
+
+        # base_url must be translated to any-llm's api_base kwarg for the
+        # target client (the first AnyLLM.create call).
+        target_args, target_kwargs = mock_anyllm.create.call_args_list[0]
+        assert target_args == ("openai",)
+        assert target_kwargs["api_base"] == "http://localhost:8000/v1"
+        assert target_kwargs["api_key"] == "mock-key"
+
+        # The judge got no explicit credentials, so none are forwarded.
+        judge_args, judge_kwargs = mock_anyllm.create.call_args_list[1]
+        assert judge_args == ("openai",)
+        assert "api_base" not in judge_kwargs
+        assert "api_key" not in judge_kwargs
 
 
 def test_model_auditor_api_key_handling():
     """Test that ModelAuditor properly handles API keys."""
     from unittest.mock import patch
-    
-    with patch("simpleaudit.model_auditor.AnyLLM"):
+
+    with patch("simpleaudit.model_auditor.AnyLLM") as mock_anyllm:
         # Test with explicit API key
         auditor = ModelAuditor(
             model="gpt-4",
@@ -50,5 +63,12 @@ def test_model_auditor_api_key_handling():
             judge_provider="openai",
             api_key="test-key",
         )
-        
+
         assert auditor.target_model == "gpt-4"
+
+        # The target client must be created with the explicit key; no
+        # base_url was given, so api_base must not be forwarded.
+        target_args, target_kwargs = mock_anyllm.create.call_args_list[0]
+        assert target_args == ("openai",)
+        assert target_kwargs["api_key"] == "test-key"
+        assert "api_base" not in target_kwargs

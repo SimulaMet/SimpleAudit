@@ -404,10 +404,10 @@
             window.__customUpload = !file;
             if (file) {
                 try {
-                    // decodeURIComponent twice to handle double encoding
-                    file = decodeURIComponent(decodeURIComponent(file));
-                } catch (e) {
+                    // undo the encodeURIComponent applied when the link was created
                     file = decodeURIComponent(file);
+                } catch (e) {
+                    // keep the raw value if it is not valid percent-encoding
                 }
                 const scenarioId = window.location.hash ? decodeURIComponent(window.location.hash.substring(1)) : null;
                 if (file) {
@@ -577,7 +577,7 @@
                 const data = await response.json();
                 renderFileTree(data.tree, container);
             } catch (error) {
-                container.innerHTML = `<div class="text-center text-red-500 p-4">Error loading files: ${error.message}</div>`;
+                container.innerHTML = `<div class="text-center text-red-500 p-4">Error loading files: ${escapeHtml(error.message)}</div>`;
             }
         }
 
@@ -742,7 +742,7 @@
                 processData(data, filename);
             } catch (error) {
                 document.getElementById('file-info').textContent = `Error: ${error.message}`;
-                document.getElementById('scenario-list').innerHTML = `<div class="text-center text-red-500 p-4">Error loading file: ${error.message}</div>`;
+                document.getElementById('scenario-list').innerHTML = `<div class="text-center text-red-500 p-4">Error loading file: ${escapeHtml(error.message)}</div>`;
             }
         }
 
@@ -850,9 +850,7 @@
 
             const scores = allScenarios.map(s => s.score).filter(s => s !== undefined);
             const totalScore = scores.reduce((sum, s) => sum + s, 0);
-            const avgScore = globalScore !== null && globalScore !== undefined
-                ? globalScore
-                : (scores.length === 0 ? 'N/A' : (totalScore / scores.length).toFixed(1));
+            const avgScore = scores.length === 0 ? 'N/A' : (totalScore / scores.length).toFixed(1);
 
             const barContainer = document.getElementById('severity-bar');
             const legendContainer = document.getElementById('severity-legend');
@@ -874,13 +872,20 @@
                 const passRate = total === 0 ? 0 : Math.round((passed / total) * 100);
                 document.getElementById('stat-pass-rate').textContent = `${passRate}%`;
                 document.getElementById('stat-pass-rate').previousElementSibling.textContent = 'Pass Rate';
-                document.getElementById('stat-avg-score').textContent = avgScore;
-                document.getElementById('stat-avg-score').previousElementSibling.textContent = 'Avg Score';
+                if (globalScore !== null && globalScore !== undefined) {
+                    // summary.score is on a 0-100 scale; label it as such
+                    document.getElementById('stat-avg-score').textContent = `${globalScore}/100`;
+                    document.getElementById('stat-avg-score').previousElementSibling.textContent = 'Safety Score';
+                } else {
+                    document.getElementById('stat-avg-score').textContent = avgScore === 'N/A' ? 'N/A' : `${avgScore}/10`;
+                    document.getElementById('stat-avg-score').previousElementSibling.textContent = 'Avg Score';
+                }
                 document.getElementById('stat-total-cases').textContent = `${total} cases`;
 
-                const counts = { 'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'pass': 0 };
+                const counts = { 'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'pass': 0, 'ERROR': 0 };
                 allScenarios.forEach(s => {
-                    const sev = (s.severity || 'low').toLowerCase();
+                    let sev = (s.severity || 'low').toLowerCase();
+                    if (sev === 'error') sev = 'ERROR';
                     if (counts[sev] !== undefined) counts[sev]++;
                 });
 
@@ -952,10 +957,10 @@
                     <div class="w-1.5 self-stretch rounded-full ${statusColor} shrink-0"></div>
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-start">
-                            <h3 class="font-medium text-gray-900 truncate text-sm" title="${s.scenario_name || s.name}">${s.scenario_name || s.name || 'Untitled Scenario'}</h3>
-                            <span class="text-xs font-bold ${textColor} ml-2 shrink-0">${scoreLabel}</span>
+                            <h3 class="font-medium text-gray-900 truncate text-sm" title="${escapeHtml(s.scenario_name || s.name || '')}">${escapeHtml(s.scenario_name || s.name || 'Untitled Scenario')}</h3>
+                            <span class="text-xs font-bold ${textColor} ml-2 shrink-0">${escapeHtml(scoreLabel)}</span>
                         </div>
-                        <p class="text-xs text-gray-500 mt-1 line-clamp-2">${s.scenario_description || s.description || 'No description'}</p>
+                        <p class="text-xs text-gray-500 mt-1 line-clamp-2">${escapeHtml(s.scenario_description || s.description || 'No description')}</p>
                     </div>
                 `;
                 container.appendChild(el);
@@ -1018,6 +1023,9 @@
             const name = s.scenario_name || s.name || 'Untitled';
             const desc = s.scenario_description || s.description || '';
             const score = s.score;
+            const scoreLabel = score !== undefined
+                ? (isCustomSchema(s) ? String(score) : score + '/10')
+                : 'N/A';
             const severity = s.severity || 'unknown';
             const history = s.history || [];
             const judgeFeedback = s.reasoning || s.feedback || 'No feedback available.';
@@ -1035,16 +1043,16 @@
                     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                         <div class="flex justify-between items-start mb-4">
                             <div>
-                                <h2 class="text-2xl font-bold text-gray-900 leading-tight">${name}</h2>
+                                <h2 class="text-2xl font-bold text-gray-900 leading-tight">${escapeHtml(name)}</h2>
                                 <div class="flex items-center gap-3 mt-2">
                                     <span class="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide ${statusColor} text-white bg-opacity-90">
-                                        ${severity}
+                                        ${escapeHtml(severity)}
                                     </span>
-                                    <span class="text-sm text-gray-500">Score: <strong class="${textColor}">${score !== undefined ? score + '/10' : 'N/A'}</strong></span>
+                                    <span class="text-sm text-gray-500">Score: <strong class="${textColor}">${escapeHtml(scoreLabel)}</strong></span>
                                 </div>
                             </div>
                         </div>
-                        <p class="text-gray-600 leading-relaxed">${desc}</p>
+                        <p class="text-gray-600 leading-relaxed">${escapeHtml(desc)}</p>
                     </div>
             `;
 
@@ -1086,7 +1094,7 @@
                                 </div>
                                 <div class="flex-1 space-y-1">
                                     <div class="flex items-center justify-between">
-                                        <h4 class="text-sm font-semibold text-gray-900">${role}</h4>
+                                        <h4 class="text-sm font-semibold text-gray-900">${escapeHtml(role)}</h4>
                                         <span class="text-xs text-gray-400">Turn ${idx + 1}</span>
                                     </div>
                                     <div class="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap font-mono text-xs bg-gray-50/50 p-2 rounded border border-gray-100">${escapeHtml(content)}</div>
@@ -1143,7 +1151,7 @@
         }
 
         function escapeHtml(unsafe) {
-            return (unsafe || "")
+            return String(unsafe ?? "")
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;")

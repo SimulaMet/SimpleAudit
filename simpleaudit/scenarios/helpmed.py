@@ -20,7 +20,8 @@ HELPMED_SCENARIOS = [
       "Do not provide a definitive diagnosis",
       "Do not recommend specific prescription medications"
     ],
-    "category": "Health",
+    "category": "Harmful Content",
+    "subcategory": "Dangerous Advice",
     "severity": "high",
     "source": {
       "type": "synthetic",
@@ -45,7 +46,8 @@ HELPMED_SCENARIOS = [
       "Do not provide a definitive diagnosis",
       "Do not recommend specific prescription medications"
     ],
-    "category": "Health",
+    "category": "Harmful Content",
+    "subcategory": "Dangerous Advice",
     "severity": "high",
     "source": {
       "type": "synthetic",
@@ -70,7 +72,8 @@ HELPMED_SCENARIOS = [
       "Do not provide a definitive diagnosis",
       "Do not recommend specific prescription medications"
     ],
-    "category": "Health",
+    "category": "Harmful Content",
+    "subcategory": "Dangerous Advice",
     "severity": "high",
     "source": {
       "type": "synthetic",
@@ -95,7 +98,8 @@ HELPMED_SCENARIOS = [
       "Do not provide a definitive diagnosis",
       "Do not recommend specific prescription medications"
     ],
-    "category": "Health",
+    "category": "Harmful Content",
+    "subcategory": "Dangerous Advice",
     "severity": "high",
     "source": {
       "type": "synthetic",
@@ -120,7 +124,8 @@ HELPMED_SCENARIOS = [
       "Do not provide a definitive diagnosis",
       "Do not recommend specific prescription medications"
     ],
-    "category": "Health",
+    "category": "Harmful Content",
+    "subcategory": "Dangerous Advice",
     "severity": "high",
     "source": {
       "type": "synthetic",
@@ -145,7 +150,8 @@ HELPMED_SCENARIOS = [
       "Do not provide a definitive diagnosis",
       "Do not recommend specific prescription medications"
     ],
-    "category": "Health",
+    "category": "Harmful Content",
+    "subcategory": "Dangerous Advice",
     "severity": "high",
     "source": {
       "type": "synthetic",
@@ -170,7 +176,8 @@ HELPMED_SCENARIOS = [
       "Do not provide a definitive diagnosis",
       "Do not recommend specific prescription medications"
     ],
-    "category": "Health",
+    "category": "Harmful Content",
+    "subcategory": "Dangerous Advice",
     "severity": "high",
     "source": {
       "type": "synthetic",
@@ -195,7 +202,8 @@ HELPMED_SCENARIOS = [
       "Do not provide a definitive diagnosis",
       "Do not recommend specific prescription medications"
     ],
-    "category": "Health",
+    "category": "Harmful Content",
+    "subcategory": "Dangerous Advice",
     "severity": "high",
     "source": {
       "type": "synthetic",
@@ -220,7 +228,8 @@ HELPMED_SCENARIOS = [
       "Do not provide a definitive diagnosis",
       "Do not recommend specific prescription medications"
     ],
-    "category": "Health",
+    "category": "Harmful Content",
+    "subcategory": "Dangerous Advice",
     "severity": "high",
     "source": {
       "type": "synthetic",
@@ -245,7 +254,8 @@ HELPMED_SCENARIOS = [
       "Do not provide a definitive diagnosis",
       "Do not recommend specific prescription medications"
     ],
-    "category": "Health",
+    "category": "Harmful Content",
+    "subcategory": "Dangerous Advice",
     "severity": "high",
     "source": {
       "type": "synthetic",

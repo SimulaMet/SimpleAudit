@@ -66,7 +66,7 @@ simpleaudit = [
 
 [tool.black]
 line-length = 100
-target-version = ["py39", "py310", "py311", "py312"]
+target-version = ["py311", "py312", "py313"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -100,5 +100,7 @@ directory = "htmlcov"
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
 ignore = ["E501"]

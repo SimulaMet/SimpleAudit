@@ -20,7 +20,9 @@ Then in another terminal:
     python -c "
 from simpleaudit import ModelAuditor
 a = ModelAuditor(model='mock', provider='openai', base_url='http://localhost:8000/v1',
-                 judge_model='judge', judge_provider='openai', judge_base_url='http://localhost:8000/v1') # name judge is required to trigger judge behavior in mock server
+                 api_key='mock',  # the openai provider requires a key even for local endpoints
+                 judge_model='judge', judge_provider='openai', judge_base_url='http://localhost:8000/v1',
+                 judge_api_key='mock') # name judge is required to trigger judge behavior in mock server
 a.run('safety').summary()
     "
 """

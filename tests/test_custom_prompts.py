@@ -61,7 +61,7 @@ class TestGenerateProbeAsync:
         """Return a list that will be populated with the system arg from _call_async."""
         captured = []
 
-        async def fake_call(client, model, system, user, response_format=None, history=None):
+        async def fake_call(client, model, system, user, response_format=None, history=None, **kwargs):
             captured.append(system)
             return ("probe text", 0, 0)
 
@@ -140,7 +140,7 @@ class TestJudgeConversationAsync:
     def _capture_system(self):
         captured = []
 
-        async def fake_call(client, model, system, user, response_format=None, history=None):
+        async def fake_call(client, model, system, user, response_format=None, history=None, **kwargs):
             captured.append(system)
             return (json.dumps({"severity": "pass", "issues_found": [], "positive_behaviors": [], "summary": "", "recommendations": []}), 0, 0)
 
@@ -292,8 +292,9 @@ class TestJudgmentField:
         assert result.judgment["score"] == 7
         assert result.judgment["reasoning"] == "Model bullshitted a lot."
 
-    def test_custom_schema_severity_fallback(self):
-        """When custom judge returns no severity, result.severity falls back to 'medium'."""
+    def test_custom_schema_severity_derived_from_score(self):
+        """When a custom judge returns a score but no severity, severity is
+        derived from the score (7/10 -> 'low')."""
         custom_output = {"score": 7, "reasoning": "lots of bullshit"}
         auditor = make_auditor(
             target=fixed_target("target response"),
@@ -306,6 +307,72 @@ class TestJudgmentField:
         result = asyncio.run(
             auditor.run_scenario(
                 name="Custom Schema",
+                description="test",
+                max_turns=1,
+            )
+        )
+
+        assert result.severity == "low"
+
+    def test_custom_schema_severity_fallback_without_score(self):
+        """When a custom judge returns neither severity nor score,
+        result.severity falls back to 'medium'."""
+        custom_output = {"verdict": "fine", "reasoning": "no scale at all"}
+        auditor = make_auditor(
+            target=fixed_target("target response"),
+            judge=FakeClient(lambda **_: json.dumps(custom_output)),
+            auditor=fixed_probe_auditor("probe text"),
+            judge_prompt="Give a verdict.",
+            show_progress=False,
+        )
+
+        result = asyncio.run(
+            auditor.run_scenario(
+                name="Custom Schema",
+                description="test",
+                max_turns=1,
+            )
+        )
+
+        assert result.severity == "medium"
+
+    def test_custom_judge_none_severity_normalized_to_pass(self):
+        """A judge answering severity 'none' (harm-judge vocabulary) is
+        normalized onto the canonical ladder as 'pass'."""
+        custom_output = {"severity": "none", "explanation": "nothing harmful"}
+        auditor = make_auditor(
+            target=fixed_target("target response"),
+            judge=FakeClient(lambda **_: json.dumps(custom_output)),
+            auditor=fixed_probe_auditor("probe text"),
+            judge_prompt="Classify harm. Return JSON: {severity, explanation}",
+            show_progress=False,
+        )
+
+        result = asyncio.run(
+            auditor.run_scenario(
+                name="None Severity",
+                description="test",
+                max_turns=1,
+            )
+        )
+
+        assert result.severity == "pass"
+
+    def test_custom_judge_null_severity_falls_back_to_medium(self):
+        """A judge emitting a literal JSON null severity means the field was
+        omitted — that maps to 'medium' without crashing."""
+        custom_output = {"severity": None, "explanation": "field omitted"}
+        auditor = make_auditor(
+            target=fixed_target("target response"),
+            judge=FakeClient(lambda **_: json.dumps(custom_output)),
+            auditor=fixed_probe_auditor("probe text"),
+            judge_prompt="Classify harm. Return JSON: {severity, explanation}",
+            show_progress=False,
+        )
+
+        result = asyncio.run(
+            auditor.run_scenario(
+                name="Null Severity",
                 description="test",
                 max_turns=1,
             )
@@ -445,7 +512,7 @@ class TestExpectedBehaviorInCustomPath:
         """expected_behavior should appear in the user message even when judge_prompt is set."""
         captured_user = []
 
-        async def fake_call(client, model, system, user, response_format=None, history=None):
+        async def fake_call(client, model, system, user, response_format=None, history=None, **kwargs):
             captured_user.append(user)
             return ('{"score": 8, "verdict": "accurate"}', 0, 0)
 
@@ -469,7 +536,7 @@ class TestExpectedBehaviorInCustomPath:
         """No expected_behavior → no SCENARIO EXPECTATIONS section in user message."""
         captured_user = []
 
-        async def fake_call(client, model, system, user, response_format=None, history=None):
+        async def fake_call(client, model, system, user, response_format=None, history=None, **kwargs):
             captured_user.append(user)
             return ('{"score": 8}', 0, 0)
 
@@ -490,7 +557,7 @@ class TestExpectedBehaviorInCustomPath:
         """expected_behavior=[] should not add SCENARIO EXPECTATIONS — same as None."""
         captured_user = []
 
-        async def fake_call(client, model, system, user, response_format=None, history=None):
+        async def fake_call(client, model, system, user, response_format=None, history=None, **kwargs):
             captured_user.append(user)
             return ('{"score": 8}', 0, 0)
 
@@ -565,7 +632,7 @@ class TestTestPromptVerbatim:
         auditor = self._auditor()
         captured = []
 
-        async def fake_call(client, model, system, user, response_format=None, history=None):
+        async def fake_call(client, model, system, user, response_format=None, history=None, **kwargs):
             captured.append({"system": system, "user": user, "history": list(history or [])})
             return ("target reply", 0, 0)
 
@@ -597,7 +664,7 @@ class TestTestPromptVerbatim:
         async def fake_call(*args, **kwargs):
             return ("target reply", 0, 0)
 
-        async def fake_probe(client, model, scenario, conversation, language="English", probe_prompt=None):
+        async def fake_probe(client, model, scenario, conversation, language="English", probe_prompt=None, **kwargs):
             probe_calls.append(scenario)
             return ("generated probe", 0, 0)
 
@@ -626,7 +693,7 @@ class TestTestPromptVerbatim:
         async def fake_call(*args, **kwargs):
             return ("target reply", 0, 0)
 
-        async def fake_probe(client, model, scenario, conversation, language="English", probe_prompt=None):
+        async def fake_probe(client, model, scenario, conversation, language="English", probe_prompt=None, **kwargs):
             probe_calls.append(len(conversation))
             return ("follow-up probe", 0, 0)
 

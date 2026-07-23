@@ -31,7 +31,7 @@ def _capture_judge_call():
     """Return (captured_list, fake_call) where captured_list accumulates response_format per call."""
     captured = []
 
-    async def fake_call(client, model, system, user, response_format=None, history=None):
+    async def fake_call(client, model, system, user, response_format=None, history=None, **kwargs):
         captured.append(response_format)
         return (_PASS_JSON, 0, 0)
 

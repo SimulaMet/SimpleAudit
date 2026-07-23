@@ -261,3 +261,65 @@ class TestSerialization:
         first = loaded["m"]
         assert isinstance(first, AuditResults)
         assert first[0].severity == "high"
+
+    def test_save_load_preserves_judge_metadata(self, tmp_path):
+        judge = {"judge_model": "judge-x", "judge_provider": "openai"}
+        results = RepeatedExperimentResults({"m": [_make_results(["pass"])]}, judge=judge)
+
+        path = str(tmp_path / "exp.json")
+        results.save(path)
+        loaded = RepeatedExperimentResults.load(path)
+
+        assert loaded._judge == judge
+        assert loaded.to_dict()["judge"]["judge_model"] == "judge-x"
+
+
+# ---------------------------------------------------------------------------
+# AuditExperiment — on_model_done callback
+# ---------------------------------------------------------------------------
+
+class TestOnModelDone:
+    def _run_two_model_experiment(self, callback):
+        exp = AuditExperiment(
+            models=[
+                {"model": "m1", "provider": "openai"},
+                {"model": "m2", "provider": "openai"},
+            ],
+            judge_model="judge-x",
+            judge_provider="openai",
+            show_progress=False,
+            n_repetitions=1,
+            on_model_done=callback,
+        )
+        run_results = [_make_results(["pass"]), _make_results(["low"])]
+        return _run_experiment(exp, run_results)
+
+    def test_callback_fires_once_per_model_label(self):
+        seen = []
+        self._run_two_model_experiment(lambda label, partial: seen.append(label))
+        assert seen == ["m1", "m2"]
+
+    def test_partial_results_contain_only_that_models_runs(self):
+        partials = {}
+        self._run_two_model_experiment(
+            lambda label, partial: partials.__setitem__(label, partial)
+        )
+
+        for label, partial in partials.items():
+            assert isinstance(partial, RepeatedExperimentResults)
+            assert list(partial.keys()) == [label]
+            assert len(partial._runs[label]) == 1
+        assert partials["m1"]["m1"][0].severity == "pass"
+        assert partials["m2"]["m2"][0].severity == "low"
+
+    def test_partial_results_carry_judge_metadata(self):
+        partials = {}
+        self._run_two_model_experiment(
+            lambda label, partial: partials.__setitem__(label, partial)
+        )
+
+        for partial in partials.values():
+            judge = partial.to_dict()["judge"]
+            assert judge is not None
+            assert judge["judge_model"] == "judge-x"
+            assert judge["judge_provider"] == "openai"

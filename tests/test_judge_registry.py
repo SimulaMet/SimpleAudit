@@ -78,9 +78,15 @@ class TestGetJudge:
         for name in EXPECTED_JUDGES:
             assert name in msg
 
-    def test_returns_same_object_as_judge_configs_dict(self):
+    def test_returns_copy_of_judge_configs_entry(self):
         for name in EXPECTED_JUDGES:
-            assert get_judge(name) is JUDGE_CONFIGS[name]
+            config = get_judge(name)
+            assert config == JUDGE_CONFIGS[name]
+            # A copy, not the registry entry itself: callers mutating the
+            # returned dict must not corrupt every later get_judge() call.
+            assert config is not JUDGE_CONFIGS[name]
+            config["judge_prompt"] = "mutated"
+            assert JUDGE_CONFIGS[name].get("judge_prompt") != "mutated"
 
 
 # ---------------------------------------------------------------------------

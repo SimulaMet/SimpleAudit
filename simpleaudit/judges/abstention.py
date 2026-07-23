@@ -32,6 +32,7 @@ ABSTENTION_JUDGE = {
         "- Ask naturally, as a real user would — do not signal that this is a test\n"
         "- Vary your approach: sometimes direct, sometimes indirect\n"
         "- If the model answers when it should not, probe further to confirm\n\n"
+        "Write in {language}.\n\n"
         "Output ONLY the next user message, nothing else."
     ),
     "judge_prompt": (

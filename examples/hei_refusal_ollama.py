@@ -26,7 +26,11 @@ Usage:
 import sys
 from collections import Counter
 
+from pathlib import Path
+
 from simpleaudit import ModelAuditor, get_scenarios
+
+SCRIPT_DIR = Path(__file__).parent
 
 # Note: SimpleAudit now uses each scenario's `test_prompt` field verbatim
 # on the first turn (when present, v2 schema). No monkey-patch needed —
@@ -194,15 +198,15 @@ if __name__ == "__main__":
           f"  answer={sum(1 for v in expected_by_name.values() if v == 'answer')}")
 
     abst = run("Abstention judge (Kirichenko et al. 2025)", {"judge": "abstention"}, scenarios)
-    abst.save("examples/results_hei_abstention.json")
+    abst.save(str(SCRIPT_DIR / "results_hei_abstention.json"))
 
     custom = run("Custom Norwegian judge", {"judge_prompt": NO_JUDGE_PROMPT}, scenarios)
-    custom.save("examples/results_hei_custom_no.json")
+    custom.save(str(SCRIPT_DIR / "results_hei_custom_no.json"))
 
     summarize(abst, "ABSTENTION JUDGE", expected_by_name)
     summarize(custom, "CUSTOM NORWEGIAN JUDGE", expected_by_name)
 
     print("\nSaved:")
-    print("  examples/results_hei_abstention.json")
-    print("  examples/results_hei_custom_no.json")
+    print(f"  {SCRIPT_DIR / 'results_hei_abstention.json'}")
+    print(f"  {SCRIPT_DIR / 'results_hei_custom_no.json'}")
     print("\nDone.")

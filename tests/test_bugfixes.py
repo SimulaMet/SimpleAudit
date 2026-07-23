@@ -107,7 +107,7 @@ def test_score_judge_threads_schema_and_parses_payload(name):
     cfg = get_judge(name)
     payload = SCORE_JUDGES[name]["payload"]
     with patch.object(ModelAuditor, "_call_async",
-                      new=AsyncMock(return_value=json.dumps(payload))) as m:
+                      new=AsyncMock(return_value=(json.dumps(payload), 0, 0))) as m:
         out, _, _ = asyncio.run(
             ModelAuditor._judge_conversation_async(
                 client=MagicMock(),
@@ -150,7 +150,7 @@ def _http_status(excinfo):
 
 
 class TestServerPathTraversal:
-    def test_sibling_directory_escape_blocked(self, tmp_path):
+    def test_sibling_directory_escape_blocked(self, tmp_path, monkeypatch):
         server = _load_server()
         root = tmp_path / "results"
         root.mkdir()
@@ -158,23 +158,23 @@ class TestServerPathTraversal:
         sibling.mkdir()
         (sibling / "secret.json").write_text('{"results": [1]}')
 
-        server.RESULTS_DIR = str(root)
+        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
         with pytest.raises(server.HTTPException) as exc:
-            asyncio.run(server.get_json_file("../results_private/secret.json"))
+            server.get_json_file("../results_private/secret.json")
         assert _http_status(exc) == 403
 
-    def test_legitimate_nested_file_served(self, tmp_path):
+    def test_legitimate_nested_file_served(self, tmp_path, monkeypatch):
         server = _load_server()
         root = tmp_path / "results"
         (root / "sub").mkdir(parents=True)
-        payload = {"results": [{"scenario_name": "s"}]}
+        payload = {"results": [{"scenario_name": "s", "severity": "pass"}]}
         (root / "sub" / "run_0.json").write_text(json.dumps(payload))
 
-        server.RESULTS_DIR = str(root)
-        resp = asyncio.run(server.get_json_file("sub/run_0.json"))
+        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
+        resp = server.get_json_file("sub/run_0.json")
         assert json.loads(bytes(resp.body)) == payload
 
-    def test_symlink_escape_blocked(self, tmp_path):
+    def test_symlink_escape_blocked(self, tmp_path, monkeypatch):
         server = _load_server()
         root = tmp_path / "results"
         root.mkdir()
@@ -184,10 +184,34 @@ class TestServerPathTraversal:
         link = root / "link.json"
         link.symlink_to(outside / "secret.json")
 
-        server.RESULTS_DIR = str(root)
+        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
         with pytest.raises(server.HTTPException) as exc:
-            asyncio.run(server.get_json_file("link.json"))
+            server.get_json_file("link.json")
         assert _http_status(exc) == 403
+
+
+class TestServerAuditShapeRestriction:
+    def test_non_audit_json_rejected(self, tmp_path, monkeypatch):
+        server = _load_server()
+        root = tmp_path / "results"
+        root.mkdir()
+        (root / "config.json").write_text('{"api_key": "secret", "note": "not results"}')
+
+        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
+        with pytest.raises(server.HTTPException) as exc:
+            server.get_json_file("config.json")
+        assert _http_status(exc) == 403
+
+    def test_audit_shaped_json_still_served(self, tmp_path, monkeypatch):
+        server = _load_server()
+        root = tmp_path / "results"
+        root.mkdir()
+        payload = {"results": [{"scenario_name": "s", "severity": "pass"}]}
+        (root / "run.json").write_text(json.dumps(payload))
+
+        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
+        resp = server.get_json_file("run.json")
+        assert json.loads(bytes(resp.body)) == payload
 
 
 class TestServerSecret:

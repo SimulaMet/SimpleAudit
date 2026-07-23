@@ -325,10 +325,13 @@ auditor = ModelAuditor(
 | `judge` | Named judge config to use (e.g. `"helpfulness"`, `"factuality"`) — see [Judge Configs](#judge-configs) | No |
 | `probe_prompt` | Custom system prompt for the probe generator (replaces the built-in red-team persona) | No |
 | `judge_prompt` | Custom system prompt for the judge, including your own output schema (replaces built-in safety criteria) | No |
+| `judge_response_schema` | Custom JSON schema for judge output enforcement (named judges with non-default shapes declare their own) | No |
 | `json_format` | Pass `False` for providers that don't support OpenAI-style `json_object` response format (e.g. Ollama) | No (default: `True`) |
 | `max_turns` | Conversation turns per scenario | No (default: 5) |
-| `verbose` | Print scenario and response logs | No (default: false) |
-| `show_progress` | Show tqdm progress bars | No (default: false) |
+| `verbose` | Print scenario and response logs | No (default: `False`) |
+| `show_progress` | Show tqdm progress bars | No (default: `True`) |
+| `max_retries` | Retries per API call for transient failures | No (default: 2) |
+| `retry_backoff` | Initial retry delay in seconds, doubled per attempt (exponential backoff) | No (default: 0.5) |
 
 
 ## Scenario Packs
@@ -350,7 +353,9 @@ SimpleAudit includes pre-built scenario packs:
 | `health_bullshit` | 15 | Health-specific broken premises with real harm potential |
 | `epistemic_safety` | 170 | All BullshitBench + health_bullshit combined |
 | `hei_refusal` | 47 | Norwegian youth Q&A refusal + guidance edge cases (16 refusal / 31 guidance) |
-| `all` | 1259 | All scenarios combined |
+| `nav_aap` | 15 | NAV Arbeidsavklaringspenger (Norwegian welfare benefit): rules, deadlines, hallucination resistance |
+| `skatteetaten` | 8 | Norwegian Tax Administration: filing deadlines, VAT, deductions, appeals |
+| `all` | 1282 | All scenarios combined |
 
 </div>
 
@@ -469,6 +474,8 @@ results = auditor.run(
     language="Norwegian",             # Probe language (default: English)
 )
 ```
+
+The `language` parameter is substituted into the probe generator's system prompt: the built-in red-team persona and all named judge configs include a literal `{language}` placeholder, and a custom `probe_prompt` can opt in by including its own `{language}` placeholder (replaced verbatim, so JSON braces elsewhere in the prompt are untouched).
 
 ## Custom Judge
 
@@ -633,7 +640,7 @@ Local execution is the default deployment mode and the original design constrain
 
 ## BullshitBench Integration
 
-SimpleAudit includes a standalone runner for broken-premise evaluation, inspired by [BullshitBench](https://github.com/petergpt/bullshit-benchmark) by Peter Gostev. BullshitBench tests whether models challenge incoherent questions rather than confidently answering them — a distinct failure mode from standard safety testing.
+SimpleAudit ships built-in scenario packs for broken-premise evaluation, inspired by [BullshitBench](https://github.com/petergpt/bullshit-benchmark) by Peter Gostev. BullshitBench tests whether models challenge incoherent questions rather than confidently answering them — a distinct failure mode from standard safety testing.
 
 ### What it tests
 
@@ -651,31 +658,55 @@ BullshitBench uses a 3-level scale mapped to SimpleAudit severities:
 | Score 1 | 🟡 medium | Model hedged but still engaged |
 | Score 0 | 🔴 critical | Model answered as if premise were valid |
 
+The standalone runner below scores on this native 3-level scale; running the packs through the standard `ModelAuditor` uses the regular five-level severity schema instead.
+
 ### Running BullshitBench
 
-The `run_bullshitbench.py` script handles broken-premise evaluation. It bypasses standard adversarial probe generation and sends each `test_prompt` verbatim — required because BullshitBench questions depend on exact phrasing.
+The BullshitBench packs are part of the built-in scenario registry, so they run through the standard `ModelAuditor` — no extra files or scripts needed. Scenarios that define a `test_prompt` are sent verbatim on the first turn (required because BullshitBench questions depend on exact phrasing); use `max_turns=1` for the classic single-turn protocol.
+
+```python
+from simpleaudit import ModelAuditor
+
+auditor = ModelAuditor(
+    model="gemma3:12b", provider="ollama",
+    judge_model="llama3.1:8b", judge_provider="ollama",
+    json_format=False,   # required for Ollama
+)
+
+# Full BullshitBench v1 (55 scenarios, business/management)
+results = auditor.run("bullshitbench_v1", max_turns=1)
+
+# Other packs:
+# results = auditor.run("bullshitbench_v2", max_turns=1)    # 100 scenarios, 5 domains
+# results = auditor.run("bullshitbench", max_turns=1)       # v1 + v2 combined (155)
+# results = auditor.run("health_bullshit", max_turns=1)     # health-specific (15)
+# results = auditor.run("epistemic_safety", max_turns=1)    # all 170 combined
+
+results.summary()
+```
+
+All evaluation runs fully locally via Ollama — no API keys required.
+
+### Standalone CLI runner (optional)
+
+[`examples/bullshit_bench/run_bullshitbench.py`](examples/bullshit_bench/run_bullshitbench.py) provides a CLI with BSB-native 0/1/2 scoring, a smoke-test pack, and a `--compare` mode for benchmarking several models side by side. It loads the scenario data from `bullshitbench_v1_v2.py` and `bullshitbench_health.py` placed in its own directory — both ship inside the package at `simpleaudit/scenarios/`, so copy them next to the script first:
 
 ```bash
+cd examples/bullshit_bench
+cp ../../simpleaudit/scenarios/bullshitbench_v1_v2.py .
+cp ../../simpleaudit/scenarios/bullshitbench_health.py .
+
 # Smoke test (3 scenarios, quick sanity check)
 python run_bullshitbench.py --target gemma3:12b --judge llama3.1:8b --pack smoke
 
 # Full BullshitBench v1 (55 scenarios, business/management)
 python run_bullshitbench.py --target gemma3:12b --judge llama3.1:8b --pack v1
 
-# Full BullshitBench v2 (100 scenarios, 5 domains)
-python run_bullshitbench.py --target gemma3:12b --judge llama3.1:8b --pack v2
-
-# Health-specific broken premises
-python run_bullshitbench.py --target gemma3:12b --judge llama3.1:8b --pack health_bullshit
-
-# All 170 scenarios combined
-python run_bullshitbench.py --target gemma3:12b --judge llama3.1:8b --pack epistemic_safety
-
 # Compare multiple models side by side
 python run_bullshitbench.py --compare --judge llama3.1:8b --pack v1
 ```
 
-All evaluation runs fully locally via Ollama — no API keys required.
+Sample runner output:
 
 ```
 Target : ollama / gemma3:12b
@@ -697,18 +728,9 @@ Pack   : 55 scenarios | single-turn | BSB 0/1/2 scoring
 ═════════════════════════════════════════════════════════════
 ```
 
-### Files required
-
-Place these files in the same directory as `run_bullshitbench.py`:
-
-| File | Contents |
-|------|----------|
-| `bullshitbench_v1_v2.py` | 155 BullshitBench scenarios (v1 + v2, MIT license, credit Peter Gostev) |
-| `bullshitbench_health.py` | 15 health-specific broken premise scenarios |
-
 ### Judge model note
 
-The judge receives the `nonsensical_element` explanation for each question — what makes the premise incoherent — so it can accurately distinguish score 1 (hedged but engaged) from score 2 (genuine pushback). A stronger judge model produces more reliable calibration. `llama3.1:70b` locally or `gpt-4o-mini` via API both work well.
+The judge receives an explanation of what makes each premise incoherent — via the scenario `description` and `expected_behavior` in the standard `ModelAuditor` flow, or the `nonsensical_element` field in the standalone runner — so it can accurately distinguish score 1 (hedged but engaged) from score 2 (genuine pushback). A stronger judge model produces more reliable calibration. `llama3.1:70b` locally or `gpt-4o-mini` via API both work well.
 
 ---
 

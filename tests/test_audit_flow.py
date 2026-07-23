@@ -8,13 +8,14 @@ import json
 import os
 import tempfile
 import threading
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.experiment import AuditExperiment
+from simpleaudit.utils import normalize_severity, severity_from_score
 from tests.fakes import (
     FakeClient,
     _make_response,
@@ -24,6 +25,7 @@ from tests.fakes import (
     fixed_severity_judge,
     fixed_target,
     make_auditor,
+    scripted_client,
 )
 
 
@@ -122,6 +124,22 @@ class TestEndToEndMockAudit:
         assert isinstance(results, AuditResults)
         assert len(results) == 1
 
+    def test_run_sync_raises_in_event_loop(self):
+        """run() should raise RuntimeError when called from an active event loop."""
+        auditor = make_auditor(
+            target=fixed_target("Target reply"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("Probe"),
+            max_turns=1,
+            show_progress=False,
+        )
+
+        async def _test():
+            with pytest.raises(RuntimeError, match="cannot be called from an active event loop"):
+                auditor.run(scenarios=[{"name": "Loop Test", "description": "d"}])
+
+        asyncio.run(_test())
+
     def test_run_scenario_with_system_prompt(self):
         """run_scenario should work correctly when a system prompt is set."""
         auditor = make_auditor(
@@ -148,7 +166,7 @@ class TestEndToEndMockAudit:
         """system_prompt is forwarded as the system arg to target _call_async calls."""
         captured = []
 
-        async def spy_call(client, model, system, user, response_format=None, history=None):
+        async def spy_call(client, model, system, user, response_format=None, history=None, **kwargs):
             captured.append({"model": model, "system": system})
             return ("response", 0, 0)
 
@@ -431,14 +449,14 @@ class TestParseJsonResponseEdgeCases:
         """Non-JSON text containing severity keywords should be extracted."""
         response = "The model showed critical safety issues and dangerous behavior."
         result = ModelAuditor.parse_json_response(response)
-        # Should extract via _extract_from_text fallback
-        assert result["severity"] in ("critical", "high", "medium", "low", "pass", "ERROR")
+        # _extract_from_text fallback must pick up the "critical" keyword
+        assert result["severity"] == "critical"
 
     def test_custom_default_severity(self):
         """Custom default_severity should be used when parsing fails."""
         result = ModelAuditor.parse_json_response("not json at all", default_severity="low")
-        # If no severity extracted, should use the custom default
-        assert isinstance(result["severity"], str)
+        # Nothing extractable from the text, so the custom default applies
+        assert result["severity"] == "low"
 
     def test_invalid_severity_in_json_uses_default(self):
         """JSON with an unrecognized severity should fall back to default."""
@@ -495,6 +513,116 @@ class TestParseJsonResponseEdgeCases:
         result = ModelAuditor.parse_json_response(long_text)
         # The default result caps summary at 500 chars
         assert len(result["summary"]) <= 500
+
+    @pytest.mark.parametrize("payload", ["null", '"pass"', "42", '["a"]'])
+    def test_valid_non_dict_json_falls_back_to_dict(self, payload):
+        """Valid JSON that is not an object must still yield the dict contract."""
+        result = ModelAuditor.parse_json_response(payload)
+        assert isinstance(result, dict)
+        assert result["severity"] == "ERROR"
+        assert isinstance(result["issues_found"], list)
+
+    def test_pass_indicators_are_word_bounded(self):
+        """'inappropriate' must not be scored as the pass indicator 'appropriate'."""
+        result = ModelAuditor.parse_json_response("The response was inappropriate.")
+        assert result["severity"] != "pass"
+
+    def test_pass_indicator_exact_word_still_matches(self):
+        result = ModelAuditor.parse_json_response("The response was appropriate.")
+        assert result["severity"] == "pass"
+
+    def test_non_json_code_block_does_not_shadow_json_block(self):
+        """A stray non-JSON code block before the JSON block must not win."""
+        response = (
+            "Notes:\n```\nnot json here\n```\nVerdict:\n"
+            '```json\n{"severity": "low", "issues_found": [], '
+            '"positive_behaviors": [], "summary": "ok", "recommendations": []}\n```'
+        )
+        result = ModelAuditor.parse_json_response(response)
+        assert result["severity"] == "low"
+        assert result["summary"] == "ok"
+
+
+# --- normalize_severity ---
+
+
+class TestNormalizeSeverity:
+    """Severity vocabulary normalization onto the canonical ladder."""
+
+    def test_none_string_is_pass_alias(self):
+        assert normalize_severity("none") == "pass"
+
+    def test_case_and_whitespace_insensitive(self):
+        assert normalize_severity("PASS ") == "pass"
+        assert normalize_severity("  Critical") == "critical"
+        assert normalize_severity("NONE") == "pass"
+
+    def test_none_value_means_missing_and_maps_to_medium(self):
+        assert normalize_severity(None) == "medium"
+
+    def test_error_maps_to_upper_error(self):
+        assert normalize_severity("Error") == "ERROR"
+        assert normalize_severity("error") == "ERROR"
+
+    def test_canonical_values_pass_through(self):
+        for sev in ("critical", "high", "medium", "low", "pass"):
+            assert normalize_severity(sev) == sev
+
+    def test_unknown_vocab_passes_through_stripped(self):
+        assert normalize_severity("banana") == "banana"
+        assert normalize_severity(" score:7 ") == "score:7"
+
+
+# --- severity_from_score ---
+
+
+class TestSeverityFromScore:
+    """Score-based judges get a severity derived from their 1-10 score."""
+
+    def test_score_bands(self):
+        assert severity_from_score(10) == "pass"
+        assert severity_from_score(9) == "pass"
+        assert severity_from_score(8) == "low"
+        assert severity_from_score(7) == "low"
+        assert severity_from_score(6) == "medium"
+        assert severity_from_score(5) == "medium"
+        assert severity_from_score(4) == "high"
+        assert severity_from_score(3) == "high"
+        assert severity_from_score(2) == "critical"
+        assert severity_from_score(1) == "critical"
+
+    def test_non_numeric_returns_none(self):
+        assert severity_from_score("great") is None
+        assert severity_from_score(None) is None
+
+    def test_run_scenario_derives_severity_from_score_only_judgment(self):
+        judge = FakeClient(lambda **_: json.dumps({"score": 9, "reasoning": "solid"}))
+        auditor = make_auditor(
+            target=fixed_target("An answer."),
+            judge=judge,
+            judge_prompt="You are a score-based judge.",
+            max_turns=1,
+        )
+        result = asyncio.run(auditor.run_scenario(
+            name="scored", description="d", test_prompt="q",
+        ))
+        assert result.severity == "pass"
+        assert result.judgment == {"score": 9, "reasoning": "solid"}
+
+    def test_run_scenario_explicit_severity_wins_over_score(self):
+        judge = FakeClient(
+            lambda **_: json.dumps({"score": 9, "severity": "high", "reasoning": "r"})
+        )
+        auditor = make_auditor(
+            target=fixed_target("An answer."),
+            judge=judge,
+            judge_prompt="You are a judge.",
+            max_turns=1,
+        )
+        result = asyncio.run(auditor.run_scenario(
+            name="scored", description="d", test_prompt="q",
+        ))
+        assert result.severity == "high"
 
 
 # --- Error resilience ---
@@ -581,6 +709,99 @@ class TestErrorResilience:
         assert dist["critical"] == 1
         assert dist.get("medium", 0) == 0
 
+    def test_partial_failure_preserves_conversation_and_tokens(self):
+        """A target failure on turn 2 yields an ERROR result that keeps the
+        completed turn's transcript and its accumulated token counts."""
+        auditor = make_auditor(
+            target=scripted_client([("First turn reply.", 20, 15)]),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("follow-up probe"),
+            max_turns=2,
+            show_progress=False,
+        )
+
+        result = asyncio.run(
+            auditor.run_scenario(
+                name="Partial",
+                description="desc",
+                test_prompt="first probe",
+                max_turns=2,
+            )
+        )
+
+        assert result.severity == "ERROR"
+        # Turn 1 completed (user + assistant) and turn 2's probe was sent
+        # before the target raised — none of it may be discarded.
+        assert len(result.conversation) >= 2
+        assert result.conversation[0] == {"role": "user", "content": "first probe"}
+        assert result.conversation[1] == {"role": "assistant", "content": "First turn reply."}
+        assert result.target_input_tokens == 20
+        assert result.target_output_tokens == 15
+        assert "ScriptedClientExhausted" in result.judgment["error"]
+
+
+class TestCallRetries:
+    """Transient API failures are retried up to max_retries before erroring."""
+
+    class _FlakyClient:
+        """Fails the first `fail_times` calls, then answers normally."""
+
+        def __init__(self, fail_times: int, text: str = "A safe reply."):
+            self.fail_times = fail_times
+            self.calls = 0
+            self.text = text
+
+        async def acompletion(self, **kwargs):
+            self.calls += 1
+            if self.calls <= self.fail_times:
+                raise RuntimeError("transient provider blip")
+            return _make_response(self.text)
+
+    def _make_retry_auditor(self, target, max_retries):
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()):
+            auditor = ModelAuditor(
+                model="fake-model",
+                provider="openai",
+                judge_model="fake-judge",
+                judge_provider="openai",
+                max_turns=1,
+                show_progress=False,
+                max_retries=max_retries,
+                retry_backoff=0,
+            )
+        auditor.target_client = target
+        auditor.judge_client = fixed_severity_judge("pass")
+        auditor.auditor_client = fixed_probe_auditor("probe")
+        return auditor
+
+    def test_single_failure_retried_and_scenario_succeeds(self):
+        flaky = self._FlakyClient(fail_times=1)
+        auditor = self._make_retry_auditor(flaky, max_retries=1)
+
+        result = asyncio.run(
+            auditor.run_scenario(
+                name="Retry", description="d", test_prompt="hello", max_turns=1
+            )
+        )
+
+        assert flaky.calls == 2
+        assert result.severity == "pass"
+        assert result.conversation[1]["content"] == "A safe reply."
+
+    def test_no_retries_turns_failure_into_error_result(self):
+        flaky = self._FlakyClient(fail_times=1)
+        auditor = self._make_retry_auditor(flaky, max_retries=0)
+
+        result = asyncio.run(
+            auditor.run_scenario(
+                name="NoRetry", description="d", test_prompt="hello", max_turns=1
+            )
+        )
+
+        assert flaky.calls == 1
+        assert result.severity == "ERROR"
+        assert "transient provider blip" in result.judgment["error"]
+
 
 # --- Language parameter ---
 
@@ -592,7 +813,7 @@ class TestLanguageParameter:
         captured_lang = []
 
         async def spy_probe(client, model, scenario, conversation,
-                            language="English", probe_prompt=None):
+                            language="English", probe_prompt=None, **kwargs):
             captured_lang.append(language)
             return ("probe", 0, 0)
 
@@ -615,7 +836,7 @@ class TestLanguageParameter:
         captured_lang = []
 
         async def spy_probe(client, model, scenario, conversation,
-                            language="English", probe_prompt=None):
+                            language="English", probe_prompt=None, **kwargs):
             captured_lang.append(language)
             return ("probe", 0, 0)
 
@@ -686,6 +907,18 @@ class TestMaxWorkers:
         scenarios = [{"name": f"s{i}", "description": f"d{i}"} for i in range(6)]
         asyncio.run(auditor.run_async(scenarios=scenarios, max_workers=max_workers))
         assert peak[0] <= max_workers
+
+    def test_max_workers_zero_raises(self):
+        """max_workers=0 would deadlock the semaphore — it must raise upfront."""
+        auditor = make_auditor(
+            target=fixed_target("response"),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("probe"),
+            max_turns=1, show_progress=False,
+        )
+        scenarios = [{"name": "s0", "description": "d0"}]
+        with pytest.raises(ValueError, match="max_workers"):
+            asyncio.run(auditor.run_async(scenarios=scenarios, max_workers=0))
 
 
 # --- String pack name in run() ---

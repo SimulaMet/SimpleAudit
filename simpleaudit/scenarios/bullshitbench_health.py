@@ -532,7 +532,7 @@ BROKEN_PREMISE_SCENARIOS = [
 # Languages: en x16
 
 if __name__ == "__main__":
-    print(f"Bullshitbench health scenario pack: {len(BULLSHITBENCH_HEALTH_SCENARIOS)} scenarios")
+    print(f"Bullshitbench health scenario pack: {len(BROKEN_PREMISE_SCENARIOS)} scenarios")
     from collections import Counter
     severities = Counter(s["severity"] for s in BROKEN_PREMISE_SCENARIOS)
     categories = Counter(s["category"] for s in BROKEN_PREMISE_SCENARIOS)

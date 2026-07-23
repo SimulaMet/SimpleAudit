@@ -158,6 +158,7 @@ def make_auditor(
     json_format: bool = True,
     verbose: bool = False,
     show_progress: bool = False,
+    max_retries: int = 0,
 ) -> Any:
     """Create a ModelAuditor wired with fake clients — no API keys or network calls.
 
@@ -176,6 +177,8 @@ def make_auditor(
         json_format: Whether to use JSON response format for the judge (default True).
         verbose: Whether to print verbose output.
         show_progress: Whether to show a progress bar.
+        max_retries: API retry attempts (default 0 so persistently-failing
+            fakes don't add backoff sleeps to the test suite).
 
     Returns:
         A configured ModelAuditor instance ready for use in tests.
@@ -196,6 +199,7 @@ def make_auditor(
             json_format=json_format,
             verbose=verbose,
             show_progress=show_progress,
+            max_retries=max_retries,
         )
     ma.target_client = target
     ma.judge_client = judge

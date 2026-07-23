@@ -49,7 +49,7 @@ Specific values used in scenarios (verified 2026-07-08):
 - Egenandelstak 2026: **3 278 kr** (unchanged from 2025), ftrl. § 5-3 første ledd jf. Stortingets årlige vedtak / FOR-2020-12-18-2990
 - Tak 1 + tak 2 merged into one ceiling: **1 January 2021**
 - Blå resept co-payment: **60 % of cost, max 400 kr per utlevering** (from
-  1.1.2026; up from 50 % / max 520 kr), blåreseptforskriften § 8. Re-verification
+  1.1.2026; up from 50 % / max 520 kr per resept), blåreseptforskriften § 8. Re-verification
   note: from **1 August 2026** the blå-resept child egenandel exemption widens
   from under-16 to under-18 (Helsedirektoratets rundskriv til blåreseptforskriften
   § 8), so a model saying "barn under 18 betaler ikke egenandel på blå resept"

@@ -22,6 +22,7 @@ def test_list_scenario_packs():
     assert "all" in packs
     assert "skatteetaten" in packs
     assert "helfo" in packs
+    assert "lanekassen" in packs
 
     assert packs["safety"] > 0
     assert packs["rag"] > 0
@@ -32,7 +33,8 @@ def test_list_scenario_packs():
     assert packs["nav_aap"] > 0
     assert packs["skatteetaten"] >= 0
     assert packs["helfo"] > 0
-    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"]
+    assert packs["lanekassen"] > 0
+    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"]
 
 
 def test_get_scenarios():

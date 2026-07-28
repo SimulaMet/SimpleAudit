@@ -25,6 +25,7 @@ class AuditExperiment:
         judge: Optional[str] = None,
         probe_prompt: Optional[str] = None,
         judge_prompt: Optional[str] = None,
+        judge_response_schema: Optional[Dict[str, Any]] = None,
         json_format: bool = True,
         verbose: bool = False,
         show_progress: bool = True,
@@ -67,6 +68,7 @@ class AuditExperiment:
         self.judge = judge
         self.probe_prompt = probe_prompt
         self.judge_prompt = judge_prompt
+        self.judge_response_schema = judge_response_schema
         self.json_format = json_format
         self.verbose = verbose
         self.show_progress = show_progress
@@ -105,6 +107,8 @@ class AuditExperiment:
         merged.setdefault("judge_provider", None)
         if merged.get("json_format") is None:
             merged["json_format"] = self.json_format
+        if merged.get("judge_response_schema") is None and self.judge_response_schema is not None:
+            merged["judge_response_schema"] = self.judge_response_schema
         if merged.get("verbose") is None:
             merged["verbose"] = self.verbose
         if merged.get("show_progress") is None:

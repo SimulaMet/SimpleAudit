@@ -27,15 +27,44 @@ CONTACT_EMAIL = os.getenv("SIMPLEAUDIT_VISUALIZER_EMAIL", "sushant@simula.no")
 RESULTS_DIR = None
 
 
+def _looks_like_audit_result(obj: object) -> bool:
+    return (
+        isinstance(obj, dict)
+        and ("scenario_name" in obj or "name" in obj)
+        and "severity" in obj
+    )
+
+
+def _experiment_models(data: object) -> List[str]:
+    """Model labels in an experiment file that have at least one loadable run.
+
+    A run is loadable when it is a dict holding a non-empty list of
+    audit-shaped results. Both the file tree and the JSON endpoint derive
+    their notion of "experiment" from this list, so the tree never shows an
+    entry (file or model) that the endpoint would refuse to serve.
+    """
+    if not isinstance(data, dict):
+        return []
+    runs = data.get("runs")
+    if not isinstance(runs, dict):
+        return []
+    models = []
+    for label, run_list in runs.items():
+        entries = run_list if isinstance(run_list, list) else [run_list]
+        for entry in entries:
+            if (
+                isinstance(entry, dict)
+                and isinstance(entry.get("results"), list)
+                and entry["results"]
+                and all(_looks_like_audit_result(item) for item in entry["results"])
+            ):
+                models.append(label)
+                break
+    return models
+
+
 def is_valid_audit_data(data) -> bool:
     """Check whether parsed JSON has the shape of audit results."""
-
-    def _looks_like_audit_result(obj: object) -> bool:
-        return (
-            isinstance(obj, dict)
-            and ("scenario_name" in obj or "name" in obj)
-            and "severity" in obj
-        )
 
     # Legacy shape: a list[AuditResult]
     if isinstance(data, list):
@@ -52,17 +81,7 @@ def is_valid_audit_data(data) -> bool:
 
     # Multi-model experiment shape: {"runs": {"model": [{"results": [...]}]}}
     if isinstance(data, dict) and "runs" in data:
-        runs = data["runs"]
-        if not isinstance(runs, dict) or not runs:
-            return False
-        for run_list in runs.values():
-            entries = run_list if isinstance(run_list, list) else [run_list]
-            for entry in entries:
-                if isinstance(entry, dict) and "results" in entry:
-                    results = entry["results"]
-                    if isinstance(results, list) and results:
-                        return True
-        return False
+        return bool(_experiment_models(data))
 
     return False
 
@@ -125,13 +144,13 @@ def get_file_tree(directory: str, base_path: str = "") -> List[Dict]:
                     data = json.load(f)
             except Exception:
                 continue
-            runs = data.get('runs') if isinstance(data, dict) else None
-            if isinstance(runs, dict) and runs:
+            experiment_models = _experiment_models(data)
+            if experiment_models:
                 items.append({
                     "name": entry,
                     "type": "experiment",
                     "path": rel_path,
-                    "models": list(runs.keys())
+                    "models": experiment_models
                 })
             elif is_valid_audit_data(data):
                 items.append({

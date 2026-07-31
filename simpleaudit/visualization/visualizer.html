@@ -393,8 +393,10 @@
         let currentScenarios = [];
         let selectedScenarioId = null;
         let currentFilePath = null;
+        let currentExperimentSelection = null;
         let sidebarWidth = 320; // Default width in pixels
         let expandedFolders = new Set(); // Track expanded folders
+        let uploadedExperiment = null; // Holds multi-result data from uploaded file
 
         // On page load, check for file and scenario in URL
         window.addEventListener('DOMContentLoaded', () => {
@@ -579,6 +581,11 @@
             } catch (error) {
                 container.innerHTML = `<div class="text-center text-red-500 p-4">Error loading files: ${escapeHtml(error.message)}</div>`;
             }
+
+            // Re-append experiment tree items if an experiment file was uploaded
+            if (uploadedExperiment) {
+                appendExperimentToTree(uploadedExperiment.data, uploadedExperiment.filename);
+            }
         }
 
         function renderFileTree(items, container, level = 0) {
@@ -632,6 +639,20 @@
                     renderFileTree(item.children, childrenDiv, level + 1);
                     li.appendChild(folderDiv);
                     
+                } else if (item.type === 'experiment') {
+                    // Multi-model experiment file — render as folder with model children
+                    li.appendChild(renderExperimentFolder(item.name, item.path, item.models, async (model) => {
+                        try {
+                            const resp = await apiFetch(`/api/json/${encodeURIComponent(item.path)}`);
+                            if (!resp.ok) throw new Error('Failed to load');
+                            const data = await resp.json();
+                            const runs = data.runs[model];
+                            processData(Array.isArray(runs) ? runs[0] : runs, `${item.name} \u2014 ${model}`, false);
+                        } catch (e) {
+                            document.getElementById('file-info').textContent = `Error: ${e.message}`;
+                        }
+                    }, expandedFolders.has(item.path)));
+
                 } else if (item.type === 'file') {
                     // JSON file
                     const fileDiv = document.createElement('div');
@@ -641,7 +662,10 @@
                         <span class="file-icon text-base"></span>
                         <span class="flex-1 text-gray-700 ${isSelected ? 'font-semibold' : ''}">${escapeHtml(item.name)}</span>
                     `;
-                    fileDiv.onclick = () => loadJsonFile(item.path, item.name);
+                    fileDiv.onclick = () => {
+                        currentExperimentSelection = null;
+                        loadJsonFile(item.path, item.name);
+                    };
                     li.appendChild(fileDiv);
                 }
                 
@@ -658,6 +682,59 @@
             return currentFilePath.startsWith(folder.path + '/') || currentFilePath.startsWith(folder.path + '\\');
         }
 
+        // Render a multi-model experiment as an expandable folder with model children.
+        // loadModel(model) is invoked when a model row is clicked.
+        function renderExperimentFolder(name, key, models, loadModel, isOpen) {
+            const folderDiv = document.createElement('div');
+            const header = document.createElement('div');
+            header.className = 'tree-item flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
+            header.innerHTML = `
+                <span class="folder-icon text-base ${isOpen ? 'open' : ''}"></span>
+                <span class="flex-1 font-medium text-gray-700">${escapeHtml(name)}</span>
+                <span class="text-xs text-gray-400">${models.length}</span>
+            `;
+            const childrenDiv = document.createElement('div');
+            childrenDiv.className = `tree-children ${isOpen ? '' : 'hidden'}`;
+            header.onclick = (e) => {
+                e.stopPropagation();
+                const open = header.querySelector('.folder-icon').classList.toggle('open');
+                childrenDiv.classList.toggle('hidden');
+                if (open) expandedFolders.add(key);
+                else expandedFolders.delete(key);
+            };
+            models.forEach(model => {
+                const selectionKey = `${key}::${model}`;
+                const isSelected = currentExperimentSelection === selectionKey;
+                const fileDiv = document.createElement('div');
+                fileDiv.className = `tree-item flex items-center py-1 px-2 rounded hover:bg-indigo-50 text-sm transition-colors ${isSelected ? 'bg-indigo-100 ring-1 ring-indigo-500' : ''}`;
+                fileDiv.innerHTML = `<span class="file-icon text-base"></span><span class="flex-1 text-gray-700 ${isSelected ? 'font-semibold' : ''}">${escapeHtml(model)}</span>`;
+                fileDiv.onclick = () => {
+                    currentFilePath = null;
+                    currentExperimentSelection = selectionKey;
+                    applyTreeSelectionState(fileDiv);
+                    loadModel(model);
+                };
+                childrenDiv.appendChild(fileDiv);
+            });
+            folderDiv.appendChild(header);
+            folderDiv.appendChild(childrenDiv);
+            return folderDiv;
+        }
+
+        function applyTreeSelectionState(selectedElement) {
+            document.querySelectorAll('.tree-item.bg-indigo-100').forEach(el => {
+                el.classList.remove('bg-indigo-100', 'ring-1', 'ring-indigo-500');
+                const text = el.querySelector('.flex-1');
+                if (text) text.classList.remove('font-semibold');
+            });
+
+            if (!selectedElement) return;
+
+            selectedElement.classList.add('bg-indigo-100', 'ring-1', 'ring-indigo-500');
+            const text = selectedElement.querySelector('.flex-1');
+            if (text) text.classList.add('font-semibold');
+        }
+
         // Handle uploaded file
         function handleUploadedFile(event) {
             const file = event.target.files[0];
@@ -671,6 +748,7 @@
                     
                     // Clear file tree selection since this is a custom upload
                     currentFilePath = null;
+                    currentExperimentSelection = null;
                     
                     // Update file tree to clear any selection
                     loadFileTree();
@@ -711,8 +789,10 @@
 
         async function loadJsonFile(path, filename) {
             currentFilePath = path;
+            currentExperimentSelection = null;
             // Reset custom upload flag so Copy URL is visible
             window.__customUpload = false;
+            uploadedExperiment = null;
 
             // Close mobile sidebar when file is selected
             if (window.innerWidth < 768) {
@@ -748,12 +828,28 @@
 
         // --- Data Processing ---
 
+        function appendExperimentToTree(data, filename) {
+            const folderDiv = renderExperimentFolder(filename, `upload::${filename}`, Object.keys(data.runs), (model) => {
+                const runs = data.runs[model];
+                processData(Array.isArray(runs) ? runs[0] : runs, `${filename} \u2014 ${model}`, true);
+            }, true);
+            document.getElementById('file-tree').appendChild(folderDiv);
+        }
+
         function processData(data, filename, isCustomUpload = false) {
             // Handle different potential JSON structures
             if (Array.isArray(data)) {
                 allScenarios = data;
             } else if (data.results && Array.isArray(data.results)) {
                 allScenarios = data.results;
+            } else if (data.runs && typeof data.runs === 'object') {
+                // Multi-model results from AuditExperiment — show models in the sidebar
+                uploadedExperiment = { data, filename };
+                appendExperimentToTree(data, filename);
+                // Show a prompt to select a model
+                document.getElementById('file-info').textContent = `${filename} — select a model`;
+                document.getElementById('scenario-list').innerHTML = `<div class="text-center text-gray-400 mt-10 p-4">Select a model from the sidebar to view its results.</div>`;
+                return;
             } else {
                 document.getElementById('file-info').textContent = `Error: Invalid format`;
                 document.getElementById('scenario-list').innerHTML = `

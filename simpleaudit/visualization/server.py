@@ -50,6 +50,20 @@ def is_valid_audit_data(data) -> bool:
             and all(_looks_like_audit_result(item) for item in results)
         )
 
+    # Multi-model experiment shape: {"runs": {"model": [{"results": [...]}]}}
+    if isinstance(data, dict) and "runs" in data:
+        runs = data["runs"]
+        if not isinstance(runs, dict) or not runs:
+            return False
+        for run_list in runs.values():
+            entries = run_list if isinstance(run_list, list) else [run_list]
+            for entry in entries:
+                if isinstance(entry, dict) and "results" in entry:
+                    results = entry["results"]
+                    if isinstance(results, list) and results:
+                        return True
+        return False
+
     return False
 
 
@@ -105,8 +119,21 @@ def get_file_tree(directory: str, base_path: str = "") -> List[Dict]:
                     "children": children
                 })
         elif os.path.isfile(full_path) and entry.endswith('.json'):
-            # Validate JSON file before including it
-            if is_valid_audit_json(full_path):
+            # Parse once, then classify as a multi-model experiment or a plain results file
+            try:
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except Exception:
+                continue
+            runs = data.get('runs') if isinstance(data, dict) else None
+            if isinstance(runs, dict) and runs:
+                items.append({
+                    "name": entry,
+                    "type": "experiment",
+                    "path": rel_path,
+                    "models": list(runs.keys())
+                })
+            elif is_valid_audit_data(data):
                 items.append({
                     "name": entry,
                     "type": "file",

@@ -710,6 +710,9 @@
                 fileDiv.innerHTML = `<span class="file-icon text-base"></span><span class="flex-1 text-gray-700 ${isSelected ? 'font-semibold' : ''}">${escapeHtml(model)}</span>`;
                 fileDiv.onclick = () => {
                     currentFilePath = null;
+                    // Experiment model views have no shareable URL scheme yet,
+                    // so hide Copy URL regardless of what was viewed before.
+                    window.__customUpload = true;
                     currentExperimentSelection = selectionKey;
                     applyTreeSelectionState(fileDiv);
                     loadModel(model);
@@ -746,10 +749,13 @@
                 try {
                     const data = JSON.parse(e.target.result);
                     
-                    // Clear file tree selection since this is a custom upload
+                    // Clear file tree selection since this is a custom upload;
+                    // also drop any previously uploaded experiment so its
+                    // folder does not linger in the tree.
                     currentFilePath = null;
                     currentExperimentSelection = null;
-                    
+                    uploadedExperiment = null;
+
                     // Update file tree to clear any selection
                     loadFileTree();
                     
@@ -828,11 +834,30 @@
 
         // --- Data Processing ---
 
+        // Model labels in an experiment file that have at least one loadable
+        // run (an object with a non-empty results array). Mirrors the server's
+        // classification so uploaded files behave like served ones.
+        function experimentModels(data) {
+            if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
+            const runs = data.runs;
+            if (!runs || typeof runs !== 'object' || Array.isArray(runs)) return [];
+            return Object.keys(runs).filter(model => {
+                const entries = Array.isArray(runs[model]) ? runs[model] : [runs[model]];
+                return entries.some(entry => entry && typeof entry === 'object'
+                    && Array.isArray(entry.results) && entry.results.length > 0);
+            });
+        }
+
         function appendExperimentToTree(data, filename) {
-            const folderDiv = renderExperimentFolder(filename, `upload::${filename}`, Object.keys(data.runs), (model) => {
-                const runs = data.runs[model];
-                processData(Array.isArray(runs) ? runs[0] : runs, `${filename} \u2014 ${model}`, true);
-            }, true);
+            const key = `upload::${filename}`;
+            const folderDiv = renderExperimentFolder(filename, key, experimentModels(data), (model) => {
+                try {
+                    const runs = data.runs[model];
+                    processData(Array.isArray(runs) ? runs[0] : runs, `${filename} \u2014 ${model}`, true);
+                } catch (e) {
+                    document.getElementById('file-info').textContent = `Error: ${e.message}`;
+                }
+            }, expandedFolders.has(key));
             document.getElementById('file-tree').appendChild(folderDiv);
         }
 
@@ -842,10 +867,19 @@
                 allScenarios = data;
             } else if (data.results && Array.isArray(data.results)) {
                 allScenarios = data.results;
-            } else if (data.runs && typeof data.runs === 'object') {
+            } else if (experimentModels(data).length > 0) {
                 // Multi-model results from AuditExperiment — show models in the sidebar
-                uploadedExperiment = { data, filename };
-                appendExperimentToTree(data, filename);
+                if (isCustomUpload) {
+                    uploadedExperiment = { data, filename };
+                    expandedFolders.add(`upload::${filename}`);
+                    appendExperimentToTree(data, filename);
+                } else if (currentFilePath) {
+                    // Server experiment opened directly (e.g. via a ?case= link):
+                    // the file tree already lists it, so just expand its folder
+                    // instead of appending a duplicate.
+                    expandedFolders.add(currentFilePath);
+                    loadFileTree();
+                }
                 // Show a prompt to select a model
                 document.getElementById('file-info').textContent = `${filename} — select a model`;
                 document.getElementById('scenario-list').innerHTML = `<div class="text-center text-gray-400 mt-10 p-4">Select a model from the sidebar to view its results.</div>`;
@@ -858,7 +892,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         <p class="font-semibold mb-2">Invalid JSON Format</p>
-                        <p class="text-sm text-gray-600">Expected a list of results or an object with a "results" array.</p>
+                        <p class="text-sm text-gray-600">Expected a list of results, an object with a "results" array, or an AuditExperiment file with a "runs" object.</p>
                     </div>
                 `;
                 return;
@@ -1074,6 +1108,11 @@
                 const url = new URL(window.location);
                 if (currentFilePath) {
                     url.searchParams.set('case', encodeURIComponent(currentFilePath));
+                } else {
+                    // No file path (experiment model view or upload) — drop any
+                    // stale reference to a previously viewed file so the URL
+                    // never points at the wrong data.
+                    url.searchParams.delete('case');
                 }
                 url.hash = `#${encodeURIComponent(scenario.id)}`;
                 window.history.pushState({scenarioId: scenario.id, case: currentFilePath}, '', url);

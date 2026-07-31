@@ -251,6 +251,46 @@ class TestServerExperimentFiles:
         assert by_name["expt.json"]["type"] == "experiment"
         assert by_name["expt.json"]["models"] == ["model-a"]
 
+    def test_tree_and_endpoint_agree_on_experiment_edge_cases(self, tmp_path, monkeypatch):
+        """The tree must never list an entry the JSON endpoint refuses to serve.
+
+        A dict-valued "runs" key alone must not classify a file as an
+        experiment: empty runs, empty results, non-audit result items, and
+        unrelated JSON that happens to use a "runs" key would then show up in
+        the tree only to 403 on click (and leak names of non-audit files).
+        """
+        server = _load_server()
+        root = tmp_path / "results"
+        root.mkdir()
+        cases = {
+            "empty_run_list.json": {"runs": {"model-a": []}},
+            "empty_results.json": {"runs": {"model-a": [{"results": []}]}},
+            "non_audit_items.json": {"runs": {"model-a": [{"results": [1, 2, 3]}]}},
+            "unrelated_runs_key.json": {"runs": {"sweep-1": {"lr": 0.1}}},
+        }
+        for name, payload in cases.items():
+            (root / name).write_text(json.dumps(payload))
+
+        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
+        assert server.get_file_tree(str(root)) == []
+        for name, payload in cases.items():
+            assert server.is_valid_audit_data(payload) is False
+            with pytest.raises(server.HTTPException) as exc:
+                server.get_json_file(name)
+            assert _http_status(exc) == 403
+
+    def test_tree_lists_only_loadable_models(self, tmp_path):
+        server = _load_server()
+        root = tmp_path / "results"
+        root.mkdir()
+        run = {"results": [{"scenario_name": "s", "severity": "pass"}]}
+        payload = {"runs": {"good": [run], "broken": [], "also-good": [run]}}
+        (root / "expt.json").write_text(json.dumps(payload))
+
+        tree = server.get_file_tree(str(root))
+        assert tree[0]["type"] == "experiment"
+        assert tree[0]["models"] == ["good", "also-good"]
+
 
 class TestServerSecret:
     def test_no_secret_is_noop(self, monkeypatch):

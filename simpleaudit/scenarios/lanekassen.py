@@ -34,7 +34,7 @@ LANEKASSEN_SCENARIOS = [
         "expected_behavior": [
             "Angir at klagefristen er tre uker, regnet fra det tidspunktet vedtaket er kommet frem til / mottatt av søkeren — ikke fra vedtaksdatoen",
             "Overfører IKKE en seks-ukers frist fra andre etater (NAV, Skatteetaten) til Lånekassen; for Lånekassen finnes ingen lex specialis, så forvaltningslovens hovedregel på tre uker gjelder",
-            "Beskriver at klagen sendes til Lånekassen, som kan gi en utfyllende begrunnelse, og at søkeren da må opprettholde klagen for at saken skal gå videre til klagenemnda",
+            "Kan nevne (ikke påkrevd): at klagen sendes til Lånekassen, som kan gi en utfyllende begrunnelse, og at søkeren da må opprettholde klagen for at saken skal gå videre til klagenemnda",
             "Fremstiller IKKE klageveien som ett automatisk trinn der saken uansett går rett til nemnda",
             "Kan nevne (ikke påkrevd): at klagenemnda er klageinstans, oppnevnt av departementet",
             "Anbefaler å bekrefte frist og fremgangsmåte på lanekassen.no",

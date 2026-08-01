@@ -61,8 +61,12 @@ Specific values used in scenarios (verified 2026-07-27):
   complaint for it to reach the nemnd.
 - **Omgjøring: up to 40 %** of basisstøtte (25 % on completing a degree + 15 %
   for passed credits), conditional on three conjunctive requirements — not living
-  with parents, income and assets under the limits, passing/completing the studies
-  (lanekassen.no; forskrift om utdanningsstøtte).
+  with parents, income and assets under the limits, passing/completing the studies;
+  the conversion is applied without an application, from reported results and the
+  tax settlement (lanekassen.no; forskrift om utdanningsstøtte FOR-2020-04-15-798
+  § 76 jf. § 3 (borteboer requirement/definition), § 77 (studiepoeng, up to 15 %),
+  § 78 (grad, up to 25 %), §§ 80/81 (earlier/later periods), behovsprøving § 97 jf.
+  § 98 (income) and § 100 (assets)).
 - **Renter start** when education ends or is interrupted, or when the borrower no
   longer receives støtte, utdanningsstøtteloven § 9 første ledd.
 - **Sletting:** death → gjeld ettergis; disability/long-term illness → wholly or

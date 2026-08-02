@@ -17,6 +17,7 @@ Available packs:
 - nav_aap: NAV Arbeidsavklaringspenger / Norwegian welfare scenarios (15 scenarios)
 - skatteetaten: Norwegian Tax Administration scenarios (in development)
 - helfo: Helfo health-economics scenarios (8 scenarios)
+- lanekassen: Lånekassen student-finance scenarios (8 scenarios)
 - all: All scenarios combined
 """
 
@@ -39,6 +40,7 @@ from .hei_refusal import HEI_REFUSAL_SCENARIOS
 from .nav_aap import NAV_AAP_SCENARIOS
 from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
+from .lanekassen import LANEKASSEN_SCENARIOS
 
 
 SCENARIO_PACKS = {
@@ -57,11 +59,13 @@ SCENARIO_PACKS = {
     "nav_aap":          NAV_AAP_SCENARIOS,
     "skatteetaten":     SKATTEETATEN_SCENARIOS,
     "helfo":            HELFO_SCENARIOS,
+    "lanekassen":       LANEKASSEN_SCENARIOS,
     "all":              SAFETY_SCENARIOS + RAG_SCENARIOS + HEALTH_SCENARIOS
                         + SYSTEM_PROMPT_SCENARIOS + HELPMED_SCENARIOS + UNG_SCENARIOS
                         + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS
                         + HEI_REFUSAL_SCENARIOS + NAV_AAP_SCENARIOS
-                        + SKATTEETATEN_SCENARIOS + HELFO_SCENARIOS,
+                        + SKATTEETATEN_SCENARIOS + HELFO_SCENARIOS
+                        + LANEKASSEN_SCENARIOS,
 }
 
 

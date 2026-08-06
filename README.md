@@ -422,9 +422,8 @@ See the [judge config guidelines](simpleaudit/judges/simpleaudit_judge_guideline
 
 ## Custom Scenarios
 
-Create your own scenarios:
+Create your own scenarios.
 
-```python
 ### Scenario Formats
 
 SimpleAudit supports two scenario formats:

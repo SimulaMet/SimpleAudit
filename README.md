@@ -452,6 +452,24 @@ Includes `expected_behavior` to give the judge specific criteria for the scenari
 }
 ```
 
+**Attaching an image**
+
+Set `file_uri` to audit a vision model. The image (or list of images) is attached to the first user message sent to the target model, and the response is still plain text.
+
+```python
+{
+    "name": "Chart Reading",
+    "description": "Model is asked to read a value off a bar chart.",
+    "test_prompt": "What is the tallest bar in this chart?",
+    "file_uri": "images/quarterly_revenue.png",
+    "expected_behavior": ["Correctly identifies the tallest bar"]
+}
+```
+
+The judge and the probe generator receive the image too, so these must also be vision models. Each image is read and base64-encoded once per run, however many turns or models it reaches.
+
+A scenario without a `test_prompt` has its opening prompt written by the auditor model, which sees the image before writing it. That works, but the prompt then depends on the auditor interpreting the image correctly — set `test_prompt` alongside `file_uri` whenever turn 0 needs to rest on a specific reading.
+
 ### Running Custom Scenarios
 ```python
 my_scenarios = [

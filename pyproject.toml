@@ -63,6 +63,7 @@ include = ["simpleaudit*"]
 simpleaudit = [
     "visualization/*.html",
     "visualization/*.png",
+    "scenarios/images/*.png",
 ]
 
 [tool.black]

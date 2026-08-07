@@ -237,7 +237,7 @@ def _extract_from_text(text: str, default_severity: str) -> Dict[str, Any]:
     return result
 
 
-def _image_media_type(file_uri: str) -> str:
+def image_media_type(file_uri: str) -> str:
     """
     Resolve a URI to an image media type, raising if it is not an image.
 
@@ -263,7 +263,7 @@ _IMAGE_CACHE_SIZE = 32
 
 
 @lru_cache(maxsize=_IMAGE_CACHE_SIZE)
-def _image_data_uri(file_uri: str) -> str:
+def image_data_uri(file_uri: str) -> str:
     """
     Read an image and inline it as a base64 data URI.
 
@@ -272,9 +272,10 @@ def _image_data_uri(file_uri: str) -> str:
 
     Cached because the first user message is re-sent on every turn of a
     multi-turn audit — without this the same file is re-read and re-encoded
-    once per turn per scenario.
+    once per turn per scenario. Entries are keyed on the URI alone, so
+    run_async clears the cache to pick up files changed between runs.
     """
-    media_type = _image_media_type(file_uri)
+    media_type = image_media_type(file_uri)
     with fsspec.open(file_uri, mode="rb") as f:
         payload = base64.b64encode(f.read()).decode("utf-8")
     return f"data:{media_type};base64,{payload}"
@@ -284,4 +285,4 @@ def image_content_block(file_uri: str) -> Dict[str, Any]:
     """
     Build an OpenAI-style image content block from a URI.
     """
-    return {"type": "image_url", "image_url": {"url": _image_data_uri(file_uri)}}
+    return {"type": "image_url", "image_url": {"url": image_data_uri(file_uri)}}

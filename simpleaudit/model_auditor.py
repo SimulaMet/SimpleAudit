@@ -26,6 +26,7 @@ from .judges import get_judge
 from .utils import (
     parse_json_response as _parse_json_response,
     _extract_json_payload,
+    image_data_uri,
     image_content_block,
     normalize_severity,
     severity_from_score,
@@ -667,6 +668,9 @@ Evaluate this conversation and respond with this exact JSON structure:
                 f"max_workers must be >= 1, got {max_workers} "
                 "(a semaphore of 0 permits would deadlock the run)"
             )
+        # Cached on URI alone, so a file regenerated between two audits in one
+        # process would otherwise be replayed from its old bytes.
+        image_data_uri.cache_clear()
         if isinstance(scenarios, str):
             scenario_list = self.get_scenarios(scenarios)
         else:

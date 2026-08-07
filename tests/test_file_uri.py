@@ -10,11 +10,12 @@ text; expansion happens only on the way to a provider.
 import asyncio
 import base64
 import json
+import pathlib
 
 import pytest
 
 from simpleaudit.model_auditor import ModelAuditor, _expand_files, _render_conversation
-from simpleaudit.utils import _image_data_uri, _image_media_type, image_content_block
+from simpleaudit.utils import image_data_uri, image_media_type, image_content_block
 
 from .fakes import FakeClient, make_auditor
 
@@ -32,9 +33,9 @@ JUDGE_JSON = json.dumps({
 @pytest.fixture(autouse=True)
 def clear_image_cache():
     """Encoded payloads are cached process-wide; keep tests independent."""
-    _image_data_uri.cache_clear()
+    image_data_uri.cache_clear()
     yield
-    _image_data_uri.cache_clear()
+    image_data_uri.cache_clear()
 
 
 @pytest.fixture
@@ -122,23 +123,42 @@ class TestMediaTypeResolution:
         ],
     )
     def test_resolves_media_type(self, file_uri, expected):
-        assert _image_media_type(file_uri=file_uri) == expected
+        assert image_media_type(file_uri=file_uri) == expected
 
     def test_rejects_uri_without_a_usable_extension(self):
         with pytest.raises(ValueError, match="Cannot determine an image type"):
-            _image_media_type(file_uri="/tmp/screenshot")
+            image_media_type(file_uri="/tmp/screenshot")
 
     def test_rejects_a_non_image_file(self):
         with pytest.raises(ValueError, match="resolves to application/pdf, not an image"):
-            _image_media_type(file_uri="report.pdf")
+            image_media_type(file_uri="report.pdf")
 
 
 class TestEncodingIsCached:
     def test_repeated_uris_are_read_once(self, png_path):
         for _ in range(3):
             image_content_block(file_uri=png_path)
-        info = _image_data_uri.cache_info()
+        info = image_data_uri.cache_info()
         assert (info.misses, info.hits) == (1, 2)
+
+    def test_a_new_run_re_reads_a_changed_file(self, png_path):
+        scenario = _image_scenario(file_uri=png_path)
+        first = _Capture(response="A bar chart.")
+        _run(scenario=scenario, target=first, judge=_Capture(response=JUDGE_JSON))
+
+        # Same URI, new bytes — the notebook loop of regenerating a figure and
+        # re-auditing must not replay the old encoding.
+        pathlib.Path(png_path).write_bytes(b"\x89PNG\r\n\x1a\nregenerated")
+        second = _Capture(response="A line chart.")
+        _run(scenario=scenario, target=second, judge=_Capture(response=JUDGE_JSON))
+
+        def encoded(capture):
+            return capture.first_user_message()["content"][1]["image_url"]["url"]
+
+        assert encoded(first) != encoded(second)
+        assert base64.b64decode(encoded(second).split(",", 1)[1]) == (
+            b"\x89PNG\r\n\x1a\nregenerated"
+        )
 
     def test_distinct_uris_are_cached_separately(self, png_path, tmp_path):
         other = tmp_path / "second.png"
@@ -146,7 +166,7 @@ class TestEncodingIsCached:
         first = image_content_block(file_uri=png_path)
         second = image_content_block(file_uri=str(other))
         assert first["image_url"]["url"] != second["image_url"]["url"]
-        assert _image_data_uri.cache_info().misses == 2
+        assert image_data_uri.cache_info().misses == 2
 
 
 # --- _expand_files ----------------------------------------------------------
@@ -335,7 +355,7 @@ class TestFileUriEndToEnd:
         assert target.first_user_message()["content"][1]["type"] == "image_url"
 
         # ...but it is read and encoded only once across those turns.
-        assert _image_data_uri.cache_info().misses == 1
+        assert image_data_uri.cache_info().misses == 1
 
     def test_bad_file_uri_fails_the_scenario_not_the_run(self):
         target = _Capture(response="A bar chart.")

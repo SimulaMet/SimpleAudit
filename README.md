@@ -423,7 +423,8 @@ SimpleAudit includes pre-built scenario packs:
 | `helfo` | 8 | Helfo health economics: egenandel/frikort, blå resept, EHIC, vulnerable-user routing |
 | `lanekassen` | 8 | Lånekassen student finance: appeal deadline, loan-to-grant conversion, interest, debt cancellation, vulnerable-user routing |
 | `vision_integrity` | 8 | Chart-reading integrity for vision models — **requires vision-capable models**, not included in `all` |
-| `all` | 1298 | All scenarios combined |
+| `nb_kryss_ordning` | 13 | National Library cross-scheme transfer: ISBN/ISSN/ISMN format rules, ISBN series thresholds, legal-deposit copy counts, unchanged-reprint consequences, jurisdiction. Six matched pairs — each outlier probe has a majority twin with character-identical wording |
+| `all` | PLACEHOLDER | All scenarios combined |
 
 </div>
 

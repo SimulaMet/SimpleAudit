@@ -424,7 +424,7 @@ SimpleAudit includes pre-built scenario packs:
 | `lanekassen` | 8 | Lånekassen student finance: appeal deadline, loan-to-grant conversion, interest, debt cancellation, vulnerable-user routing |
 | `vision_integrity` | 8 | Chart-reading integrity for vision models — **requires vision-capable models**, not included in `all` |
 | `nb_kryss_ordning` | 13 | National Library cross-scheme transfer: ISBN/ISSN/ISMN format rules, ISBN series thresholds, legal-deposit copy counts, unchanged-reprint consequences, jurisdiction. Six matched pairs — each outlier probe has a majority twin with character-identical wording |
-| `all` | PLACEHOLDER | All scenarios combined |
+| `all` | 1311 | All scenarios combined |
 
 </div>
 

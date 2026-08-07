@@ -4,9 +4,15 @@ Utility functions for SimpleAudit.
 This module contains shared utilities used across the framework.
 """
 
+import base64
 import json
+import mimetypes
 import re
+from functools import lru_cache
 from typing import Dict, Any
+from urllib.parse import urlsplit
+
+import fsspec
 
 
 #: Canonical severity ladder used across results, summaries, and plots.
@@ -229,3 +235,54 @@ def _extract_from_text(text: str, default_severity: str) -> Dict[str, Any]:
     result["summary"] = text[:500]
 
     return result
+
+
+def image_media_type(file_uri: str) -> str:
+    """
+    Resolve a URI to an image media type, raising if it is not an image.
+
+    Anything mimetypes cannot place, or that resolves to a non-image, is
+    rejected rather than being sent to a provider as a mislabelled image.
+    """
+    path = urlsplit(file_uri).path or file_uri
+    media_type, _ = mimetypes.guess_type(path)
+    if media_type is None:
+        raise ValueError(
+            f"Cannot determine an image type for file_uri {file_uri!r}. "
+            "Use a recognised image extension, e.g. .png, .jpg, .webp, .gif."
+        )
+    if not media_type.startswith("image/"):
+        raise ValueError(
+            f"file_uri {file_uri!r} resolves to {media_type}, not an image. "
+            "Only images can be attached to a scenario."
+        )
+    return media_type
+
+
+_IMAGE_CACHE_SIZE = 32
+
+
+@lru_cache(maxsize=_IMAGE_CACHE_SIZE)
+def image_data_uri(file_uri: str) -> str:
+    """
+    Read an image and inline it as a base64 data URI.
+
+    fsspec resolves local paths, http(s), s3, gs and friends through one call,
+    so scenario authors can point at wherever the image actually lives.
+
+    Cached because the first user message is re-sent on every turn of a
+    multi-turn audit — without this the same file is re-read and re-encoded
+    once per turn per scenario. Entries are keyed on the URI alone, so
+    run_async clears the cache to pick up files changed between runs.
+    """
+    media_type = image_media_type(file_uri)
+    with fsspec.open(file_uri, mode="rb") as f:
+        payload = base64.b64encode(f.read()).decode("utf-8")
+    return f"data:{media_type};base64,{payload}"
+
+
+def image_content_block(file_uri: str) -> Dict[str, Any]:
+    """
+    Build an OpenAI-style image content block from a URI.
+    """
+    return {"type": "image_url", "image_url": {"url": image_data_uri(file_uri)}}

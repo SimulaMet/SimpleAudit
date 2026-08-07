@@ -220,7 +220,7 @@ drifts loudly.
    corpus removes the gap is open.
 5. **Scoring, prompts and the control lines were frozen before the run** and were not
    adjusted afterwards.
-6. **Six pairs were dropped** for lack of a verified source on both branches — see below.
+6. **Seven pairs were dropped** for lack of a verified source on both branches — see below.
 
 # Pairs considered and dropped
 
@@ -234,3 +234,4 @@ A claim without a verified source on *both* branches cannot form a pair.
 | appeal against refusal | Not covered on either branch. The scheme is not statute-based, so it cannot be assumed that the Public Administration Act's appeal chapter applies |
 | prohibition on self-assignment | Not covered — and the opposite *is* covered verbatim: publishers with 100+ numbers "skal selv holde rede på nummerserien" |
 | ISSN withdrawal vs ISBN | ISSN has a stated withdrawal right; the ISBN branch would be an argument from absence. A negative cannot be sourced |
+| ISNI fee | Not covered. ISBN, ISSN and ISMN each state explicitly that assignment is free; the ISNI page is silent on cost |

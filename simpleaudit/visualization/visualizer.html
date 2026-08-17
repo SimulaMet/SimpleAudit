@@ -489,6 +489,22 @@
             return `<span class="whitespace-pre-wrap">${escapeHtml(String(value))}</span>`;
         }
 
+        // Label -> value pairs for the judge card. Custom judges expose their
+        // raw judgment keys; the default judge exposes the standard structured
+        // fields. Both are rendered the same way by renderJudgmentValue.
+        function judgeFields(s) {
+            if (isCustomSchema(s) && s.judgment) {
+                return Object.entries(s.judgment);
+            }
+            const pairs = [];
+            if (s.summary) pairs.push(['Summary', s.summary]);
+            if (s.issues_found && s.issues_found.length) pairs.push(['Issues Found', s.issues_found]);
+            if (s.positive_behaviors && s.positive_behaviors.length) pairs.push(['Positive Behaviors', s.positive_behaviors]);
+            if (s.recommendations && s.recommendations.length) pairs.push(['Recommendations', s.recommendations]);
+            if (!pairs.length) pairs.push(['Feedback', s.reasoning || s.feedback || 'No feedback available.']);
+            return pairs;
+        }
+
         // Initialize
         document.getElementById('search-input').addEventListener('input', handleFilter);
         document.getElementById('sort-select').addEventListener('change', handleFilter);
@@ -930,20 +946,6 @@
                     if (s.score === undefined && s.severity) {
                         s.score = SEVERITY_SCORES_MAP[s.severity.toLowerCase()] || 0;
                     }
-                    if (!s.reasoning) {
-                        let parts = [];
-                        if (s.summary) parts.push(`### Summary\n${s.summary}`);
-                        if (s.issues_found && s.issues_found.length > 0) {
-                            parts.push(`### Issues Found\n- ${s.issues_found.join('\n- ')}`);
-                        }
-                        if (s.positive_behaviors && s.positive_behaviors.length > 0) {
-                            parts.push(`### Positive Behaviors\n- ${s.positive_behaviors.join('\n- ')}`);
-                        }
-                        if (s.recommendations && s.recommendations.length > 0) {
-                            parts.push(`### Recommendations\n- ${s.recommendations.join('\n- ')}`);
-                        }
-                        s.reasoning = parts.join('\n\n');
-                    }
                 }
 
                 // Expected behavior normalization – keep as array
@@ -1163,7 +1165,6 @@
                 : 'N/A';
             const severity = s.severity || 'unknown';
             const history = s.history || [];
-            const judgeFeedback = s.reasoning || s.feedback || 'No feedback available.';
 
             let html = `
                 <div class="max-w-4xl mx-auto space-y-6 pb-20">
@@ -1244,41 +1245,27 @@
                 html += `<div class="p-6 text-center text-gray-400 italic">No conversation history data found.</div>`;
             }
 
-            if (isCustomSchema(s) && s.judgment) {
-                // Custom schema: render each judgment field as a labeled card entry
-                const fields = Object.entries(s.judgment)
-                    .map(([key, value]) => `
+            // One judge card for both default and custom judges. judgeFields()
+            // yields the label/value pairs; renderJudgmentValue() renders each
+            // value by type (arrays -> bullet lists, strings -> wrapped text).
+            const judgeEntries = judgeFields(s)
+                .map(([key, value]) => `
                         <div class="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
                             <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">${escapeHtml(key)}</div>
                             <div class="text-sm text-gray-800">${renderJudgmentValue(value)}</div>
                         </div>
                     `).join('');
-                html += `
-                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                        <div class="bg-purple-50 px-6 py-3 border-b border-purple-100 flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-purple-600" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
-                            </svg>
-                            <h3 class="font-semibold text-purple-900">Judge Output</h3>
-                        </div>
-                        <div class="p-6 space-y-4">${fields}</div>
+            html += `
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="bg-indigo-50 px-6 py-3 border-b border-indigo-100 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                        </svg>
+                        <h3 class="font-semibold text-indigo-900">Judgment</h3>
                     </div>
-                `;
-            } else {
-                html += `
-                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                        <div class="bg-indigo-50 px-6 py-3 border-b border-indigo-100 flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
-                            </svg>
-                            <h3 class="font-semibold text-indigo-900">Judge Feedback</h3>
-                        </div>
-                        <div class="p-6 prose prose-indigo max-w-none text-gray-800">
-                            <pre class="whitespace-pre-wrap font-sans text-sm text-gray-700">${escapeHtml(judgeFeedback)}</pre>
-                        </div>
-                    </div>
-                `;
-            }
+                    <div class="p-6 space-y-4">${judgeEntries}</div>
+                </div>
+            `;
 
             html += `</div>`;
 

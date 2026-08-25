@@ -100,7 +100,7 @@ async def judge_all(judge_name: str, out_filename: str) -> Path:
         conversation = entry["conversation"]
         scenario = scenarios_by_name[name]
 
-        judgment = await ModelAuditor._judge_conversation_async(
+        judgment, _, _ = await ModelAuditor._judge_conversation_async(
             client=judge_client,
             model=JUDGE_MODEL,
             scenario=scenario["description"],

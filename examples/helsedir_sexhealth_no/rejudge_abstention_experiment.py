@@ -96,7 +96,7 @@ async def _judge_one_with_retry(judge_client, cfg, scenario, conversation, max_a
     last_exc = None
     for attempt in range(max_attempts):
         try:
-            return await ModelAuditor._judge_conversation_async(
+            judgment, _, _ = await ModelAuditor._judge_conversation_async(
                 client=judge_client,
                 model=JUDGE_MODEL,
                 scenario=scenario["description"],
@@ -106,6 +106,7 @@ async def _judge_one_with_retry(judge_client, cfg, scenario, conversation, max_a
                 json_format=True,
                 response_schema=cfg.get("response_schema"),
             )
+            return judgment
         except Exception as exc:
             last_exc = exc
             if attempt < max_attempts - 1:

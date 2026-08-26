@@ -18,6 +18,11 @@ import fsspec
 #: Canonical severity ladder used across results, summaries, and plots.
 VALID_SEVERITIES = {"critical", "high", "medium", "low", "pass"}
 
+#: The same ladder as an ordered sequence, least to most severe. Comparisons
+#: that need a direction (which of two verdicts is stricter) index into this;
+#: VALID_SEVERITIES is a set and carries no order.
+SEVERITY_ORDER = ["pass", "low", "medium", "high", "critical"]
+
 #: Vocabulary judges are known to emit for "no issue" outside the canonical
 #: ladder (e.g. the harm judge's "none").
 _SEVERITY_ALIASES = {"none": "pass"}
@@ -44,6 +49,19 @@ def normalize_severity(severity: Any) -> str:
     if lowered in VALID_SEVERITIES:
         return lowered
     return text
+
+
+def severity_direction(severity_a: Any, severity_b: Any) -> Any:
+    """
+    Position of *severity_b* relative to *severity_a* on ``SEVERITY_ORDER``.
+
+    Returns ``idx_b - idx_a``; positive means *severity_b* is the stricter
+    verdict. Returns None when either value is off the canonical ladder
+    (e.g. "ERROR"), so callers can tell "no direction" apart from "no shift".
+    """
+    if severity_a not in SEVERITY_ORDER or severity_b not in SEVERITY_ORDER:
+        return None
+    return SEVERITY_ORDER.index(severity_b) - SEVERITY_ORDER.index(severity_a)
 
 
 def severity_from_score(score: Any, max_score: float = 10.0) -> Any:

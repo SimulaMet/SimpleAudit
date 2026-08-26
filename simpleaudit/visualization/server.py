@@ -301,6 +301,26 @@ def get_json_file(file_path: str):
     return JSONResponse(content=data)
 
 
+@app.get("/api/image", dependencies=[Depends(check_secret)])
+def get_image(uri: str):
+    # Reuse the audit's own loader so local paths, http(s), s3 & friends all
+    # resolve the same way they did at audit time, and non-images are rejected
+    # identically. Returns a data URI (not raw bytes) so the frontend can fetch
+    # it through apiFetch (carrying X-Secret) and assign it to an <img> src.
+    from ..utils import image_data_uri
+
+    try:
+        data_uri = image_data_uri(uri)
+    except ValueError:
+        raise HTTPException(status_code=415, detail="Not a previewable image")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Image not found")
+    except OSError:
+        raise HTTPException(status_code=500, detail="Error reading image")
+
+    return JSONResponse(content={"data_uri": data_uri})
+
+
 def start_server(results_dir: str, host: str = "127.0.0.1", port: int = 8000):
     """
     Start the FastAPI server.

@@ -184,22 +184,51 @@ def test_version_is_single_sourced_and_not_stale():
         )
 
 
-def test_fallback_version_literal_matches_pyproject():
-    """The PackageNotFoundError fallback literal in __init__.py must equal the
-    pyproject.toml version, so an uninstalled checkout still reports the right
-    version instead of a stale one."""
+def test_fallback_is_a_sentinel_not_a_version_number():
+    """The PackageNotFoundError branch must not carry a real version.
+
+    A literal there has to be bumped by hand alongside pyproject.toml, and it
+    was missed on 0.1.9 and again on 0.1.10. A sentinel cannot drift, because
+    there is nothing about it to keep in sync.
+    """
     import re
     from pathlib import Path
 
     import simpleaudit
 
     init_src = Path(simpleaudit.__file__).read_text()
-    m = re.search(r'except\s+PackageNotFoundError:.*?\n\s*__version__\s*=\s*["\']([^"\']+)["\']', init_src)
-    assert m, "fallback literal not found in __init__.py"
-
-    pyproject = Path(simpleaudit.__file__).parent.parent / "pyproject.toml"
-    p = re.search(r'^version\s*=\s*["\']([^"\']+)["\']', pyproject.read_text(), re.MULTILINE)
-    assert p, "pyproject.toml must declare a version"
-    assert m.group(1) == p.group(1), (
-        f"fallback literal {m.group(1)!r} != pyproject {p.group(1)!r}"
+    m = re.search(
+        r'except\s+PackageNotFoundError:.*?\n\s*__version__\s*=\s*["\']([^"\']+)["\']',
+        init_src,
     )
+    assert m, "fallback assignment not found in __init__.py"
+    fallback = m.group(1)
+
+    assert fallback == "0.0.0+unknown", (
+        f"fallback is {fallback!r}; it must stay a sentinel. Reintroducing a "
+        "version number here brings back the drift this replaced."
+    )
+    assert not re.fullmatch(r"\d+(\.\d+)*", fallback), (
+        f"fallback {fallback!r} looks like a release version"
+    )
+
+
+def test_fallback_is_used_when_metadata_is_missing(monkeypatch):
+    """An uninstalled checkout takes the except branch and gets the sentinel.
+
+    Reimports the package with importlib.metadata.version raising, which is
+    what happens when the distribution is not installed.
+    """
+    import importlib
+    import importlib.metadata
+    import sys
+
+    def raise_not_found(name):
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", raise_not_found)
+    for name in [n for n in sys.modules if n == "simpleaudit" or n.startswith("simpleaudit.")]:
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
+    reimported = importlib.import_module("simpleaudit")
+    assert reimported.__version__ == "0.0.0+unknown"

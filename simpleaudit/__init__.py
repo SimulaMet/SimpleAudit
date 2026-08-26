@@ -30,8 +30,8 @@ from importlib.metadata import PackageNotFoundError, version
 
 try:
     __version__ = version("simpleaudit")
-except PackageNotFoundError:  # running from a source checkout without install
-    __version__ = "0.1.10"
+except PackageNotFoundError:
+    __version__ = "0.0.0+unknown"
 __author__ = "SimpleAudit Contributors"
 
 from .model_auditor import ModelAuditor

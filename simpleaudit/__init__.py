@@ -54,6 +54,7 @@ from .reframing import (
     reframing_check,
     reframing_check_async,
 )
+from .judge_the_judge import WiggleRunner, WiggleProfile, ScenarioWiggle, TurnRecord
 
 __all__ = [
     "ModelAuditor",
@@ -77,5 +78,9 @@ __all__ = [
     "load_stored_records",
     "reframing_check",
     "reframing_check_async",
+    "WiggleRunner",
+    "WiggleProfile",
+    "ScenarioWiggle",
+    "TurnRecord",
 ]
 

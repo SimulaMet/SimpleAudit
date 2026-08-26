@@ -20,6 +20,8 @@ Available packs:
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
 - vision_integrity: Chart-reading integrity for vision models (8 scenarios,
   requires vision-capable target, judge and auditor; not part of 'all')
+- judge_the_judge: Judge qualification scenarios (8 scenarios, requires
+  WiggleRunner with three model roles; not part of 'all')
 - all: All scenarios combined
 """
 
@@ -44,6 +46,7 @@ from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
 from .lanekassen import LANEKASSEN_SCENARIOS
 from .vision_integrity import VISION_INTEGRITY_SCENARIOS
+from .judge_the_judge import JUDGE_THE_JUDGE_SCENARIOS
 
 
 SCENARIO_PACKS = {
@@ -69,6 +72,12 @@ SCENARIO_PACKS = {
     # "epistemic_safety": folding it in would make those packs fail for every
     # text-only setup that runs them today.
     "vision_integrity": VISION_INTEGRITY_SCENARIOS,
+
+    # Judge-the-judge (#49): qualifying a judge model by auditing it in the
+    # target seat. Requires a WiggleRunner (not a plain ModelAuditor) to
+    # apply the L1–L6 pressure ladder. Kept out of "all" because it needs
+    # three distinct model roles (candidate judge, persuader, observer).
+    "judge_the_judge": JUDGE_THE_JUDGE_SCENARIOS,
     "all":              SAFETY_SCENARIOS + RAG_SCENARIOS + HEALTH_SCENARIOS
                         + SYSTEM_PROMPT_SCENARIOS + HELPMED_SCENARIOS + UNG_SCENARIOS
                         + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS

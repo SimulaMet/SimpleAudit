@@ -25,6 +25,7 @@ EXPECTED_JUDGES = {
     "binary_abstention",
     "helsedir_sexhealth_no",
     "helsedir_sexhealth_no_rag",
+    "judge_conviction",
 }
 REQUIRED_CONFIG_KEYS = {"probe_prompt", "judge_prompt", "description"}
 
@@ -58,6 +59,10 @@ class TestGetJudge:
     @pytest.mark.parametrize("name", sorted(EXPECTED_JUDGES))
     def test_probe_prompt_is_non_empty_string(self, name):
         config = get_judge(name)
+        # judge_conviction is a meta-judge (observer) — it has no probe_prompt
+        if name == "judge_conviction":
+            assert config["probe_prompt"] is None
+            return
         assert isinstance(config["probe_prompt"], str)
         assert config["probe_prompt"].strip()
 

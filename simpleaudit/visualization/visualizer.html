@@ -440,7 +440,7 @@
             <!-- Sidebar / List View -->
             <div class="flex-1 flex flex-col md:flex-row overflow-hidden">
                 
-                <div class="w-full md:w-1/2 md:max-w-[60%] bg-white flex flex-col overflow-hidden" id="scenario-list-container">
+                <div class="w-full md:w-1/2 md:max-w-[45%] bg-white flex flex-col overflow-hidden" id="scenario-list-container">
 
                     <!-- Dashboard / Stats -->
                     <div id="dashboard" class="px-6 pt-2 pb-6 border-b border-gray-200 bg-gray-50 hidden">
@@ -507,7 +507,7 @@
                 <div class="resizer resizer-inner" id="resizer-inner"></div>
 
                 <!-- Detail View -->
-                <main class="flex-1 bg-gray-50 overflow-y-auto overflow-x-hidden p-4 md:px-8 md:py-2 min-w-[280px]" id="detail-view">
+                <main class="flex-1 bg-gray-50 overflow-y-auto overflow-x-hidden p-4 md:px-4 md:py-2 min-w-0" id="detail-view">
                     <div class="h-full flex flex-col items-center justify-center text-gray-400">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4 opacity-50" fill="none"
                             viewBox="0 0 24 24" stroke="currentColor">
@@ -849,8 +849,8 @@
                 
                 const dx = e.clientX - startX;
                 const parentWidth = listContainer.parentElement.offsetWidth;
-                const minList = 250;
-                const maxList = Math.floor(parentWidth * 0.6);
+                const minList = 220;
+                const maxList = Math.floor(parentWidth * 0.45);
                 const newWidth = Math.max(minList, Math.min(maxList, startWidth + dx));
                 
                 listContainer.style.width = newWidth + 'px';

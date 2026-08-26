@@ -199,6 +199,10 @@ results.stability("gpt-4o-mini").summary()
 # Print stability reports for all models
 results.summary()
 
+# Access individual runs (dict access returns the first run, for backward compat)
+results.runs("gpt-4o-mini")          # all 5 runs, in execution order
+results["gpt-4o-mini", 2]            # the third run specifically
+
 # Works with a single model too
 experiment = AuditExperiment(
     models=[{"model": "my-model", "provider": "ollama"}],

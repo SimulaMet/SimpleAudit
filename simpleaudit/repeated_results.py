@@ -11,7 +11,7 @@ import warnings
 from collections import Counter
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple, Union
 
 from simpleaudit.results import AuditResult, AuditResults, _atomic_json_dump
 
@@ -196,6 +196,7 @@ class RepeatedExperimentResults:
 
     Provides:
     - Backward-compatible dict interface (returns first run's AuditResults)
+    - .runs(model) — all runs for a model, in execution order
     - .stability(model) — mean/std/CV and per-scenario pass rates
     - .summary() — prints stability reports for all models
     - .save() / .load() — JSON serialization
@@ -209,8 +210,32 @@ class RepeatedExperimentResults:
     # Backward-compatible dict interface
     # ------------------------------------------------------------------
 
-    def __getitem__(self, key: str) -> AuditResults:
+    def __getitem__(self, key: Union[str, Tuple[str, int]]) -> AuditResults:
+        """Return AuditResults for the given model.
+
+        A plain string key returns the first run (backward compat).
+        A ``(model, run_index)`` tuple returns the specific run, e.g.
+        ``results["gpt-4o", 1]`` is the second run of "gpt-4o".
+        """
+        if isinstance(key, tuple):
+            model, run_index = key
+            if model not in self._runs:
+                raise KeyError(model)
+            runs = self._runs[model]
+            if not 0 <= run_index < len(runs):
+                raise IndexError(
+                    f"run index {run_index} out of range for model {model!r} ({len(runs)} runs)"
+                )
+            return runs[run_index]
+        if key not in self._runs:
+            raise KeyError(key)
         return self._runs[key][0]
+
+    def runs(self, model_name: str) -> List[AuditResults]:
+        """Return all runs for the given model, in execution order."""
+        if model_name not in self._runs:
+            raise KeyError(model_name)
+        return list(self._runs[model_name])
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._runs)

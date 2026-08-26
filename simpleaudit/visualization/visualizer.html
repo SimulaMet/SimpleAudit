@@ -224,6 +224,26 @@
         .sidebar-hidden {
             display: none !important;
         }
+        
+        /* Marquee effect for truncated file tree names */
+        .tree-item .marquee-wrap {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            position: relative;
+        }
+        .tree-item .marquee-text {
+            display: inline-block;
+            white-space: nowrap;
+            padding-right: 2em;
+        }
+        .tree-item:hover .marquee-text {
+            animation: marquee-scroll 3s linear infinite;
+        }
+        @keyframes marquee-scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
     </style>
 </head>
 
@@ -697,7 +717,7 @@
                     
                     header.innerHTML = `
                         <span class="folder-icon text-base ${shouldBeOpen ? 'open' : ''} shrink-0"></span>
-                        <span class="flex-1 min-w-0 font-medium text-gray-700 truncate" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+                        <span class="marquee-wrap font-medium text-gray-700" title="${escapeHtml(item.name)}"><span class="marquee-text">${escapeHtml(item.name)}</span></span>
                         <span class="text-xs text-gray-400 shrink-0">${item.children.length}</span>
                     `;
                     
@@ -748,7 +768,7 @@
                     fileDiv.className = `tree-item group flex items-center py-1 px-2 rounded hover:bg-indigo-50 text-sm transition-colors ${isSelected ? 'bg-indigo-100 ring-1 ring-indigo-500' : ''}`;
                     fileDiv.innerHTML = `
                         <span class="file-icon text-base shrink-0"></span>
-                        <span class="flex-1 min-w-0 text-gray-700 ${isSelected ? 'font-semibold' : ''} truncate" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+                        <span class="marquee-wrap text-gray-700 ${isSelected ? 'font-semibold' : ''}" title="${escapeHtml(item.name)}"><span class="marquee-text">${escapeHtml(item.name)}</span></span>
                         <button onclick="event.stopPropagation(); downloadFileHtml('${escapeHtml(item.path)}')" class="shrink-0 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-indigo-600 transition-all p-1" title="Download this file as standalone HTML">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -785,7 +805,7 @@
             header.className = 'tree-item group flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
             header.innerHTML = `
                 <span class="folder-icon text-base ${isOpen ? 'open' : ''} shrink-0"></span>
-                <span class="flex-1 min-w-0 font-medium text-gray-700 truncate" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
+                <span class="marquee-wrap font-medium text-gray-700" title="${escapeHtml(displayName)}"><span class="marquee-text">${escapeHtml(displayName)}</span></span>
                 <button onclick="event.stopPropagation(); downloadFileHtml('${escapeHtml(key)}')" class="shrink-0 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-indigo-600 transition-all p-1" title="Download this experiment as standalone HTML">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />

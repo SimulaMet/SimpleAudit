@@ -3,9 +3,32 @@ Repeated-run results for SimpleAudit.
 
 Holds results from running an AuditExperiment multiple times and provides
 stability statistics across runs.
+
+Stability is reported at two levels. The aggregate level — mean, std and CV
+over whole-run scores — answers whether a model's overall score has settled.
+The per-scenario level answers which individual verdicts have settled, and
+that is a different question: a scenario swinging between pass and critical
+can sit inside a perfectly steady mean, and a single-run "critical" on it
+should not be read the same way as one on a scenario that never moves.
+
+The per-scenario statistics here — modal share, normalised entropy and
+ordinal spread — are the reproducibility leg of the validity chain pushed
+down to the scenario. They cost nothing to compute: the verdicts were
+already produced by the runs the experiment paid for. The choice to derive
+fragility from existing disagreement rather than from new perturbation runs
+follows Zhao et al., *Jagged Judges: Epistemic Stability Under Silence,
+Pressure, and Persistence* (2026), https://arxiv.org/abs/2608.12645, which
+identifies baseline jury majority strength as the most effective single-shot
+signal for anticipating which items wiggle. Modal share is that quantity as
+it already exists here, so the disagreement across ``n_repetitions`` is a
+signal the runs have paid for whether or not anyone reads it.
+
+The complementary check, which varies the judge prompt rather than resampling
+it, lives in :mod:`simpleaudit.reframing`.
 """
 
 import json
+import math
 import statistics
 import warnings
 from collections import Counter
@@ -14,6 +37,86 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple, Union
 
 from simpleaudit.results import AuditResult, AuditResults, _atomic_json_dump
+from simpleaudit.utils import SEVERITY_ORDER
+
+
+#: Default modal-verdict share below which a scenario counts as fragile.
+#: Used by both ``ModelStabilityReport.fragile()`` and the flag in
+#: ``summary()``, so the printed report and the queryable accessor can never
+#: disagree about which scenarios are fragile.
+FRAGILE_THRESHOLD_DEFAULT = 0.6
+
+
+# ---------------------------------------------------------------------------
+# Fragility statistics over a scenario's severity verdicts
+# ---------------------------------------------------------------------------
+
+def _normalised_entropy(severities: List[str]) -> float:
+    """Shannon entropy of the severity distribution, scaled to 0.0–1.0.
+
+    0.0 means every run returned the same verdict. Higher means the runs
+    spread across more levels, more evenly.
+
+    The denominator is ``log(len(SEVERITY_ORDER))`` — the full canonical
+    ladder — and not the number of levels actually observed. Normalising
+    against the observed count would rescale every scenario to its own
+    maximum, so a scenario split evenly between two severities and one split
+    evenly between five would both read 1.0 despite being very different
+    kinds of unstable. The fixed denominator keeps the number comparable
+    across scenarios, at a cost worth stating plainly: 1.0 needs the verdicts
+    spread evenly over all five levels, which few run counts allow. Below five
+    runs the ceiling is ``log(n) / log(5)`` — a two-run scenario tops out at
+    0.43 even when its two verdicts disagree completely. At five or more it is
+    exactly 1.0 only when n is a multiple of five, and a little under otherwise
+    (0.97 at n=6), because n verdicts cannot be split evenly across five levels
+    unless five divides n. Read it as a position on a fixed scale, not as a
+    percentage of the disagreement that was achievable in this many runs.
+
+    Verdicts outside ``SEVERITY_ORDER`` (e.g. "ERROR", or a custom judge
+    vocabulary) are counted as their own levels rather than dropped, since
+    a run that errored is a run that did not agree. A distribution wider
+    than the canonical ladder is clamped to 1.0.
+    """
+    if not severities:
+        return 0.0
+    total = len(severities)
+    entropy = 0.0
+    for count in Counter(severities).values():
+        p = count / total
+        entropy -= p * math.log(p)
+    return min(entropy / math.log(len(SEVERITY_ORDER)), 1.0)
+
+
+def _ordinal_spread(severities: List[str]) -> Optional[float]:
+    """Population standard deviation of the verdicts on the 0–4 severity scale.
+
+    Severities are mapped to their index in ``SEVERITY_ORDER`` ("pass" = 0 …
+    "critical" = 4) and the spread of those indices is returned, so a scenario
+    flipping pass/critical scores higher than one flipping high/critical. The
+    maximum is 2.0, from an even split between the two ends of the ladder, so
+    it is only attainable when n is even; at odd n the ceiling is a little
+    lower (1.886 at n=3).
+
+    This is not a duplicate of ``ModelStabilityReport.std_score``. That is the
+    sample standard deviation of the whole-run *score* (0–100, one value per
+    run, across every scenario); this is the spread of one scenario's
+    *severity verdicts*. A model can hold a steady overall score while one
+    scenario swings between pass and critical, and only this number sees it.
+    The population form is used rather than the sample form because the N runs
+    are the whole set being described, not a sample drawn from a larger one.
+
+    Returns None when any verdict is off the canonical ladder, matching
+    ``severity_direction()``: an "ERROR" verdict has no position on a 0–4
+    scale, and returning 0.0 would report it as perfect agreement.
+    """
+    if not severities:
+        return 0.0
+    if any(s not in SEVERITY_ORDER for s in severities):
+        return None
+    indices = [SEVERITY_ORDER.index(s) for s in severities]
+    if len(indices) < 2:
+        return 0.0
+    return statistics.pstdev(indices)
 
 
 # ---------------------------------------------------------------------------
@@ -26,6 +129,9 @@ class ScenarioStats:
     severity_distribution: Dict[str, int]  # raw counts across all N runs
     most_common_severity: str
     agreement_rate: float                  # fraction of runs matching the mode
+    normalised_entropy: float = 0.0        # 0.0 = unanimous; see _normalised_entropy
+    ordinal_spread: Optional[float] = 0.0  # std on the 0-4 ladder; None if off-ladder
+    n_observations: int = 0                # runs this scenario actually appeared in
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -60,17 +166,101 @@ class ModelStabilityReport:
         if self.per_scenario:
             print()
             print("Per-Scenario Stability:")
-            header = f"  {'Scenario':<35} {'Pass Rate':>9}   {'Agreement':>9}   Mode"
+            header = (
+                f"  {'Scenario':<35} {'Pass Rate':>9}   {'Agreement':>9}"
+                f"   {'Entropy':>7}   Mode"
+            )
             print(header)
             print("  " + "-" * (len(header) - 2))
             for name, stats in self.per_scenario.items():
                 short = name[:34]
+                # One observation cannot disagree with itself, so the
+                # fragility numbers are structurally 0.0 rather than measured.
+                # Printing them would read as "perfectly stable" when the
+                # truth is "not measured". Keyed on the scenario's own count,
+                # not the report's: a scenario that errored out of four of
+                # five runs sits in an n_runs=5 report having been seen once.
+                measured = stats.n_observations > 1
+                entropy = f"{stats.normalised_entropy:>7.2f}" if measured else f"{'—':>7}"
+                flag = "  (fragile)" if stats.agreement_rate < FRAGILE_THRESHOLD_DEFAULT else ""
                 print(
                     f"  {short:<35} {stats.pass_rate * 100:>8.0f}%"
                     f"   {stats.agreement_rate * 100:>8.0f}%"
-                    f"   {stats.most_common_severity}"
+                    f"   {entropy}"
+                    f"   {stats.most_common_severity}{flag}"
                 )
+            # Guarded on n_runs so printing a single-run report does not
+            # emit the "needs at least 2 runs" warning: that belongs to a
+            # caller who asked for fragility, not to one who asked for a
+            # summary.
+            fragile = self.fragile() if self.n_runs > 1 else {}
+            if fragile:
+                print()
+                print(
+                    f"  {len(fragile)} of {len(self.per_scenario)} scenarios fragile "
+                    f"(modal share < {FRAGILE_THRESHOLD_DEFAULT:.0%}): "
+                    f"{', '.join(sorted(fragile))}"
+                )
+                print("  Single-run verdicts on these scenarios should not be read as settled.")
         print()
+
+    def fragile(self, threshold: float = FRAGILE_THRESHOLD_DEFAULT) -> Dict[str, "ScenarioStats"]:
+        """Scenarios whose modal-verdict share falls below *threshold*.
+
+        The threshold is on the modal share (``agreement_rate``): the fraction
+        of runs that returned the most common severity. The comparison is
+        strict, so ``fragile(threshold=0.6)`` returns scenarios where fewer
+        than 60% of runs agreed, and a scenario sitting exactly on 0.6 is not
+        fragile. Entropy and ordinal spread are reported per scenario but do
+        not gate this accessor — modal share is the statistic the paper
+        identifies as the single-shot predictor of verdict instability.
+
+        One reading to be aware of: a scenario where the judge failed in every
+        run has a modal share of 1.0 and is *not* returned here, because the
+        runs did agree — on "ERROR". That is consistent agreement on a
+        non-verdict, not a stable verdict. ``most_common_severity`` shows it in
+        the summary table and ``ordinal_spread`` is None for it, so both
+        surfaces carry the signal; this accessor deliberately does not
+        reinterpret it, since ``agreement_rate`` predates this change and
+        callers already depend on its meaning.
+
+        Returns
+        -------
+        dict
+            ``{scenario_name: ScenarioStats}`` for the fragile scenarios,
+            keeping the shape of ``per_scenario`` so the same reporting code
+            reads both. Empty when nothing is fragile.
+
+        Raises
+        ------
+        ValueError
+            If *threshold* is outside 0.0–1.0, which would otherwise silently
+            return everything or nothing.
+
+        Warns
+        -----
+        UserWarning
+            When called on a single-run report. One run always agrees with
+            itself, so every scenario reads as stable; the empty result means
+            "not measured", not "nothing is fragile".
+        """
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError(
+                f"threshold must be between 0.0 and 1.0, got {threshold}. "
+                "It is compared against the modal-verdict share, a fraction."
+            )
+        if self.n_runs < 2:
+            warnings.warn(
+                f"Model {self.model!r}: fragility needs at least 2 runs to mean anything — "
+                f"this report has {self.n_runs}. Every scenario will read as stable because "
+                "a single run cannot disagree with itself. Re-run with n_repetitions > 1.",
+                stacklevel=2,
+            )
+        return {
+            name: stats
+            for name, stats in self.per_scenario.items()
+            if stats.agreement_rate < threshold
+        }
 
     def to_dict(self) -> Dict:
         return {
@@ -166,11 +356,15 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
                 continue
             dist = dict(Counter(severities))
             mode_sev = Counter(severities).most_common(1)[0][0]
+            spread = _ordinal_spread(severities)
             per_scenario[scenario_name] = ScenarioStats(
                 pass_rate=severities.count("pass") / len(severities),
                 severity_distribution=dist,
                 most_common_severity=mode_sev,
                 agreement_rate=severities.count(mode_sev) / len(severities),
+                normalised_entropy=round(_normalised_entropy(severities), 4),
+                ordinal_spread=None if spread is None else round(spread, 4),
+                n_observations=len(severities),
             )
 
     return ModelStabilityReport(
@@ -198,6 +392,8 @@ class RepeatedExperimentResults:
     - Backward-compatible dict interface (returns first run's AuditResults)
     - .runs(model) — all runs for a model, in execution order
     - .stability(model) — mean/std/CV and per-scenario pass rates
+    - .stability(model).fragile(threshold=...) — scenarios whose verdict
+      disagrees across runs
     - .summary() — prints stability reports for all models
     - .save() / .load() — JSON serialization
     """
@@ -297,6 +493,22 @@ class RepeatedExperimentResults:
     # Serialization
     # ------------------------------------------------------------------
 
+    def _stability_reports(self) -> Dict[str, ModelStabilityReport]:
+        """Stability reports for every model, without re-raising the warnings.
+
+        ``_build_stability_report`` warns about duplicate scenario names. That
+        warning belongs to a caller who asked for stability, and it is already
+        raised by :meth:`stability`. Letting it through here would make
+        ``save()`` warn — and, under ``-W error``, raise — on files it wrote
+        without complaint before this key existed.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return {
+                label: _build_stability_report(label, runs)
+                for label, runs in self._runs.items()
+            }
+
     def to_dict(self) -> Dict:
         n_reps = len(next(iter(self._runs.values()))) if self._runs else 0
         return {
@@ -307,6 +519,13 @@ class RepeatedExperimentResults:
             "aggregate": {
                 label: _build_model_aggregate(runs)
                 for label, runs in self._runs.items()
+            },
+            # Per-scenario fragility travels with the saved run, so a reader
+            # who only has the JSON can tell which verdicts were unstable
+            # without re-deriving them. Additive: load() ignores this key.
+            "stability": {
+                label: report.to_dict()
+                for label, report in self._stability_reports().items()
             },
             "runs": {
                 label: [run.to_dict() for run in runs]

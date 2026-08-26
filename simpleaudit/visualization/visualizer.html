@@ -778,12 +778,14 @@
         // Render a multi-model experiment as an expandable folder with model children.
         // loadModel(model) is invoked when a model row is clicked.
         function renderExperimentFolder(name, key, models, loadModel, isOpen) {
+            // Strip .json extension for cleaner folder display
+            const displayName = name.replace(/\.json$/i, '');
             const folderDiv = document.createElement('div');
             const header = document.createElement('div');
             header.className = 'tree-item group flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
             header.innerHTML = `
                 <span class="folder-icon text-base ${isOpen ? 'open' : ''} shrink-0"></span>
-                <span class="flex-1 min-w-0 font-medium text-gray-700 truncate" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+                <span class="flex-1 min-w-0 font-medium text-gray-700 truncate" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
                 <button onclick="event.stopPropagation(); downloadFileHtml('${escapeHtml(key)}')" class="shrink-0 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-indigo-600 transition-all p-1" title="Download this experiment as standalone HTML">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />

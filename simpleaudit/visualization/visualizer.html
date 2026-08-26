@@ -798,8 +798,7 @@
         // Render a multi-model experiment as an expandable folder with model children.
         // loadModel(model) is invoked when a model row is clicked.
         function renderExperimentFolder(name, key, models, loadModel, isOpen) {
-            // Strip .json extension for cleaner folder display
-            const displayName = name.replace(/\.json$/i, '');
+            const displayName = name;
             const folderDiv = document.createElement('div');
             const header = document.createElement('div');
             header.className = 'tree-item group flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';

@@ -101,7 +101,7 @@
       "max_score": 100.0,
       "cv": 33.3,
       "per_scenario": {
-        "login_flow": {
+        "Harmful Instructions": {
           "pass_rate": 1.0,
           "severity_distribution": {
             "pass": 3
@@ -111,7 +111,7 @@
           "entropy": -0.0,
           "ordinal_spread": 0.0
         },
-        "payment_api": {
+        "Manipulation - Authority Claim": {
           "pass_rate": 0.6666666666666666,
           "severity_distribution": {
             "pass": 2,
@@ -122,7 +122,7 @@
           "entropy": 0.9183,
           "ordinal_spread": 1.8856
         },
-        "data_export": {
+        "Hallucination - Fictional Content": {
           "pass_rate": 0.3333333333333333,
           "severity_distribution": {
             "pass": 1,
@@ -163,15 +163,15 @@
         "recommendations": [],
         "results": [
           {
-            "scenario_name": "login_flow",
-            "scenario_description": "Demo scenario: login_flow",
+            "scenario_name": "Harmful Instructions",
+            "scenario_description": "Demo scenario: Harmful Instructions",
             "conversation": [],
             "severity": "pass",
             "issues_found": [],
             "positive_behaviors": [
               "Good behavior"
             ],
-            "summary": "Summary for login_flow (pass)",
+            "summary": "Summary for Harmful Instructions (pass)",
             "recommendations": [],
             "expected_behavior": null,
             "judgment": null,
@@ -183,15 +183,15 @@
             "target_output_tokens": 0
           },
           {
-            "scenario_name": "payment_api",
-            "scenario_description": "Demo scenario: payment_api",
+            "scenario_name": "Manipulation - Authority Claim",
+            "scenario_description": "Demo scenario: Manipulation - Authority Claim",
             "conversation": [],
             "severity": "pass",
             "issues_found": [],
             "positive_behaviors": [
               "Good behavior"
             ],
-            "summary": "Summary for payment_api (pass)",
+            "summary": "Summary for Manipulation - Authority Claim (pass)",
             "recommendations": [],
             "expected_behavior": null,
             "judgment": null,
@@ -203,15 +203,15 @@
             "target_output_tokens": 0
           },
           {
-            "scenario_name": "data_export",
-            "scenario_description": "Demo scenario: data_export",
+            "scenario_name": "Hallucination - Fictional Content",
+            "scenario_description": "Demo scenario: Hallucination - Fictional Content",
             "conversation": [],
             "severity": "pass",
             "issues_found": [],
             "positive_behaviors": [
               "Good behavior"
             ],
-            "summary": "Summary for data_export (pass)",
+            "summary": "Summary for Hallucination - Fictional Content (pass)",
             "recommendations": [],
             "expected_behavior": null,
             "judgment": null,
@@ -254,15 +254,15 @@
         ],
         "results": [
           {
-            "scenario_name": "login_flow",
-            "scenario_description": "Demo scenario: login_flow",
+            "scenario_name": "Harmful Instructions",
+            "scenario_description": "Demo scenario: Harmful Instructions",
             "conversation": [],
             "severity": "pass",
             "issues_found": [],
             "positive_behaviors": [
               "Good behavior"
             ],
-            "summary": "Summary for login_flow (pass)",
+            "summary": "Summary for Harmful Instructions (pass)",
             "recommendations": [],
             "expected_behavior": null,
             "judgment": null,
@@ -274,15 +274,15 @@
             "target_output_tokens": 0
           },
           {
-            "scenario_name": "payment_api",
-            "scenario_description": "Demo scenario: payment_api",
+            "scenario_name": "Manipulation - Authority Claim",
+            "scenario_description": "Demo scenario: Manipulation - Authority Claim",
             "conversation": [],
             "severity": "critical",
             "issues_found": [
               "Some issue found"
             ],
             "positive_behaviors": [],
-            "summary": "Summary for payment_api (critical)",
+            "summary": "Summary for Manipulation - Authority Claim (critical)",
             "recommendations": [
               "Check this"
             ],
@@ -296,15 +296,15 @@
             "target_output_tokens": 0
           },
           {
-            "scenario_name": "data_export",
-            "scenario_description": "Demo scenario: data_export",
+            "scenario_name": "Hallucination - Fictional Content",
+            "scenario_description": "Demo scenario: Hallucination - Fictional Content",
             "conversation": [],
             "severity": "medium",
             "issues_found": [
               "Some issue found"
             ],
             "positive_behaviors": [],
-            "summary": "Summary for data_export (medium)",
+            "summary": "Summary for Hallucination - Fictional Content (medium)",
             "recommendations": [
               "Check this"
             ],
@@ -348,15 +348,15 @@
         ],
         "results": [
           {
-            "scenario_name": "login_flow",
-            "scenario_description": "Demo scenario: login_flow",
+            "scenario_name": "Harmful Instructions",
+            "scenario_description": "Demo scenario: Harmful Instructions",
             "conversation": [],
             "severity": "pass",
             "issues_found": [],
             "positive_behaviors": [
               "Good behavior"
             ],
-            "summary": "Summary for login_flow (pass)",
+            "summary": "Summary for Harmful Instructions (pass)",
             "recommendations": [],
             "expected_behavior": null,
             "judgment": null,
@@ -368,15 +368,15 @@
             "target_output_tokens": 0
           },
           {
-            "scenario_name": "payment_api",
-            "scenario_description": "Demo scenario: payment_api",
+            "scenario_name": "Manipulation - Authority Claim",
+            "scenario_description": "Demo scenario: Manipulation - Authority Claim",
             "conversation": [],
             "severity": "pass",
             "issues_found": [],
             "positive_behaviors": [
               "Good behavior"
             ],
-            "summary": "Summary for payment_api (pass)",
+            "summary": "Summary for Manipulation - Authority Claim (pass)",
             "recommendations": [],
             "expected_behavior": null,
             "judgment": null,
@@ -388,15 +388,15 @@
             "target_output_tokens": 0
           },
           {
-            "scenario_name": "data_export",
-            "scenario_description": "Demo scenario: data_export",
+            "scenario_name": "Hallucination - Fictional Content",
+            "scenario_description": "Demo scenario: Hallucination - Fictional Content",
             "conversation": [],
             "severity": "low",
             "issues_found": [
               "Some issue found"
             ],
             "positive_behaviors": [],
-            "summary": "Summary for data_export (low)",
+            "summary": "Summary for Hallucination - Fictional Content (low)",
             "recommendations": [
               "Check this"
             ],

@@ -311,16 +311,16 @@ class TestFragilitySignal:
             "m": [_make_results(["pass"]), _make_results(["pass"]), _make_results(["pass"])]
         })
         stats = results.stability("m").per_scenario["scenario_0"]
-        assert stats.entropy == 0.0
+        assert stats.normalised_entropy == 0.0
 
     def test_entropy_positive_when_runs_disagree(self):
         results = self._uniform_results()
         stats = results.stability("m").per_scenario["scenario_0"]
         # 3 distinct severities out of 5 possible → entropy > 0
-        assert stats.entropy > 0.0
-        # Normalised: max entropy for 3 distinct values is log(3), so
-        # entropy should be 1.0 (uniform over 3 categories)
-        assert abs(stats.entropy - 1.0) < 0.01
+        assert stats.normalised_entropy > 0.0
+        # Normalised against the full 5-level ladder: 3 runs split evenly
+        # over 3 of 5 levels gives log(3)/log(5) ≈ 0.68
+        assert abs(stats.normalised_entropy - 0.68) < 0.05
 
     def test_entropy_between_zero_and_one(self):
         # 2 runs: pass, pass → entropy 0
@@ -329,7 +329,7 @@ class TestFragilitySignal:
             "m": [_make_results(["pass"]), _make_results(["low"])]
         })
         stats = results.stability("m").per_scenario["scenario_0"]
-        assert 0.0 < stats.entropy <= 1.0
+        assert 0.0 < stats.normalised_entropy <= 1.0
 
     def test_ordinal_spread_zero_when_all_runs_agree(self):
         results = RepeatedExperimentResults({
@@ -340,18 +340,18 @@ class TestFragilitySignal:
 
     def test_ordinal_spread_positive_when_severities_differ(self):
         # pass=0, medium=2, critical=4 → positions [0, 2, 4]
-        # std = sqrt(((0-2)^2 + (2-2)^2 + (4-2)^2) / 2) = sqrt(8/2) = 2.0
+        # population std = sqrt(((0-2)^2 + (2-2)^2 + (4-2)^2) / 3) = sqrt(8/3) ≈ 1.633
         results = self._uniform_results()
         stats = results.stability("m").per_scenario["scenario_0"]
-        assert abs(stats.ordinal_spread - 2.0) < 0.01
+        assert abs(stats.ordinal_spread - 1.633) < 0.01
 
     def test_ordinal_spread_small_for_adjacent_severities(self):
-        # pass=0, low=1 → positions [0, 1] → sample std = 1/√2 ≈ 0.7071
+        # pass=0, low=1 → positions [0, 1] → population std = 0.5
         results = RepeatedExperimentResults({
             "m": [_make_results(["pass"]), _make_results(["low"])]
         })
         stats = results.stability("m").per_scenario["scenario_0"]
-        assert abs(stats.ordinal_spread - 0.7071) < 0.01
+        assert abs(stats.ordinal_spread - 0.5) < 0.01
 
     def test_fragile_returns_empty_when_all_stable(self):
         results = RepeatedExperimentResults({
@@ -429,7 +429,7 @@ class TestFragilitySignal:
         report = results.stability("m")
         d = report.to_dict()
         stats = d["per_scenario"]["scenario_0"]
-        assert "entropy" in stats
+        assert "normalised_entropy" in stats
         assert "ordinal_spread" in stats
 
     def test_single_run_has_zero_fragility(self):
@@ -437,7 +437,7 @@ class TestFragilitySignal:
             "m": [_make_results(["high"])]
         })
         stats = results.stability("m").per_scenario["scenario_0"]
-        assert stats.entropy == 0.0
+        assert stats.normalised_entropy == 0.0
         assert stats.ordinal_spread == 0.0
         assert stats.agreement_rate == 1.0
 
@@ -463,12 +463,12 @@ class TestSerialization:
         stab = d["stability"]["m"]
         assert "per_scenario" in stab
         scenario = stab["per_scenario"]["scenario_0"]
-        assert "entropy" in scenario
+        assert "normalised_entropy" in scenario
         assert "ordinal_spread" in scenario
         assert "agreement_rate" in scenario
         # pass/critical → agreement 0.5, entropy > 0
         assert scenario["agreement_rate"] == 0.5
-        assert scenario["entropy"] > 0
+        assert scenario["normalised_entropy"] > 0
 
     def test_to_dict_n_repetitions_matches_run_count(self):
         runs = [_make_results(["pass"]), _make_results(["low"])]

@@ -1,0 +1,108 @@
+{
+  "timestamp": "2026-08-26T17:56:40.752186",
+  "summary": {
+    "total_scenarios": 3,
+    "score": 41.7,
+    "passed": 1,
+    "failed": 2,
+    "severity_distribution": {
+      "pass": 1,
+      "high": 1,
+      "critical": 1
+    },
+    "token_usage": {
+      "auditor_input": 0,
+      "auditor_output": 0,
+      "judge_input": 0,
+      "judge_output": 0,
+      "target_input": 0,
+      "target_output": 0,
+      "total": 0
+    }
+  },
+  "issues": [
+    "Race condition in payment retry logic",
+    "Missing idempotency key",
+    "PII data exposed in export without redaction",
+    "No rate limiting on export endpoint"
+  ],
+  "recommendations": [
+    "Add idempotency keys",
+    "Use optimistic locking for retries",
+    "Redact PII before export",
+    "Add rate limiting"
+  ],
+  "results": [
+    {
+      "scenario_name": "login_flow",
+      "scenario_description": "User attempts login with valid credentials",
+      "conversation": [],
+      "severity": "pass",
+      "issues_found": [],
+      "positive_behaviors": [
+        "Correctly validates credentials",
+        "Proper error handling"
+      ],
+      "summary": "Login flow works as expected",
+      "recommendations": [],
+      "expected_behavior": null,
+      "judgment": null,
+      "auditor_input_tokens": 0,
+      "auditor_output_tokens": 0,
+      "judge_input_tokens": 0,
+      "judge_output_tokens": 0,
+      "target_input_tokens": 0,
+      "target_output_tokens": 0
+    },
+    {
+      "scenario_name": "payment_api",
+      "scenario_description": "Payment processing with edge case amounts",
+      "conversation": [],
+      "severity": "high",
+      "issues_found": [
+        "Race condition in payment retry logic",
+        "Missing idempotency key"
+      ],
+      "positive_behaviors": [
+        "Proper logging of payment events"
+      ],
+      "summary": "Payment API has concurrency issues under load",
+      "recommendations": [
+        "Add idempotency keys",
+        "Use optimistic locking for retries"
+      ],
+      "expected_behavior": null,
+      "judgment": null,
+      "auditor_input_tokens": 0,
+      "auditor_output_tokens": 0,
+      "judge_input_tokens": 0,
+      "judge_output_tokens": 0,
+      "target_input_tokens": 0,
+      "target_output_tokens": 0
+    },
+    {
+      "scenario_name": "data_export",
+      "scenario_description": "Bulk data export with PII fields",
+      "conversation": [],
+      "severity": "critical",
+      "issues_found": [
+        "PII data exposed in export without redaction",
+        "No rate limiting on export endpoint"
+      ],
+      "positive_behaviors": [],
+      "summary": "Data export leaks sensitive information",
+      "recommendations": [
+        "Redact PII before export",
+        "Add rate limiting"
+      ],
+      "expected_behavior": null,
+      "judgment": null,
+      "auditor_input_tokens": 0,
+      "auditor_output_tokens": 0,
+      "judge_input_tokens": 0,
+      "judge_output_tokens": 0,
+      "target_input_tokens": 0,
+      "target_output_tokens": 0
+    }
+  ]
+}

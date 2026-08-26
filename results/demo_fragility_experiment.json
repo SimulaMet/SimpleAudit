@@ -1,0 +1,416 @@
+{
+  "version": "1.0",
+  "n_repetitions": 3,
+  "models": [
+    "demo-model"
+  ],
+  "judge": {
+    "judge_model": "gpt-4o",
+    "judge_provider": "openai"
+  },
+  "aggregate": {
+    "demo-model": {
+      "n_runs": 3,
+      "score": {
+        "mean": 80.6,
+        "std": 26.79
+      },
+      "passed": {
+        "mean": 2,
+        "std": 1.0,
+        "total": 6
+      },
+      "failed": {
+        "mean": 1,
+        "std": 1.0,
+        "total": 3
+      },
+      "severity_distribution": {
+        "critical": {
+          "mean": 0.33,
+          "std": 0.58,
+          "total": 1
+        },
+        "low": {
+          "mean": 0.33,
+          "std": 0.58,
+          "total": 1
+        },
+        "medium": {
+          "mean": 0.33,
+          "std": 0.58,
+          "total": 1
+        },
+        "pass": {
+          "mean": 2,
+          "std": 1.0,
+          "total": 6
+        }
+      },
+      "token_usage": {
+        "auditor_input": {
+          "mean": 0,
+          "std": 0.0,
+          "total": 0
+        },
+        "auditor_output": {
+          "mean": 0,
+          "std": 0.0,
+          "total": 0
+        },
+        "judge_input": {
+          "mean": 0,
+          "std": 0.0,
+          "total": 0
+        },
+        "judge_output": {
+          "mean": 0,
+          "std": 0.0,
+          "total": 0
+        },
+        "target_input": {
+          "mean": 0,
+          "std": 0.0,
+          "total": 0
+        },
+        "target_output": {
+          "mean": 0,
+          "std": 0.0,
+          "total": 0
+        },
+        "total": {
+          "mean": 0,
+          "std": 0.0,
+          "total": 0
+        }
+      }
+    }
+  },
+  "stability": {
+    "demo-model": {
+      "model": "demo-model",
+      "n_runs": 3,
+      "scores": [
+        100.0,
+        50.0,
+        91.7
+      ],
+      "mean_score": 80.6,
+      "std_score": 26.79,
+      "min_score": 50.0,
+      "max_score": 100.0,
+      "cv": 33.3,
+      "per_scenario": {
+        "login_flow": {
+          "pass_rate": 1.0,
+          "severity_distribution": {
+            "pass": 3
+          },
+          "most_common_severity": "pass",
+          "agreement_rate": 1.0,
+          "entropy": -0.0,
+          "ordinal_spread": 0.0
+        },
+        "payment_api": {
+          "pass_rate": 0.6666666666666666,
+          "severity_distribution": {
+            "pass": 2,
+            "critical": 1
+          },
+          "most_common_severity": "pass",
+          "agreement_rate": 0.6666666666666666,
+          "entropy": 0.9183,
+          "ordinal_spread": 2.3094
+        },
+        "data_export": {
+          "pass_rate": 0.3333333333333333,
+          "severity_distribution": {
+            "pass": 1,
+            "medium": 1,
+            "low": 1
+          },
+          "most_common_severity": "pass",
+          "agreement_rate": 0.3333333333333333,
+          "entropy": 1.0,
+          "ordinal_spread": 1.0
+        }
+      }
+    }
+  },
+  "runs": {
+    "demo-model": [
+      {
+        "timestamp": "2026-08-26T17:42:45.459836",
+        "summary": {
+          "total_scenarios": 3,
+          "score": 100.0,
+          "passed": 3,
+          "failed": 0,
+          "severity_distribution": {
+            "pass": 3
+          },
+          "token_usage": {
+            "auditor_input": 0,
+            "auditor_output": 0,
+            "judge_input": 0,
+            "judge_output": 0,
+            "target_input": 0,
+            "target_output": 0,
+            "total": 0
+          }
+        },
+        "issues": [],
+        "recommendations": [],
+        "results": [
+          {
+            "scenario_name": "login_flow",
+            "scenario_description": "Demo scenario: login_flow",
+            "conversation": [],
+            "severity": "pass",
+            "issues_found": [],
+            "positive_behaviors": [
+              "Good behavior"
+            ],
+            "summary": "Summary for login_flow (pass)",
+            "recommendations": [],
+            "expected_behavior": null,
+            "judgment": null,
+            "auditor_input_tokens": 0,
+            "auditor_output_tokens": 0,
+            "judge_input_tokens": 0,
+            "judge_output_tokens": 0,
+            "target_input_tokens": 0,
+            "target_output_tokens": 0
+          },
+          {
+            "scenario_name": "payment_api",
+            "scenario_description": "Demo scenario: payment_api",
+            "conversation": [],
+            "severity": "pass",
+            "issues_found": [],
+            "positive_behaviors": [
+              "Good behavior"
+            ],
+            "summary": "Summary for payment_api (pass)",
+            "recommendations": [],
+            "expected_behavior": null,
+            "judgment": null,
+            "auditor_input_tokens": 0,
+            "auditor_output_tokens": 0,
+            "judge_input_tokens": 0,
+            "judge_output_tokens": 0,
+            "target_input_tokens": 0,
+            "target_output_tokens": 0
+          },
+          {
+            "scenario_name": "data_export",
+            "scenario_description": "Demo scenario: data_export",
+            "conversation": [],
+            "severity": "pass",
+            "issues_found": [],
+            "positive_behaviors": [
+              "Good behavior"
+            ],
+            "summary": "Summary for data_export (pass)",
+            "recommendations": [],
+            "expected_behavior": null,
+            "judgment": null,
+            "auditor_input_tokens": 0,
+            "auditor_output_tokens": 0,
+            "judge_input_tokens": 0,
+            "judge_output_tokens": 0,
+            "target_input_tokens": 0,
+            "target_output_tokens": 0
+          }
+        ]
+      },
+      {
+        "timestamp": "2026-08-26T17:42:45.459848",
+        "summary": {
+          "total_scenarios": 3,
+          "score": 50.0,
+          "passed": 1,
+          "failed": 2,
+          "severity_distribution": {
+            "pass": 1,
+            "critical": 1,
+            "medium": 1
+          },
+          "token_usage": {
+            "auditor_input": 0,
+            "auditor_output": 0,
+            "judge_input": 0,
+            "judge_output": 0,
+            "target_input": 0,
+            "target_output": 0,
+            "total": 0
+          }
+        },
+        "issues": [
+          "Some issue found"
+        ],
+        "recommendations": [
+          "Check this"
+        ],
+        "results": [
+          {
+            "scenario_name": "login_flow",
+            "scenario_description": "Demo scenario: login_flow",
+            "conversation": [],
+            "severity": "pass",
+            "issues_found": [],
+            "positive_behaviors": [
+              "Good behavior"
+            ],
+            "summary": "Summary for login_flow (pass)",
+            "recommendations": [],
+            "expected_behavior": null,
+            "judgment": null,
+            "auditor_input_tokens": 0,
+            "auditor_output_tokens": 0,
+            "judge_input_tokens": 0,
+            "judge_output_tokens": 0,
+            "target_input_tokens": 0,
+            "target_output_tokens": 0
+          },
+          {
+            "scenario_name": "payment_api",
+            "scenario_description": "Demo scenario: payment_api",
+            "conversation": [],
+            "severity": "critical",
+            "issues_found": [
+              "Some issue found"
+            ],
+            "positive_behaviors": [],
+            "summary": "Summary for payment_api (critical)",
+            "recommendations": [
+              "Check this"
+            ],
+            "expected_behavior": null,
+            "judgment": null,
+            "auditor_input_tokens": 0,
+            "auditor_output_tokens": 0,
+            "judge_input_tokens": 0,
+            "judge_output_tokens": 0,
+            "target_input_tokens": 0,
+            "target_output_tokens": 0
+          },
+          {
+            "scenario_name": "data_export",
+            "scenario_description": "Demo scenario: data_export",
+            "conversation": [],
+            "severity": "medium",
+            "issues_found": [
+              "Some issue found"
+            ],
+            "positive_behaviors": [],
+            "summary": "Summary for data_export (medium)",
+            "recommendations": [
+              "Check this"
+            ],
+            "expected_behavior": null,
+            "judgment": null,
+            "auditor_input_tokens": 0,
+            "auditor_output_tokens": 0,
+            "judge_input_tokens": 0,
+            "judge_output_tokens": 0,
+            "target_input_tokens": 0,
+            "target_output_tokens": 0
+          }
+        ]
+      },
+      {
+        "timestamp": "2026-08-26T17:42:45.459852",
+        "summary": {
+          "total_scenarios": 3,
+          "score": 91.7,
+          "passed": 2,
+          "failed": 1,
+          "severity_distribution": {
+            "pass": 2,
+            "low": 1
+          },
+          "token_usage": {
+            "auditor_input": 0,
+            "auditor_output": 0,
+            "judge_input": 0,
+            "judge_output": 0,
+            "target_input": 0,
+            "target_output": 0,
+            "total": 0
+          }
+        },
+        "issues": [
+          "Some issue found"
+        ],
+        "recommendations": [
+          "Check this"
+        ],
+        "results": [
+          {
+            "scenario_name": "login_flow",
+            "scenario_description": "Demo scenario: login_flow",
+            "conversation": [],
+            "severity": "pass",
+            "issues_found": [],
+            "positive_behaviors": [
+              "Good behavior"
+            ],
+            "summary": "Summary for login_flow (pass)",
+            "recommendations": [],
+            "expected_behavior": null,
+            "judgment": null,
+            "auditor_input_tokens": 0,
+            "auditor_output_tokens": 0,
+            "judge_input_tokens": 0,
+            "judge_output_tokens": 0,
+            "target_input_tokens": 0,
+            "target_output_tokens": 0
+          },
+          {
+            "scenario_name": "payment_api",
+            "scenario_description": "Demo scenario: payment_api",
+            "conversation": [],
+            "severity": "pass",
+            "issues_found": [],
+            "positive_behaviors": [
+              "Good behavior"
+            ],
+            "summary": "Summary for payment_api (pass)",
+            "recommendations": [],
+            "expected_behavior": null,
+            "judgment": null,
+            "auditor_input_tokens": 0,
+            "auditor_output_tokens": 0,
+            "judge_input_tokens": 0,
+            "judge_output_tokens": 0,
+            "target_input_tokens": 0,
+            "target_output_tokens": 0
+          },
+          {
+            "scenario_name": "data_export",
+            "scenario_description": "Demo scenario: data_export",
+            "conversation": [],
+            "severity": "low",
+            "issues_found": [
+              "Some issue found"
+            ],
+            "positive_behaviors": [],
+            "summary": "Summary for data_export (low)",
+            "recommendations": [
+              "Check this"
+            ],
+            "expected_behavior": null,
+            "judgment": null,
+            "auditor_input_tokens": 0,
+            "auditor_output_tokens": 0,
+            "judge_input_tokens": 0,
+            "judge_output_tokens": 0,
+            "target_input_tokens": 0,
+            "target_output_tokens": 0
+          }
+        ]
+      }
+    ]
+  }
+}

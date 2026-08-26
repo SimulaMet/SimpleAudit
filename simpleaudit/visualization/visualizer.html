@@ -136,9 +136,7 @@
         .fragility-tooltip .tooltip-content {
             visibility: hidden;
             opacity: 0;
-            position: absolute;
-            top: calc(100% + 8px);
-            left: 0;
+            position: fixed;
             background: #1f2937;
             color: #f9fafb;
             padding: 10px 14px;
@@ -146,7 +144,7 @@
             font-size: 12px;
             line-height: 1.6;
             white-space: nowrap;
-            z-index: 100;
+            z-index: 9999;
             transition: opacity 0.15s ease, visibility 0.15s ease;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             pointer-events: none;
@@ -442,16 +440,19 @@
             <!-- Sidebar / List View -->
             <div class="flex-1 flex flex-col md:flex-row overflow-hidden">
                 
-                <div class="w-full md:w-2/5 border-r border-gray-200 bg-white flex flex-col" id="scenario-list-container">
+                <div class="w-full md:w-1/2 bg-white flex flex-col overflow-hidden" id="scenario-list-container">
 
                     <!-- Dashboard / Stats -->
                     <div id="dashboard" class="px-6 pt-2 pb-6 border-b border-gray-200 bg-gray-50 hidden">
                         <!-- Run Selector (multi-run experiments) -->
                         <div id="run-selector-bar" class="hidden mb-4 px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50">
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Run:</span>
-                                <div id="run-selector-buttons" class="flex gap-1"></div>
-                                <span id="run-selector-count" class="text-xs text-indigo-400"></span>
+                            <div class="flex items-center justify-between gap-2">
+                                <button id="run-prev-btn" onclick="selectRun(currentRunIndex - 1)" class="px-2 py-1 text-xs rounded font-medium bg-white text-indigo-600 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">&larr; Prev</button>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Run:</span>
+                                    <span id="run-selector-count" class="text-sm font-bold text-indigo-900">1 of 1</span>
+                                </div>
+                                <button id="run-next-btn" onclick="selectRun(currentRunIndex + 1)" class="px-2 py-1 text-xs rounded font-medium bg-white text-indigo-600 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Next &rarr;</button>
                             </div>
                         </div>
 
@@ -506,7 +507,7 @@
                 <div class="resizer resizer-inner" id="resizer-inner"></div>
 
                 <!-- Detail View -->
-                <main class="flex-1 bg-gray-50 overflow-y-auto p-4 md:px-8 md:py-2" id="detail-view">
+                <main class="flex-1 bg-gray-50 overflow-y-auto overflow-x-hidden p-4 md:px-8 md:py-2 min-w-0" id="detail-view">
                     <div class="h-full flex flex-col items-center justify-center text-gray-400">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4 opacity-50" fill="none"
                             viewBox="0 0 24 24" stroke="currentColor">
@@ -613,6 +614,44 @@
             }
         });
 
+        // Fragility tooltip: position fixed, clamped to viewport on hover
+        document.addEventListener('mouseover', (e) => {
+            const trigger = e.target.closest('.fragility-tooltip[data-tooltip]');
+            if (!trigger) return;
+            const tip = trigger.querySelector('.tooltip-content');
+            if (!tip) return;
+            const rect = trigger.getBoundingClientRect();
+            tip.style.visibility = 'visible';
+            tip.style.opacity = '0';
+            // Measure after making visible
+            const tipW = tip.offsetWidth;
+            const tipH = tip.offsetHeight;
+            let left = rect.left;
+            let top = rect.bottom + 8;
+            // Clamp horizontally
+            if (left + tipW > window.innerWidth - 8) {
+                left = window.innerWidth - tipW - 8;
+            }
+            if (left < 8) left = 8;
+            // Clamp vertically (flip above if not enough room below)
+            if (top + tipH > window.innerHeight - 8) {
+                top = rect.top - tipH - 8;
+            }
+            if (top < 8) top = 8;
+            tip.style.left = left + 'px';
+            tip.style.top = top + 'px';
+            tip.style.opacity = '1';
+        });
+        document.addEventListener('mouseout', (e) => {
+            const trigger = e.target.closest('.fragility-tooltip[data-tooltip]');
+            if (!trigger) return;
+            const tip = trigger.querySelector('.tooltip-content');
+            if (tip) {
+                tip.style.opacity = '0';
+                tip.style.visibility = 'hidden';
+            }
+        });
+
         // Constants
         const SEVERITY_COLORS = {
             'pass': 'bg-severity-pass',
@@ -706,7 +745,8 @@
             const sidebar = document.getElementById('file-tree-sidebar');
             const resizer = document.getElementById('resizer');
             if (!sidebar || !resizer) return;
-            const shouldHide = window.innerWidth < 1024;
+            const hasSelection = currentExperimentSelection !== null;
+            const shouldHide = window.innerWidth < 1024 && hasSelection;
             if (shouldHide && !sidebar.classList.contains('sidebar-hidden')) {
                 sidebar.classList.add('sidebar-hidden');
                 resizer.classList.add('sidebar-hidden');
@@ -808,7 +848,10 @@
                 if (!isResizing) return;
                 
                 const dx = e.clientX - startX;
-                const newWidth = Math.max(250, Math.min(800, startWidth + dx));
+                const parentWidth = listContainer.parentElement.offsetWidth;
+                const minList = 250;
+                const maxList = Math.floor(parentWidth * 0.6);
+                const newWidth = Math.max(minList, Math.min(maxList, startWidth + dx));
                 
                 listContainer.style.width = newWidth + 'px';
                 listContainer.style.flex = 'none';
@@ -995,6 +1038,7 @@
                     currentExperimentSelection = selectionKey;
                     applyTreeSelectionState(fileDiv);
                     loadModel(model);
+                    autoCollapseSidebar();
                 };
                 childrenDiv.appendChild(fileDiv);
             });
@@ -1572,17 +1616,17 @@
 
         function updateRunSelectorBar() {
             const bar = document.getElementById('run-selector-bar');
-            const buttons = document.getElementById('run-selector-buttons');
             const count = document.getElementById('run-selector-count');
-            if (!bar || !buttons || !count) return;
+            const prevBtn = document.getElementById('run-prev-btn');
+            const nextBtn = document.getElementById('run-next-btn');
+            if (!bar || !count) return;
             if (currentExperimentRuns && currentExperimentRuns.runs.length > 1) {
                 bar.classList.remove('hidden');
-                const { runs } = currentExperimentRuns;
-                const currentRunIdx = currentRunIndex;
-                buttons.innerHTML = runs.map((_, i) => `
-                    <button onclick="selectRun(${i})" class="px-2.5 py-1 text-xs rounded font-medium ${i === currentRunIdx ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-indigo-600 border border-indigo-200 hover:bg-indigo-100'} transition-colors">${i + 1}</button>
-                `).join('');
-                count.textContent = `${currentRunIdx + 1} of ${runs.length}`;
+                const total = currentExperimentRuns.runs.length;
+                const idx = currentRunIndex;
+                count.textContent = `${idx + 1} of ${total}`;
+                if (prevBtn) prevBtn.disabled = idx <= 0;
+                if (nextBtn) nextBtn.disabled = idx >= total - 1;
             } else {
                 bar.classList.add('hidden');
             }
@@ -1717,7 +1761,7 @@
                 const icon = isFragile ? '\u26a0\ufe0f' : '\u2705';
                 const label = isFragile ? 'Fragile' : 'Stable';
                 const cssClass = isFragile ? 'tooltip-fragile' : 'tooltip-stable';
-                scoreHtml = `<span class="fragility-tooltip"><span class="text-sm text-gray-500">Score: <strong class="${textColor}">${escapeHtml(scoreLabel)}</strong></span><span class="tooltip-content ${cssClass}"><span class="tooltip-row"><span>${icon}</span><span class="tooltip-label">${label}</span></span><span class="tooltip-row"><span>agreement ${(f.agreement * 100).toFixed(0)}%</span><span>\u00b7</span><span>entropy ${f.entropy.toFixed(2)}</span><span>\u00b7</span><span>spread ${f.spread.toFixed(2)}</span></span><span class="tooltip-row"><span>mode: ${f.mode}</span></span></span></span>`;
+                scoreHtml = `<span class="fragility-tooltip" data-tooltip><span class="text-sm text-gray-500">Score: <strong class="${textColor}">${escapeHtml(scoreLabel)}</strong></span><span class="tooltip-content ${cssClass}"><span class="tooltip-row"><span>${icon}</span><span class="tooltip-label">${label}</span></span><span class="tooltip-row"><span>agreement ${(f.agreement * 100).toFixed(0)}%</span><span>\u00b7</span><span>entropy ${f.entropy.toFixed(2)}</span><span>\u00b7</span><span>spread ${f.spread.toFixed(2)}</span></span><span class="tooltip-row"><span>mode: ${f.mode}</span></span></span></span>`;
             } else {
                 scoreHtml = `<span class="text-sm text-gray-500">Score: <strong class="${textColor}">${escapeHtml(scoreLabel)}</strong></span>`;
             }

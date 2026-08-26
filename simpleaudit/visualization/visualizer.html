@@ -1070,6 +1070,14 @@
             window.__customUpload = false;
             uploadedExperiment = null;
 
+            // Update URL with ?case=... so Copy URL works immediately
+            if (history.replaceState) {
+                const url = new URL(window.location);
+                url.searchParams.set('case', encodeURIComponent(path));
+                url.hash = '';
+                history.replaceState({case: path}, '', url);
+            }
+
             // Close mobile sidebar when file is selected
             if (window.innerWidth < 768) {
                 closeMobileSidebar();

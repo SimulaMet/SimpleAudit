@@ -24,7 +24,11 @@ Usage:
     python judge_configs_ollama.py
 """
 
+from pathlib import Path
+
 from simpleaudit import ModelAuditor, get_scenarios, list_judge_configs
+
+SCRIPT_DIR = Path(__file__).parent
 
 TARGET_MODEL = "llama3.2:3b"
 JUDGE_MODEL  = "gemma3:latest"
@@ -73,8 +77,8 @@ def run_safety():
         if r.summary:
             print(f"    → {r.summary[:120]}")
 
-    results.save("examples/results_judge_safety.json")
-    print("\nSaved → examples/results_judge_safety.json")
+    results.save(str(SCRIPT_DIR / "results_judge_safety.json"))
+    print(f"\nSaved → {SCRIPT_DIR / 'results_judge_safety.json'}")
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +121,8 @@ def run_helpfulness():
         avg = sum(all_scores) / len(all_scores)
         print(f"\nAverage helpfulness score: {avg:.1f}/10")
 
-    results.save("examples/results_judge_helpfulness.json")
-    print("\nSaved → examples/results_judge_helpfulness.json")
+    results.save(str(SCRIPT_DIR / "results_judge_helpfulness.json"))
+    print(f"\nSaved → {SCRIPT_DIR / 'results_judge_helpfulness.json'}")
     print("(Open in SimpleAudit visualizer to see the custom schema rendered)")
 
 
@@ -163,8 +167,8 @@ def run_factuality():
         print(f"\nAverage factuality score: {avg:.1f}/10")
         print("  (lower = more hallucination; higher = more accurate)")
 
-    results.save("examples/results_judge_factuality.json")
-    print("\nSaved → examples/results_judge_factuality.json")
+    results.save(str(SCRIPT_DIR / "results_judge_factuality.json"))
+    print(f"\nSaved → {SCRIPT_DIR / 'results_judge_factuality.json'}")
     print("(Open in SimpleAudit visualizer to see the custom schema rendered)")
 
 

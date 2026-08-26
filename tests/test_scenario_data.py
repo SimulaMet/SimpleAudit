@@ -17,10 +17,14 @@ class TestScenarioDataIntegrity:
     # Packs that are composites of other packs — excluded from union/sum tests
     COMPOSITE_PACKS = {"all", "bullshitbench", "epistemic_safety"}
 
+    # Packs registered but not yet populated with scenarios
+    IN_DEVELOPMENT_PACKS: set = set()
+
     @pytest.fixture
     def all_pack_names(self):
-        """Return all non-composite pack names."""
-        return [name for name in SCENARIO_PACKS if name not in self.COMPOSITE_PACKS]
+        """Return all non-composite, non-development pack names."""
+        excluded = self.COMPOSITE_PACKS | self.IN_DEVELOPMENT_PACKS
+        return [name for name in SCENARIO_PACKS if name not in excluded]
 
     def test_all_packs_non_empty(self, all_pack_names):
         """Every scenario pack should contain at least one scenario."""
@@ -128,3 +132,31 @@ class TestScenarioDataIntegrity:
                     f"Pack '{pack_name}': name '{name}' length {len(name)} "
                     f"outside expected range [3, 200]"
                 )
+
+
+class TestBullshitBenchScenarioStructure:
+    """BullshitBench scenarios must carry a test_prompt field for verbatim sending.
+
+    The README states: "It bypasses standard adversarial probe generation and
+    sends each test_prompt verbatim." If test_prompt is missing, run_scenario
+    falls back to probe generation — the wrong behaviour for these packs.
+    """
+
+    BULLSHITBENCH_PACKS = ["bullshitbench", "health_bullshit"]
+
+    @pytest.mark.parametrize("pack_name", BULLSHITBENCH_PACKS)
+    def test_all_scenarios_have_test_prompt(self, pack_name):
+        for i, scenario in enumerate(get_scenarios(pack_name)):
+            assert "test_prompt" in scenario, (
+                f"Pack '{pack_name}', scenario {i} ({scenario.get('name', '?')}): "
+                f"missing 'test_prompt'"
+            )
+
+    @pytest.mark.parametrize("pack_name", BULLSHITBENCH_PACKS)
+    def test_test_prompt_is_non_empty_string(self, pack_name):
+        for i, scenario in enumerate(get_scenarios(pack_name)):
+            tp = scenario.get("test_prompt")
+            assert isinstance(tp, str) and tp.strip(), (
+                f"Pack '{pack_name}', scenario {i} ({scenario.get('name', '?')}): "
+                f"test_prompt is empty or not a string"
+            )

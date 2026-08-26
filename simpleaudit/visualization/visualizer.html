@@ -393,8 +393,10 @@
         let currentScenarios = [];
         let selectedScenarioId = null;
         let currentFilePath = null;
+        let currentExperimentSelection = null;
         let sidebarWidth = 320; // Default width in pixels
         let expandedFolders = new Set(); // Track expanded folders
+        let uploadedExperiment = null; // Holds multi-result data from uploaded file
 
         // On page load, check for file and scenario in URL
         window.addEventListener('DOMContentLoaded', () => {
@@ -404,10 +406,10 @@
             window.__customUpload = !file;
             if (file) {
                 try {
-                    // decodeURIComponent twice to handle double encoding
-                    file = decodeURIComponent(decodeURIComponent(file));
-                } catch (e) {
+                    // undo the encodeURIComponent applied when the link was created
                     file = decodeURIComponent(file);
+                } catch (e) {
+                    // keep the raw value if it is not valid percent-encoding
                 }
                 const scenarioId = window.location.hash ? decodeURIComponent(window.location.hash.substring(1)) : null;
                 if (file) {
@@ -577,7 +579,12 @@
                 const data = await response.json();
                 renderFileTree(data.tree, container);
             } catch (error) {
-                container.innerHTML = `<div class="text-center text-red-500 p-4">Error loading files: ${error.message}</div>`;
+                container.innerHTML = `<div class="text-center text-red-500 p-4">Error loading files: ${escapeHtml(error.message)}</div>`;
+            }
+
+            // Re-append experiment tree items if an experiment file was uploaded
+            if (uploadedExperiment) {
+                appendExperimentToTree(uploadedExperiment.data, uploadedExperiment.filename);
             }
         }
 
@@ -632,6 +639,20 @@
                     renderFileTree(item.children, childrenDiv, level + 1);
                     li.appendChild(folderDiv);
                     
+                } else if (item.type === 'experiment') {
+                    // Multi-model experiment file — render as folder with model children
+                    li.appendChild(renderExperimentFolder(item.name, item.path, item.models, async (model) => {
+                        try {
+                            const resp = await apiFetch(`/api/json/${encodeURIComponent(item.path)}`);
+                            if (!resp.ok) throw new Error('Failed to load');
+                            const data = await resp.json();
+                            const runs = data.runs[model];
+                            processData(Array.isArray(runs) ? runs[0] : runs, `${item.name} \u2014 ${model}`, false);
+                        } catch (e) {
+                            document.getElementById('file-info').textContent = `Error: ${e.message}`;
+                        }
+                    }, expandedFolders.has(item.path)));
+
                 } else if (item.type === 'file') {
                     // JSON file
                     const fileDiv = document.createElement('div');
@@ -641,7 +662,10 @@
                         <span class="file-icon text-base"></span>
                         <span class="flex-1 text-gray-700 ${isSelected ? 'font-semibold' : ''}">${escapeHtml(item.name)}</span>
                     `;
-                    fileDiv.onclick = () => loadJsonFile(item.path, item.name);
+                    fileDiv.onclick = () => {
+                        currentExperimentSelection = null;
+                        loadJsonFile(item.path, item.name);
+                    };
                     li.appendChild(fileDiv);
                 }
                 
@@ -658,6 +682,62 @@
             return currentFilePath.startsWith(folder.path + '/') || currentFilePath.startsWith(folder.path + '\\');
         }
 
+        // Render a multi-model experiment as an expandable folder with model children.
+        // loadModel(model) is invoked when a model row is clicked.
+        function renderExperimentFolder(name, key, models, loadModel, isOpen) {
+            const folderDiv = document.createElement('div');
+            const header = document.createElement('div');
+            header.className = 'tree-item flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
+            header.innerHTML = `
+                <span class="folder-icon text-base ${isOpen ? 'open' : ''}"></span>
+                <span class="flex-1 font-medium text-gray-700">${escapeHtml(name)}</span>
+                <span class="text-xs text-gray-400">${models.length}</span>
+            `;
+            const childrenDiv = document.createElement('div');
+            childrenDiv.className = `tree-children ${isOpen ? '' : 'hidden'}`;
+            header.onclick = (e) => {
+                e.stopPropagation();
+                const open = header.querySelector('.folder-icon').classList.toggle('open');
+                childrenDiv.classList.toggle('hidden');
+                if (open) expandedFolders.add(key);
+                else expandedFolders.delete(key);
+            };
+            models.forEach(model => {
+                const selectionKey = `${key}::${model}`;
+                const isSelected = currentExperimentSelection === selectionKey;
+                const fileDiv = document.createElement('div');
+                fileDiv.className = `tree-item flex items-center py-1 px-2 rounded hover:bg-indigo-50 text-sm transition-colors ${isSelected ? 'bg-indigo-100 ring-1 ring-indigo-500' : ''}`;
+                fileDiv.innerHTML = `<span class="file-icon text-base"></span><span class="flex-1 text-gray-700 ${isSelected ? 'font-semibold' : ''}">${escapeHtml(model)}</span>`;
+                fileDiv.onclick = () => {
+                    currentFilePath = null;
+                    // Experiment model views have no shareable URL scheme yet,
+                    // so hide Copy URL regardless of what was viewed before.
+                    window.__customUpload = true;
+                    currentExperimentSelection = selectionKey;
+                    applyTreeSelectionState(fileDiv);
+                    loadModel(model);
+                };
+                childrenDiv.appendChild(fileDiv);
+            });
+            folderDiv.appendChild(header);
+            folderDiv.appendChild(childrenDiv);
+            return folderDiv;
+        }
+
+        function applyTreeSelectionState(selectedElement) {
+            document.querySelectorAll('.tree-item.bg-indigo-100').forEach(el => {
+                el.classList.remove('bg-indigo-100', 'ring-1', 'ring-indigo-500');
+                const text = el.querySelector('.flex-1');
+                if (text) text.classList.remove('font-semibold');
+            });
+
+            if (!selectedElement) return;
+
+            selectedElement.classList.add('bg-indigo-100', 'ring-1', 'ring-indigo-500');
+            const text = selectedElement.querySelector('.flex-1');
+            if (text) text.classList.add('font-semibold');
+        }
+
         // Handle uploaded file
         function handleUploadedFile(event) {
             const file = event.target.files[0];
@@ -669,9 +749,13 @@
                 try {
                     const data = JSON.parse(e.target.result);
                     
-                    // Clear file tree selection since this is a custom upload
+                    // Clear file tree selection since this is a custom upload;
+                    // also drop any previously uploaded experiment so its
+                    // folder does not linger in the tree.
                     currentFilePath = null;
-                    
+                    currentExperimentSelection = null;
+                    uploadedExperiment = null;
+
                     // Update file tree to clear any selection
                     loadFileTree();
                     
@@ -711,8 +795,10 @@
 
         async function loadJsonFile(path, filename) {
             currentFilePath = path;
+            currentExperimentSelection = null;
             // Reset custom upload flag so Copy URL is visible
             window.__customUpload = false;
+            uploadedExperiment = null;
 
             // Close mobile sidebar when file is selected
             if (window.innerWidth < 768) {
@@ -742,11 +828,38 @@
                 processData(data, filename);
             } catch (error) {
                 document.getElementById('file-info').textContent = `Error: ${error.message}`;
-                document.getElementById('scenario-list').innerHTML = `<div class="text-center text-red-500 p-4">Error loading file: ${error.message}</div>`;
+                document.getElementById('scenario-list').innerHTML = `<div class="text-center text-red-500 p-4">Error loading file: ${escapeHtml(error.message)}</div>`;
             }
         }
 
         // --- Data Processing ---
+
+        // Model labels in an experiment file that have at least one loadable
+        // run (an object with a non-empty results array). Mirrors the server's
+        // classification so uploaded files behave like served ones.
+        function experimentModels(data) {
+            if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
+            const runs = data.runs;
+            if (!runs || typeof runs !== 'object' || Array.isArray(runs)) return [];
+            return Object.keys(runs).filter(model => {
+                const entries = Array.isArray(runs[model]) ? runs[model] : [runs[model]];
+                return entries.some(entry => entry && typeof entry === 'object'
+                    && Array.isArray(entry.results) && entry.results.length > 0);
+            });
+        }
+
+        function appendExperimentToTree(data, filename) {
+            const key = `upload::${filename}`;
+            const folderDiv = renderExperimentFolder(filename, key, experimentModels(data), (model) => {
+                try {
+                    const runs = data.runs[model];
+                    processData(Array.isArray(runs) ? runs[0] : runs, `${filename} \u2014 ${model}`, true);
+                } catch (e) {
+                    document.getElementById('file-info').textContent = `Error: ${e.message}`;
+                }
+            }, expandedFolders.has(key));
+            document.getElementById('file-tree').appendChild(folderDiv);
+        }
 
         function processData(data, filename, isCustomUpload = false) {
             // Handle different potential JSON structures
@@ -754,6 +867,23 @@
                 allScenarios = data;
             } else if (data.results && Array.isArray(data.results)) {
                 allScenarios = data.results;
+            } else if (experimentModels(data).length > 0) {
+                // Multi-model results from AuditExperiment — show models in the sidebar
+                if (isCustomUpload) {
+                    uploadedExperiment = { data, filename };
+                    expandedFolders.add(`upload::${filename}`);
+                    appendExperimentToTree(data, filename);
+                } else if (currentFilePath) {
+                    // Server experiment opened directly (e.g. via a ?case= link):
+                    // the file tree already lists it, so just expand its folder
+                    // instead of appending a duplicate.
+                    expandedFolders.add(currentFilePath);
+                    loadFileTree();
+                }
+                // Show a prompt to select a model
+                document.getElementById('file-info').textContent = `${filename} — select a model`;
+                document.getElementById('scenario-list').innerHTML = `<div class="text-center text-gray-400 mt-10 p-4">Select a model from the sidebar to view its results.</div>`;
+                return;
             } else {
                 document.getElementById('file-info').textContent = `Error: Invalid format`;
                 document.getElementById('scenario-list').innerHTML = `
@@ -762,7 +892,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         <p class="font-semibold mb-2">Invalid JSON Format</p>
-                        <p class="text-sm text-gray-600">Expected a list of results or an object with a "results" array.</p>
+                        <p class="text-sm text-gray-600">Expected a list of results, an object with a "results" array, or an AuditExperiment file with a "runs" object.</p>
                     </div>
                 `;
                 return;
@@ -850,9 +980,7 @@
 
             const scores = allScenarios.map(s => s.score).filter(s => s !== undefined);
             const totalScore = scores.reduce((sum, s) => sum + s, 0);
-            const avgScore = globalScore !== null && globalScore !== undefined
-                ? globalScore
-                : (scores.length === 0 ? 'N/A' : (totalScore / scores.length).toFixed(1));
+            const avgScore = scores.length === 0 ? 'N/A' : (totalScore / scores.length).toFixed(1);
 
             const barContainer = document.getElementById('severity-bar');
             const legendContainer = document.getElementById('severity-legend');
@@ -874,13 +1002,20 @@
                 const passRate = total === 0 ? 0 : Math.round((passed / total) * 100);
                 document.getElementById('stat-pass-rate').textContent = `${passRate}%`;
                 document.getElementById('stat-pass-rate').previousElementSibling.textContent = 'Pass Rate';
-                document.getElementById('stat-avg-score').textContent = avgScore;
-                document.getElementById('stat-avg-score').previousElementSibling.textContent = 'Avg Score';
+                if (globalScore !== null && globalScore !== undefined) {
+                    // summary.score is on a 0-100 scale; label it as such
+                    document.getElementById('stat-avg-score').textContent = `${globalScore}/100`;
+                    document.getElementById('stat-avg-score').previousElementSibling.textContent = 'Safety Score';
+                } else {
+                    document.getElementById('stat-avg-score').textContent = avgScore === 'N/A' ? 'N/A' : `${avgScore}/10`;
+                    document.getElementById('stat-avg-score').previousElementSibling.textContent = 'Avg Score';
+                }
                 document.getElementById('stat-total-cases').textContent = `${total} cases`;
 
-                const counts = { 'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'pass': 0 };
+                const counts = { 'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'pass': 0, 'ERROR': 0 };
                 allScenarios.forEach(s => {
-                    const sev = (s.severity || 'low').toLowerCase();
+                    let sev = (s.severity || 'low').toLowerCase();
+                    if (sev === 'error') sev = 'ERROR';
                     if (counts[sev] !== undefined) counts[sev]++;
                 });
 
@@ -952,10 +1087,10 @@
                     <div class="w-1.5 self-stretch rounded-full ${statusColor} shrink-0"></div>
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-start">
-                            <h3 class="font-medium text-gray-900 truncate text-sm" title="${s.scenario_name || s.name}">${s.scenario_name || s.name || 'Untitled Scenario'}</h3>
-                            <span class="text-xs font-bold ${textColor} ml-2 shrink-0">${scoreLabel}</span>
+                            <h3 class="font-medium text-gray-900 truncate text-sm" title="${escapeHtml(s.scenario_name || s.name || '')}">${escapeHtml(s.scenario_name || s.name || 'Untitled Scenario')}</h3>
+                            <span class="text-xs font-bold ${textColor} ml-2 shrink-0">${escapeHtml(scoreLabel)}</span>
                         </div>
-                        <p class="text-xs text-gray-500 mt-1 line-clamp-2">${s.scenario_description || s.description || 'No description'}</p>
+                        <p class="text-xs text-gray-500 mt-1 line-clamp-2">${escapeHtml(s.scenario_description || s.description || 'No description')}</p>
                     </div>
                 `;
                 container.appendChild(el);
@@ -973,6 +1108,11 @@
                 const url = new URL(window.location);
                 if (currentFilePath) {
                     url.searchParams.set('case', encodeURIComponent(currentFilePath));
+                } else {
+                    // No file path (experiment model view or upload) — drop any
+                    // stale reference to a previously viewed file so the URL
+                    // never points at the wrong data.
+                    url.searchParams.delete('case');
                 }
                 url.hash = `#${encodeURIComponent(scenario.id)}`;
                 window.history.pushState({scenarioId: scenario.id, case: currentFilePath}, '', url);
@@ -1018,6 +1158,9 @@
             const name = s.scenario_name || s.name || 'Untitled';
             const desc = s.scenario_description || s.description || '';
             const score = s.score;
+            const scoreLabel = score !== undefined
+                ? (isCustomSchema(s) ? String(score) : score + '/10')
+                : 'N/A';
             const severity = s.severity || 'unknown';
             const history = s.history || [];
             const judgeFeedback = s.reasoning || s.feedback || 'No feedback available.';
@@ -1035,16 +1178,16 @@
                     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                         <div class="flex justify-between items-start mb-4">
                             <div>
-                                <h2 class="text-2xl font-bold text-gray-900 leading-tight">${name}</h2>
+                                <h2 class="text-2xl font-bold text-gray-900 leading-tight">${escapeHtml(name)}</h2>
                                 <div class="flex items-center gap-3 mt-2">
                                     <span class="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide ${statusColor} text-white bg-opacity-90">
-                                        ${severity}
+                                        ${escapeHtml(severity)}
                                     </span>
-                                    <span class="text-sm text-gray-500">Score: <strong class="${textColor}">${score !== undefined ? score + '/10' : 'N/A'}</strong></span>
+                                    <span class="text-sm text-gray-500">Score: <strong class="${textColor}">${escapeHtml(scoreLabel)}</strong></span>
                                 </div>
                             </div>
                         </div>
-                        <p class="text-gray-600 leading-relaxed">${desc}</p>
+                        <p class="text-gray-600 leading-relaxed">${escapeHtml(desc)}</p>
                     </div>
             `;
 
@@ -1086,7 +1229,7 @@
                                 </div>
                                 <div class="flex-1 space-y-1">
                                     <div class="flex items-center justify-between">
-                                        <h4 class="text-sm font-semibold text-gray-900">${role}</h4>
+                                        <h4 class="text-sm font-semibold text-gray-900">${escapeHtml(role)}</h4>
                                         <span class="text-xs text-gray-400">Turn ${idx + 1}</span>
                                     </div>
                                     <div class="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap font-mono text-xs bg-gray-50/50 p-2 rounded border border-gray-100">${escapeHtml(content)}</div>
@@ -1143,7 +1286,7 @@
         }
 
         function escapeHtml(unsafe) {
-            return (unsafe || "")
+            return String(unsafe ?? "")
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;")

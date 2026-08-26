@@ -6,10 +6,33 @@ analysis, visualization, and export.
 """
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
+
+
+def _atomic_json_dump(data: Dict, filepath: str) -> None:
+    """Write JSON to filepath via a same-directory temp file + rename.
+
+    A process killed mid-write must never leave a truncated JSON file behind:
+    these files double as the resume cache for AuditExperiment, and a corrupt
+    file would otherwise poison every later resume attempt.
+    """
+    path = Path(filepath)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_name, filepath)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 @dataclass
 class AuditResult:
@@ -23,6 +46,12 @@ class AuditResult:
     recommendations: List[str]
     expected_behavior: Optional[List[str]] = None
     judgment: Optional[Dict] = None
+    auditor_input_tokens: int = 0
+    auditor_output_tokens: int = 0
+    judge_input_tokens: int = 0
+    judge_output_tokens: int = 0
+    target_input_tokens: int = 0
+    target_output_tokens: int = 0
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -69,6 +98,49 @@ class AuditResults:
         return self.results[index]
 
     @property
+    def total_auditor_input_tokens(self) -> int:
+        return sum(r.auditor_input_tokens for r in self.results)
+
+    @property
+    def total_auditor_output_tokens(self) -> int:
+        return sum(r.auditor_output_tokens for r in self.results)
+
+    @property
+    def total_judge_input_tokens(self) -> int:
+        return sum(r.judge_input_tokens for r in self.results)
+
+    @property
+    def total_judge_output_tokens(self) -> int:
+        return sum(r.judge_output_tokens for r in self.results)
+
+    @property
+    def total_target_input_tokens(self) -> int:
+        return sum(r.target_input_tokens for r in self.results)
+
+    @property
+    def total_target_output_tokens(self) -> int:
+        return sum(r.target_output_tokens for r in self.results)
+
+    @property
+    def token_usage(self) -> Dict[str, int]:
+        return {
+            "auditor_input": self.total_auditor_input_tokens,
+            "auditor_output": self.total_auditor_output_tokens,
+            "judge_input": self.total_judge_input_tokens,
+            "judge_output": self.total_judge_output_tokens,
+            "target_input": self.total_target_input_tokens,
+            "target_output": self.total_target_output_tokens,
+            "total": (
+                self.total_auditor_input_tokens
+                + self.total_auditor_output_tokens
+                + self.total_judge_input_tokens
+                + self.total_judge_output_tokens
+                + self.total_target_input_tokens
+                + self.total_target_output_tokens
+            ),
+        }
+
+    @property
     def severity_distribution(self) -> Dict[str, int]:
         dist: Dict[str, int] = {}
         for result in self.results:
@@ -77,17 +149,19 @@ class AuditResults:
 
     @property
     def all_issues(self) -> List[str]:
+        # dict.fromkeys dedups while keeping scenario order, so summaries and
+        # saved JSON are deterministic run-to-run (set() ordering is not).
         issues: List[str] = []
         for result in self.results:
             issues.extend(result.issues_found)
-        return list(set(issues))
+        return list(dict.fromkeys(issues))
 
     @property
     def all_recommendations(self) -> List[str]:
         recs: List[str] = []
         for result in self.results:
             recs.extend(result.recommendations)
-        return list(set(recs))
+        return list(dict.fromkeys(recs))
 
     @property
     def passed(self) -> int:
@@ -103,10 +177,19 @@ class AuditResults:
 
     @property
     def score(self) -> float:
-        if not self.results:
+        """Safety score over scenarios that actually completed (0-100).
+
+        ERROR results are infrastructure failures (API errors, unparseable
+        judge output), not judged model behaviour — scoring them 0 would make
+        a network blip indistinguishable from a critical safety failure, so
+        they are excluded from the calculation. Their count is still visible
+        in severity_distribution and summaries.
+        """
+        scored = [r for r in self.results if r.severity != "ERROR"]
+        if not scored:
             return 0.0
-        total = sum(self.SEVERITY_SCORES.get(r.severity, 2) for r in self.results)
-        max_score = len(self.results) * 4
+        total = sum(self.SEVERITY_SCORES.get(r.severity, 2) for r in scored)
+        max_score = len(scored) * 4
         return round((total / max_score) * 100, 1)
 
     def summary(self):
@@ -143,6 +226,14 @@ class AuditResults:
             for rec in self.all_recommendations[:5]:
                 print(f"  → {rec[:80]}{'...' if len(rec) > 80 else ''}")
 
+        tu = self.token_usage
+        if tu["total"] > 0:
+            print("\nToken Usage:")
+            print(f"  Auditor  — input: {tu['auditor_input']:,}  output: {tu['auditor_output']:,}")
+            print(f"  Judge    — input: {tu['judge_input']:,}  output: {tu['judge_output']:,}")
+            print(f"  Target   — input: {tu['target_input']:,}  output: {tu['target_output']:,}")
+            print(f"  Total    — {tu['total']:,}")
+
         print()
 
     def to_dict(self) -> Dict:
@@ -154,6 +245,7 @@ class AuditResults:
                 "passed": self.passed,
                 "failed": self.failed,
                 "severity_distribution": self.severity_distribution,
+                "token_usage": self.token_usage,
             },
             "issues": self.all_issues,
             "recommendations": self.all_recommendations,
@@ -161,11 +253,10 @@ class AuditResults:
         }
     
     def save(self, filepath: str):
-        """Save results to JSON file."""
+        """Save results to JSON file (atomically, so interrupts can't corrupt it)."""
         path = Path(filepath)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
+        _atomic_json_dump(self.to_dict(), filepath)
         print(f"✓ Results saved to {filepath}")
     
     @classmethod
@@ -195,7 +286,11 @@ class AuditResults:
         except ImportError:
             print("matplotlib required for plotting. Install with: pip install matplotlib")
             return
-        
+
+        if not self.results:
+            print("No results to plot.")
+            return
+
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
         
         severity_colors = {

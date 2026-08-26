@@ -41,7 +41,12 @@ def main():
     args = parser.parse_args()
     
     if args.command == "serve":
-        from .visualization.server import start_server
+        try:
+            from .visualization.server import start_server
+        except ModuleNotFoundError as exc:
+            print(f"Error: the visualization server needs optional dependencies ({exc.name} is missing).")
+            print("Install them with: pip install 'simpleaudit[visualize]'")
+            sys.exit(1)
         
         # Default to current directory if not specified
         results_dir = args.results_dir

@@ -4,10 +4,14 @@
 
 <img width="300px" alt="simpleaudit-logo" src="https://github.com/user-attachments/assets/2ed38ae0-f834-4934-bcc4-48fe441b8b2b" />
 
+> 📄 **New paper (May 2026):** *When No Benchmark Exists: Validating Comparative LLM Safety Scoring Without Ground-Truth Labels.* [arXiv:2605.06652](https://arxiv.org/abs/2605.06652) — formalises the methodology behind SimpleAudit and validates it empirically on a Norwegian safety pack.
+
 
 # SimpleAudit
 
 **Lightweight AI Safety Auditing Framework**
+
+Developed by [Simula](https://www.simula.no/) and [SimulaMet](https://www.simulamet.no/) in collaboration with the [Norwegian Directorate of Health](https://www.helsedirektoratet.no/), and a [verified Digital Public Good](https://www.digitalpublicgoods.net/r/simpleaudit).
 
 SimpleAudit is a simple, extensible, local-first framework for multilingual auditing and red-teaming of AI systems via adversarial probing. It supports open models running locally (no APIs required) and can optionally run evaluations against API-hosted models. SimpleAudit does not collect or transmit user data by default and is designed for minimal setup.
 </div>
@@ -21,14 +25,35 @@ See the [standards and best practices for creating custom test scenarios](https:
 
 <div style="overflow-x: auto;">
 
-| Tool | Complexity | Dependencies | Cost | Approach |
-|------|------------|--------------|------|----------|
-| **SimpleAudit** | ⭐ Simple | 2 packages | $ Low | Adversarial probing |
-| Petri | ⭐⭐⭐ Complex | Many | $$$ High | Multi-agent framework |
-| RAGAS | ⭐⭐ Medium | Several | Free | Metrics only |
+| Tool | Complexity | Dependencies | Token cost | Use case |
+|------|------------|--------------|------------|----------|
+| **SimpleAudit** | ⭐ Simple | 2 packages | $ Low | Comparative scoring |
+| Petri | ⭐⭐⭐ Complex | Inspect framework | $$ ~1.7× higher | Discovery-oriented auditing |
+| PyRIT | ⭐⭐⭐ Complex | Many | $$ Variable | Multi-turn attack campaigns |
+| Garak | ⭐⭐ Medium | Plugin system | $ Variable | Static vulnerability scanning |
 | Custom | ⭐⭐⭐ Complex | Varies | Varies | Build from scratch |
 
 </div>
+
+### Methodology & Validation
+
+SimpleAudit is built around an **instrumental-validity chain** — when no labelled benchmark exists for your language or domain, you need a substitute for ground-truth agreement. The chain has three requirements, each empirically validated ([paper](https://arxiv.org/abs/2605.06652)):
+
+| Requirement | What it means | Result |
+|---|---|---|
+| **Responsiveness** | Safe vs. unsafe targets must separate | AUROC 0.89–1.00 across reliable judge–auditor cells |
+| **Target sensitivity** | Score variance must come from the target, not the apparatus | Target-dominant (η² ≈ 0.52); judge variance largely cancels under deltas |
+| **Reproducibility** | Scores must stabilise across reruns | Within ~1 point on the 0–100 scale by n=10 |
+
+We apply the same chain to [Petri](https://github.com/safety-research/petri) — both tools pass, so the differences live upstream of the chain. SimpleAudit's choice is to **commit to a fixed scenario pack, rubric, auditor, judge, sampling configuration, and rerun count** by default, so every rerun is comparable. Petri's design point is discovery over a 38-dimension rubric where the user picks the construct and aggregation; that flexibility is the right call for discovery and moves work to the user when the goal is a single comparable score.
+
+Practical consequences:
+
+- **Default `J = A`** (judge matches auditor capability) is empirically grounded — judge variance largely cancels under matched-target deltas while auditor variance does not. ~1.7× lower per-run token cost than Petri under matched protocols.
+- **Auditor capability should match the target range.** An auditor that is too strong floors safe-target scores and erases the deltas the instrument exists to report — don't reach for the strongest available model by default.
+- **Report the bundle, not a leaderboard.** Score, matched deltas, critical-rate differences, uncertainty, and the judge/auditor used — together, never collapsed to a single rank.
+
+See the paper for the full validation protocol, variance decomposition, and a Norwegian public-sector procurement case comparing Borealis and Gemma 3.
 
 
 ## Installation
@@ -63,12 +88,18 @@ auditor = ModelAuditor(
     # base_url=None,  # Custom base URL for target API
     # system_prompt="You are a helpful assistant.",  # System prompt for target model
     
-    # Required: Judge model configuration
+    # Required: Judge model configuration (evaluates target responses)
     judge_model="gpt-4o",  # Judge model name (usually more capable)
     judge_provider="openai",  # Judge provider (can differ from target)
     # judge_api_key=None,  # Judge API key (uses env var if not provided)
     # judge_base_url=None,  # Custom base URL for judge API
-    
+
+    # Optional: Separate auditor model for probe/attack generation (defaults to judge if omitted)
+    # auditor_model="gpt-4o-mini",  # Can be a cheaper/faster model
+    # auditor_provider="openai",
+    # auditor_api_key=None,
+    # auditor_base_url=None,
+
     # Auditing configuration
     # verbose=False,  # Print detailed logs (default: False)
     # show_progress=True,  # Show progress bars (default: True)
@@ -128,19 +159,74 @@ experiment = AuditExperiment(
     judge_provider="openai",
     # judge_api_key="",
     # judge_base_url="https://api.openai.com/v1",
+    # auditor_model="gpt-4o-mini",   # Optional: separate model for probe generation
+    # auditor_provider="openai",
     show_progress=True,
     verbose=True,
 )
 
 # Script / sync context
-results_by_model = experiment.run("safety", max_workers=10)
+results = experiment.run("safety", max_workers=10)
 
 # Jupyter / async context
-# results_by_model = await experiment.run_async("safety", max_workers=10)
+# results = await experiment.run_async("safety", max_workers=10)
 
-for model_name, results in results_by_model.items():
+for model_name, model_results in results.items():
     print(f"\n===== {model_name} =====")
-    results.summary()
+    model_results.summary()
+```
+
+#### Stability Analysis
+
+LLM judge verdicts are non-deterministic. Use `n_repetitions` to run each audit multiple times and measure how stable the results are.
+
+```python
+experiment = AuditExperiment(
+    models=[
+        {"model": "gpt-4o-mini", "provider": "openai"},
+        {"model": "claude-sonnet-4-20250514", "provider": "anthropic"},
+    ],
+    judge_model="gpt-4o",
+    judge_provider="openai",
+    n_repetitions=5,  # run each model 5 times
+)
+
+results = experiment.run("safety")
+
+# Stability stats for a single model: mean/std score, per-scenario pass rates
+results.stability("gpt-4o-mini").summary()
+
+# Print stability reports for all models
+results.summary()
+
+# Works with a single model too
+experiment = AuditExperiment(
+    models=[{"model": "my-model", "provider": "ollama"}],
+    judge_model="gpt-4o",
+    judge_provider="openai",
+    n_repetitions=10,
+)
+results = experiment.run("safety")
+results.stability("my-model").summary()
+
+# Save and reload all runs manually
+results.save("repeated_experiment.json")
+```
+
+Use `save_dir` to persist each run as it completes and automatically resume after a crash:
+
+```python
+experiment = AuditExperiment(
+    models=[{"model": "my-model", "provider": "ollama"}],
+    judge_model="gpt-4o",
+    judge_provider="openai",
+    n_repetitions=10,
+    save_dir="./my_audit_runs",  # saves each run and resumes on restart
+)
+results = experiment.run("safety")
+# Writes: my_audit_runs/my-model/run_0.json ... run_9.json
+# Writes: my_audit_runs/experiment_results.json  (full results at the end)
+# Re-running with the same save_dir skips already-completed runs automatically.
 ```
 
 ### Using Different Providers
@@ -239,10 +325,13 @@ auditor = ModelAuditor(
 | `judge` | Named judge config to use (e.g. `"helpfulness"`, `"factuality"`) — see [Judge Configs](#judge-configs) | No |
 | `probe_prompt` | Custom system prompt for the probe generator (replaces the built-in red-team persona) | No |
 | `judge_prompt` | Custom system prompt for the judge, including your own output schema (replaces built-in safety criteria) | No |
+| `judge_response_schema` | Custom JSON schema for judge output enforcement (named judges with non-default shapes declare their own) | No |
 | `json_format` | Pass `False` for providers that don't support OpenAI-style `json_object` response format (e.g. Ollama) | No (default: `True`) |
 | `max_turns` | Conversation turns per scenario | No (default: 5) |
-| `verbose` | Print scenario and response logs | No (default: false) |
-| `show_progress` | Show tqdm progress bars | No (default: false) |
+| `verbose` | Print scenario and response logs | No (default: `False`) |
+| `show_progress` | Show tqdm progress bars | No (default: `True`) |
+| `max_retries` | Retries per API call for transient failures | No (default: 2) |
+| `retry_backoff` | Initial retry delay in seconds, doubled per attempt (exponential backoff) | No (default: 0.5) |
 
 
 ## Scenario Packs
@@ -263,7 +352,12 @@ SimpleAudit includes pre-built scenario packs:
 | `bullshitbench` | 155 | BullshitBench v1+v2 combined |
 | `health_bullshit` | 15 | Health-specific broken premises with real harm potential |
 | `epistemic_safety` | 170 | All BullshitBench + health_bullshit combined |
-| `all` | 1212 | All scenarios combined |
+| `hei_refusal` | 47 | Norwegian youth Q&A refusal + guidance edge cases (16 refusal / 31 guidance) |
+| `nav_aap` | 15 | NAV Arbeidsavklaringspenger (Norwegian welfare benefit): rules, deadlines, hallucination resistance |
+| `skatteetaten` | 8 | Norwegian Tax Administration: filing deadlines, VAT, deductions, appeals |
+| `helfo` | 8 | Helfo health economics: egenandel/frikort, blå resept, EHIC, vulnerable-user routing |
+| `lanekassen` | 8 | Lånekassen student finance: appeal deadline, loan-to-grant conversion, interest, debt cancellation, vulnerable-user routing |
+| `all` | 1298 | All scenarios combined |
 
 </div>
 
@@ -292,8 +386,13 @@ SimpleAudit includes pre-built judge configurations grounded in published evalua
 | `helpfulness` | MT-Bench — Zheng et al., 2023 | `score` (1–10), `relevance`, `accuracy`, `clarity`, `completeness`, `feedback` |
 | `factuality` | G-Eval — Liu et al., 2023 | `score` (1–10), `verdict`, `factual_errors`, `unsupported_claims`, `reasoning` |
 | `harm` | HELM Safety — Liang et al., 2022 | `harmful`, `category`, `severity`, `explanation` |
+| `binary_abstention` | Substance-vs-words binary classifier (language-agnostic) | `abstained` (bool), `reasoning` |
 
 </div>
+
+**Domain-specific judges.** The registry also ships two Norwegian sexual-health judges built from a Helsedirektoratet domain-expert review: `helsedir_sexhealth_no` (generic framing) and `helsedir_sexhealth_no_rag` (RAG framing with explicit «dokumentene» references). Both emit the standard severity schema with Norwegian summaries.
+
+Judges with non-default output shapes (e.g. `abstention`, `binary_abstention`) declare their own `response_schema` in the config; the framework picks it up automatically — no `json_format=False` override needed for the schema-enforcement path.
 
 ```python
 from simpleaudit import ModelAuditor, list_judge_configs
@@ -323,9 +422,8 @@ See the [judge config guidelines](simpleaudit/judges/simpleaudit_judge_guideline
 
 ## Custom Scenarios
 
-Create your own scenarios:
+Create your own scenarios.
 
-```python
 ### Scenario Formats
 
 SimpleAudit supports two scenario formats:
@@ -353,6 +451,24 @@ Includes `expected_behavior` to give the judge specific criteria for the scenari
 }
 ```
 
+**Attaching an image**
+
+Set `file_uri` to audit a vision model. The image (or list of images) is attached to the first user message sent to the target model, and the response is still plain text.
+
+```python
+{
+    "name": "Chart Reading",
+    "description": "Model is asked to read a value off a bar chart.",
+    "test_prompt": "What is the tallest bar in this chart?",
+    "file_uri": "images/quarterly_revenue.png",
+    "expected_behavior": ["Correctly identifies the tallest bar"]
+}
+```
+
+The judge and the probe generator receive the image too, so these must also be vision models. Each image is read and base64-encoded once per run, however many turns or models it reaches.
+
+A scenario without a `test_prompt` has its opening prompt written by the auditor model, which sees the image before writing it. That works, but the prompt then depends on the auditor interpreting the image correctly — set `test_prompt` alongside `file_uri` whenever turn 0 needs to rest on a specific reading.
+
 ### Running Custom Scenarios
 ```python
 my_scenarios = [
@@ -377,6 +493,8 @@ results = auditor.run(
     language="Norwegian",             # Probe language (default: English)
 )
 ```
+
+The `language` parameter is substituted into the probe generator's system prompt: the built-in red-team persona and all named judge configs include a literal `{language}` placeholder, and a custom `probe_prompt` can opt in by including its own `{language}` placeholder (replaced verbatim, so JSON braces elsewhere in the prompt are untouched).
 
 ## Custom Judge
 
@@ -530,17 +648,18 @@ results.summary()
 
 SimpleAudit can use different models for target and judging. Cost estimates for OpenAI (default):
 
-| Scenarios | Turns | Estimated Cost |
-|-----------|-------|----------------|
-| 8 | 5 | ~$1-2 |
-| 24 | 5 | ~$3-6 |
-| 24 | 10 | ~$6-12 |
+| Configuration | Scenarios | Turns | Estimated Cost |
+|---|---|---|---|
+| OpenAI target + judge | 8 | 5 | ~$1–2 |
+| OpenAI target + judge | 24 | 5 | ~$3–6 |
+| OpenAI target + judge | 24 | 10 | ~$6–12 |
+| **Fully local** (Ollama target + judge) | any | any | $0 + GPU-hours |
 
-*Costs depend on response lengths and models used. OpenAI pricing is generally lower than Claude for comparable models.*
+Local execution is the default deployment mode and the original design constraint: prompts, transcripts, and policies stay inside the deployment environment, which is required for many regulated public-sector and healthcare use cases.
 
 ## BullshitBench Integration
 
-SimpleAudit includes a standalone runner for broken-premise evaluation, inspired by [BullshitBench](https://github.com/petergpt/bullshit-benchmark) by Peter Gostev. BullshitBench tests whether models challenge incoherent questions rather than confidently answering them — a distinct failure mode from standard safety testing.
+SimpleAudit ships built-in scenario packs for broken-premise evaluation, inspired by [BullshitBench](https://github.com/petergpt/bullshit-benchmark) by Peter Gostev. BullshitBench tests whether models challenge incoherent questions rather than confidently answering them — a distinct failure mode from standard safety testing.
 
 ### What it tests
 
@@ -558,31 +677,55 @@ BullshitBench uses a 3-level scale mapped to SimpleAudit severities:
 | Score 1 | 🟡 medium | Model hedged but still engaged |
 | Score 0 | 🔴 critical | Model answered as if premise were valid |
 
+The standalone runner below scores on this native 3-level scale; running the packs through the standard `ModelAuditor` uses the regular five-level severity schema instead.
+
 ### Running BullshitBench
 
-The `run_bullshitbench.py` script handles broken-premise evaluation. It bypasses standard adversarial probe generation and sends each `test_prompt` verbatim — required because BullshitBench questions depend on exact phrasing.
+The BullshitBench packs are part of the built-in scenario registry, so they run through the standard `ModelAuditor` — no extra files or scripts needed. Scenarios that define a `test_prompt` are sent verbatim on the first turn (required because BullshitBench questions depend on exact phrasing); use `max_turns=1` for the classic single-turn protocol.
+
+```python
+from simpleaudit import ModelAuditor
+
+auditor = ModelAuditor(
+    model="gemma3:12b", provider="ollama",
+    judge_model="llama3.1:8b", judge_provider="ollama",
+    json_format=False,   # required for Ollama
+)
+
+# Full BullshitBench v1 (55 scenarios, business/management)
+results = auditor.run("bullshitbench_v1", max_turns=1)
+
+# Other packs:
+# results = auditor.run("bullshitbench_v2", max_turns=1)    # 100 scenarios, 5 domains
+# results = auditor.run("bullshitbench", max_turns=1)       # v1 + v2 combined (155)
+# results = auditor.run("health_bullshit", max_turns=1)     # health-specific (15)
+# results = auditor.run("epistemic_safety", max_turns=1)    # all 170 combined
+
+results.summary()
+```
+
+All evaluation runs fully locally via Ollama — no API keys required.
+
+### Standalone CLI runner (optional)
+
+[`examples/bullshit_bench/run_bullshitbench.py`](examples/bullshit_bench/run_bullshitbench.py) provides a CLI with BSB-native 0/1/2 scoring, a smoke-test pack, and a `--compare` mode for benchmarking several models side by side. It loads the scenario data from `bullshitbench_v1_v2.py` and `bullshitbench_health.py` placed in its own directory — both ship inside the package at `simpleaudit/scenarios/`, so copy them next to the script first:
 
 ```bash
+cd examples/bullshit_bench
+cp ../../simpleaudit/scenarios/bullshitbench_v1_v2.py .
+cp ../../simpleaudit/scenarios/bullshitbench_health.py .
+
 # Smoke test (3 scenarios, quick sanity check)
 python run_bullshitbench.py --target gemma3:12b --judge llama3.1:8b --pack smoke
 
 # Full BullshitBench v1 (55 scenarios, business/management)
 python run_bullshitbench.py --target gemma3:12b --judge llama3.1:8b --pack v1
 
-# Full BullshitBench v2 (100 scenarios, 5 domains)
-python run_bullshitbench.py --target gemma3:12b --judge llama3.1:8b --pack v2
-
-# Health-specific broken premises
-python run_bullshitbench.py --target gemma3:12b --judge llama3.1:8b --pack health_bullshit
-
-# All 170 scenarios combined
-python run_bullshitbench.py --target gemma3:12b --judge llama3.1:8b --pack epistemic_safety
-
 # Compare multiple models side by side
 python run_bullshitbench.py --compare --judge llama3.1:8b --pack v1
 ```
 
-All evaluation runs fully locally via Ollama — no API keys required.
+Sample runner output:
 
 ```
 Target : ollama / gemma3:12b
@@ -604,18 +747,9 @@ Pack   : 55 scenarios | single-turn | BSB 0/1/2 scoring
 ═════════════════════════════════════════════════════════════
 ```
 
-### Files required
-
-Place these files in the same directory as `run_bullshitbench.py`:
-
-| File | Contents |
-|------|----------|
-| `bullshitbench_v1_v2.py` | 155 BullshitBench scenarios (v1 + v2, MIT license, credit Peter Gostev) |
-| `bullshitbench_health.py` | 15 health-specific broken premise scenarios |
-
 ### Judge model note
 
-The judge receives the `nonsensical_element` explanation for each question — what makes the premise incoherent — so it can accurately distinguish score 1 (hedged but engaged) from score 2 (genuine pushback). A stronger judge model produces more reliable calibration. `llama3.1:70b` locally or `gpt-4o-mini` via API both work well.
+The judge receives an explanation of what makes each premise incoherent — via the scenario `description` and `expected_behavior` in the standard `ModelAuditor` flow, or the `nonsensical_element` field in the standalone runner — so it can accurately distinguish score 1 (hedged but engaged) from score 2 (genuine pushback). A stronger judge model produces more reliable calibration. `llama3.1:70b` locally or `gpt-4o-mini` via API both work well.
 
 ---
 
@@ -630,16 +764,39 @@ Contributions welcome! Areas of interest:
 
 Don't hesitate to contact us or [open issues](https://github.com/kelkalot/simpleaudit/issues) if you have questions, feedback, or encounter any problems.
 
-## Contributors  
+## Main Contributors  
 [Michael A. Riegler](https://www.simula.no/people/michael) (Simula) \
 [Sushant Gautam](https://www.simula.no/people/sushant) (SimulaMet)\
 [Finn Schwall](https://www.simula.no/people/finn) (Simula)\
-[Mikkel Lepperød](https://www.simula.no/people/mikkel) (Simula)\
+[Annika Willoch Olstad](https://www.simula.no/people/annika) (Simula)\
 [Klas H. Pettersen](https://www.simula.no/people/klas) (SimulaMet)\
+Sunniva Bjørklund (The Norwegian Directorate of Health)\
+[Fernando Vallecillos Ruiz](https://www.simula.no/people/fernando) (Simula)\
+[Birk Torpmann-Hagen](https://www.simula.no/people/birk) (Simula)\
+[Leon Moonen](https://www.simula.no/people/leon) (Simula)
+
+## Contributors
 Maja Gran Erke (The Norwegian Directorate of Health)\
 Hilde Lovett (The Norwegian Directorate of Health)\
-Sunniva Bjørklund (The Norwegian Directorate of Health)\
+[Mikkel Lepperød](https://www.simula.no/people/mikkel) (Simula)\
 Tor-Ståle Hansen (Specialist Director, Ministry of Defense Norway)
+
+## Citation
+
+If you use SimpleAudit in research or procurement, please cite the methodology paper:
+
+```bibtex
+@article{gautam2026benchmarkless,
+  title  = {When No Benchmark Exists: Validating Comparative LLM Safety
+            Scoring Without Ground-Truth Labels},
+  author = {Gautam, Sushant and Schwall, Finn and Olstad, Annika Willoch
+            and Vallecillos Ruiz, Fernando and Torpmann-Hagen, Birk
+            and Bj{\o}rklund, Sunniva Maria Stordal and Moonen, Leon
+            and Pettersen, Klas and Riegler, Michael A.},
+  journal = {arXiv preprint arXiv:2605.06652},
+  year    = {2026}
+}
+```
 
 ## Governance & Compliance
 

@@ -276,6 +276,12 @@
                 </svg>
                 <span class="hidden md:inline">Upload JSON</span>
             </button>
+            <button id="download-standalone-button" onclick="downloadStandaloneHtml()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-2" title="Download a self-contained HTML file with the current results inlined — no server or JSON upload needed">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                <span class="hidden md:inline">Download HTML</span>
+            </button>
             <button id="logout-button" onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors hidden">
                 Logout
             </button>
@@ -408,6 +414,13 @@
 
         // On page load, check for file and scenario in URL
         window.addEventListener('DOMContentLoaded', () => {
+            // Standalone export: the JSON was inlined into this HTML file, so
+            // load it directly — no server, no upload step.
+            if (window.__inlinedData) {
+                window.__customUpload = true;
+                processData(window.__inlinedData, window.__inlinedName || 'exported results', true);
+                return;
+            }
             const params = new URLSearchParams(window.location.search);
             let file = params.get('case');
             // If there is a file param, this is a server file, not a custom upload
@@ -763,6 +776,36 @@
             if (text) text.classList.add('font-semibold');
         }
 
+        // Download a self-contained HTML file with the current results
+        // inlined — send it to someone and they can open it directly, no
+        // server or JSON upload needed.
+        function downloadStandaloneHtml() {
+            const data = window.__lastProcessedData;
+            if (!data) {
+                alert('Load a results file first, then download the standalone HTML.');
+                return;
+            }
+            const name = window.__lastProcessedName || 'audit-results';
+            const json = JSON.stringify(data)
+                .replace(/</g, '\\u003c')  // keep </script> from breaking out of the inline tag
+                .replace(/\u2028/g, '\u2028')
+                .replace(/\u2029/g, '\u2029');
+            const script = `<script>window.__inlinedData = ${json}; window.__inlinedName = ${JSON.stringify(name).replace(/</g, '\\u003c')};<\/script>`;
+            const html = document.documentElement.outerHTML.replace(
+                '</head>',
+                `${script}\n</head>`
+            );
+            const blob = new Blob([html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${name.replace(/[^a-zA-Z0-9._-]+/g, '_')}.html`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
+
         // Handle uploaded file
         function handleUploadedFile(event) {
             const file = event.target.files[0];
@@ -888,6 +931,10 @@
         }
 
         function processData(data, filename, isCustomUpload = false) {
+            // Remember the last processed payload so "Download HTML" can
+            // re-embed it in a standalone export.
+            window.__lastProcessedData = data;
+            window.__lastProcessedName = filename;
             // Handle different potential JSON structures
             if (Array.isArray(data)) {
                 allScenarios = data;

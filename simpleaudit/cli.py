@@ -37,7 +37,24 @@ def main():
         default="127.0.0.1",
         help="Host to bind the server to (default: 127.0.0.1)"
     )
-    
+
+    # Export command
+    export_parser = subparsers.add_parser(
+        "export-html",
+        help="Create a standalone HTML file with the results inlined (no server needed)"
+    )
+    export_parser.add_argument(
+        "json_path",
+        type=str,
+        help="Path to the audit results JSON file"
+    )
+    export_parser.add_argument(
+        "-o", "--output",
+        type=str,
+        default=None,
+        help="Output HTML path (default: <json_path> with .html extension)"
+    )
+
     args = parser.parse_args()
     
     if args.command == "serve":
@@ -56,6 +73,28 @@ def main():
             print("   Recommended: explicitly set --results_dir to avoid confusion\n")
         
         start_server(results_dir, args.host, args.port)
+    elif args.command == "export-html":
+        try:
+            from .visualization.server import export_standalone_html
+        except ModuleNotFoundError as exc:
+            print(f"Error: the visualizer needs optional dependencies ({exc.name} is missing).")
+            print("Install them with: pip install 'simpleaudit[visualize]'")
+            sys.exit(1)
+
+        output = args.output
+        if output is None:
+            output = args.json_path.rsplit(".", 1)[0] + ".html" if "." in args.json_path else args.json_path + ".html"
+
+        try:
+            path = export_standalone_html(args.json_path, output)
+        except FileNotFoundError:
+            print(f"Error: {args.json_path} does not exist")
+            sys.exit(1)
+        except ValueError as exc:
+            print(f"Error: {exc}")
+            sys.exit(1)
+        print(f"Standalone HTML written to {path}")
+        print("Open it directly in a browser — no server or JSON upload needed.")
     else:
         parser.print_help()
         sys.exit(1)

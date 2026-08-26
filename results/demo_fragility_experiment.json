@@ -118,9 +118,9 @@
             "critical": 1
           },
           "most_common_severity": "pass",
-          "agreement_rate": 0.6666666666666666,
+          "agreement_rate": 0.6667,
           "entropy": 0.9183,
-          "ordinal_spread": 2.3094
+          "ordinal_spread": 1.8856
         },
         "data_export": {
           "pass_rate": 0.3333333333333333,
@@ -130,9 +130,9 @@
             "low": 1
           },
           "most_common_severity": "pass",
-          "agreement_rate": 0.3333333333333333,
+          "agreement_rate": 0.3333,
           "entropy": 1.0,
-          "ordinal_spread": 1.0
+          "ordinal_spread": 0.8165
         }
       }
     }

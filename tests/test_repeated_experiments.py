@@ -556,3 +556,187 @@ class TestOnModelDone:
             assert judge is not None
             assert judge["judge_model"] == "judge-x"
             assert judge["judge_provider"] == "openai"
+
+
+# ---------------------------------------------------------------------------
+# AuditExperiment — adaptive reruns (Part 2 of #48)
+# ---------------------------------------------------------------------------
+
+class TestAdaptiveReruns:
+    """Adaptive rerun allocation: spend extra budget on fragile scenarios."""
+
+    SCENARIOS = [
+        {"name": "s1", "description": "d1"},
+        {"name": "s2", "description": "d2"},
+    ]
+
+    def _make_experiment(self, n_repetitions=2, adaptive_reruns=None, **kwargs):
+        return AuditExperiment(
+            models=[{"model": "test-model", "provider": "openai"}],
+            judge_model="judge",
+            judge_provider="openai",
+            show_progress=False,
+            n_repetitions=n_repetitions,
+            adaptive_reruns=adaptive_reruns,
+            **kwargs,
+        )
+
+    def test_adaptive_reruns_none_is_default(self):
+        exp = self._make_experiment()
+        assert exp.adaptive_reruns is None
+
+    def test_adaptive_reruns_stored(self):
+        config = {"agreement_target": 0.8, "max_extra": 3}
+        exp = self._make_experiment(adaptive_reruns=config)
+        assert exp.adaptive_reruns == config
+
+    def test_invalid_agreement_target_zero(self):
+        with pytest.raises(ValueError, match="agreement_target"):
+            self._make_experiment(adaptive_reruns={"agreement_target": 0})
+
+    def test_invalid_agreement_target_above_one(self):
+        with pytest.raises(ValueError, match="agreement_target"):
+            self._make_experiment(adaptive_reruns={"agreement_target": 1.5})
+
+    def test_missing_agreement_target(self):
+        with pytest.raises(ValueError, match="agreement_target"):
+            self._make_experiment(adaptive_reruns={"max_extra": 3})
+
+    def test_negative_max_extra(self):
+        with pytest.raises(ValueError, match="max_extra"):
+            self._make_experiment(adaptive_reruns={"agreement_target": 0.8, "max_extra": -1})
+
+    def test_non_dict_raises(self):
+        with pytest.raises(ValueError, match="adaptive_reruns"):
+            self._make_experiment(adaptive_reruns="not a dict")
+
+    def test_adaptive_reruns_triggers_extra_run_when_disagreement(self):
+        """2 base runs disagree on s1 → 1 adaptive rerun triggered."""
+        # Base runs: s1 gets pass/critical (agreement 0.5 < 0.8)
+        # s2 gets pass/pass (agreement 1.0 >= 0.8)
+        run1 = AuditResults([
+            AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+            AuditResult(scenario_name="s2", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+        ])
+        run2 = AuditResults([
+            AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                        severity="critical", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+            AuditResult(scenario_name="s2", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+        ])
+        # Adaptive rerun: s1 now gets pass (agreement becomes 2/3 = 0.67 < 0.8, still below)
+        # But max_extra=1 so only 1 extra run
+        adaptive_run = AuditResults([
+            AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+        ])
+
+        call_count = 0
+
+        async def fake_run_async(self_a, scenarios, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                # Base runs
+                return run1 if call_count == 1 else run2
+            else:
+                # Adaptive rerun (only fragile scenarios)
+                assert len(scenarios) == 1
+                assert scenarios[0]["name"] == "s1"
+                return adaptive_run
+
+        exp = self._make_experiment(
+            n_repetitions=2,
+            adaptive_reruns={"agreement_target": 0.8, "max_extra": 1},
+        )
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()), \
+             patch.object(ModelAuditor, "run_async", new=fake_run_async):
+            results = asyncio.run(exp.run_async(scenarios=self.SCENARIOS))
+
+        # 2 base runs + 1 adaptive rerun = 3 runs total
+        assert len(results._runs["test-model"]) == 3
+        assert call_count == 3
+
+    def test_adaptive_reruns_no_extra_when_all_stable(self):
+        """All scenarios agree → no adaptive reruns."""
+        run1 = AuditResults([
+            AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+            AuditResult(scenario_name="s2", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+        ])
+        run2 = AuditResults([
+            AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+            AuditResult(scenario_name="s2", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+        ])
+
+        call_count = 0
+
+        async def fake_run_async(self_a, scenarios, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return run1 if call_count == 1 else run2
+
+        exp = self._make_experiment(
+            n_repetitions=2,
+            adaptive_reruns={"agreement_target": 0.8, "max_extra": 3},
+        )
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()), \
+             patch.object(ModelAuditor, "run_async", new=fake_run_async):
+            results = asyncio.run(exp.run_async(scenarios=self.SCENARIOS))
+
+        # Only 2 base runs, no adaptive reruns
+        assert len(results._runs["test-model"]) == 2
+        assert call_count == 2
+
+    def test_adaptive_reruns_respects_max_extra(self):
+        """max_extra=2 limits total adaptive reruns to 2."""
+        # All runs disagree on s1 → agreement always < 0.8
+        def _make_run(sev):
+            return AuditResults([
+                AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                            severity=sev, issues_found=[], positive_behaviors=[],
+                            summary="", recommendations=[]),
+            ])
+
+        severities = ["pass", "critical", "medium", "high", "low"]
+        call_count = 0
+
+        async def fake_run_async(self_a, scenarios, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return _make_run(severities[call_count - 1])
+
+        exp = self._make_experiment(
+            n_repetitions=2,
+            adaptive_reruns={"agreement_target": 0.9, "max_extra": 2},
+        )
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()), \
+             patch.object(ModelAuditor, "run_async", new=fake_run_async):
+            results = asyncio.run(exp.run_async(scenarios=[{"name": "s1", "description": "d"}]))
+
+        # 2 base + 2 adaptive = 4 runs
+        assert len(results._runs["test-model"]) == 4
+        assert call_count == 4
+
+    def test_adaptive_reruns_backward_compatible(self):
+        """Without adaptive_reruns, behavior is unchanged."""
+        run1 = _make_results(["pass"])
+        run2 = _make_results(["low"])
+
+        exp = self._make_experiment(n_repetitions=2)
+        results = _run_experiment(exp, [run1, run2])
+        assert len(results._runs["test-model"]) == 2

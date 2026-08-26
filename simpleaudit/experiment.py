@@ -3,6 +3,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 import asyncio
 import hashlib
 import json
+from collections import Counter
 
 from tqdm.auto import tqdm
 from simpleaudit.results import AuditResults
@@ -30,6 +31,7 @@ class AuditExperiment:
         verbose: bool = False,
         show_progress: bool = True,
         n_repetitions: int = 1,
+        adaptive_reruns: Optional[Dict[str, Any]] = None,
         save_dir: Optional[str] = None,
         on_model_done: Optional[Callable[[str, "RepeatedExperimentResults"], None]] = None,
     ):
@@ -37,6 +39,17 @@ class AuditExperiment:
             raise ValueError("Models must be dicts with a 'model' key.")
         if n_repetitions < 1:
             raise ValueError("n_repetitions must be >= 1")
+        if adaptive_reruns is not None:
+            if not isinstance(adaptive_reruns, dict):
+                raise ValueError("adaptive_reruns must be a dict")
+            if "agreement_target" not in adaptive_reruns:
+                raise ValueError("adaptive_reruns requires 'agreement_target'")
+            target = adaptive_reruns["agreement_target"]
+            if not 0 < target <= 1:
+                raise ValueError("adaptive_reruns['agreement_target'] must be in (0, 1]")
+            max_extra = adaptive_reruns.get("max_extra", 5)
+            if max_extra < 0:
+                raise ValueError("adaptive_reruns['max_extra'] must be >= 0")
 
         labels = [m.get("label") or m["model"] for m in models]
         if len(labels) != len(set(labels)):
@@ -73,6 +86,7 @@ class AuditExperiment:
         self.verbose = verbose
         self.show_progress = show_progress
         self.n_repetitions = n_repetitions
+        self.adaptive_reruns = adaptive_reruns
         self.save_dir = Path(save_dir) if save_dir else None
         self.on_model_done = on_model_done
 
@@ -288,7 +302,54 @@ class AuditExperiment:
                         runs_ordered[i] = result
                         pbar_reps.update(1)
 
-                runs_by_model[label] = [runs_ordered[i] for i in range(self.n_repetitions)]
+                runs_list = [runs_ordered[i] for i in range(self.n_repetitions)]
+
+                # Adaptive reruns: spend extra budget on scenarios whose
+                # modal-verdict share is below the agreement target.
+                if self.adaptive_reruns:
+                    target = self.adaptive_reruns["agreement_target"]
+                    max_extra = self.adaptive_reruns.get("max_extra", 5)
+                    for extra in range(max_extra):
+                        # Compute per-scenario agreement from current runs
+                        scenario_severities: Dict[str, List[str]] = {}
+                        for run in runs_list:
+                            for r in run:
+                                scenario_severities.setdefault(r.scenario_name, []).append(r.severity)
+                        below_target = [
+                            name for name, sevs in scenario_severities.items()
+                            if Counter(sevs).most_common(1)[0][1] / len(sevs) < target
+                        ]
+                        if not below_target:
+                            break
+                        tqdm.write(
+                            f"  Adaptive rerun {extra + 1}/{max_extra} for {label}: "
+                            f"{len(below_target)} scenario(s) below agreement target {target}"
+                        )
+                        # Run only the fragile scenarios
+                        fragile_scenarios = [
+                            s for s in (scenarios if isinstance(scenarios, list) else [])
+                            if s.get("name") in below_target
+                        ]
+                        if not fragile_scenarios:
+                            break
+                        auditor = ModelAuditor(**merged)
+                        result = await auditor.run_async(
+                            fragile_scenarios,
+                            max_turns=max_turns,
+                            language=language,
+                            max_workers=max_workers,
+                        )
+                        # Merge: replace the last run's results for these scenarios
+                        # with the new results (the new run is the most recent)
+                        new_index = len(runs_list)
+                        if self.save_dir:
+                            run_path = self._run_path(label, new_index)
+                            run_path.parent.mkdir(parents=True, exist_ok=True)
+                            result.save(str(run_path))
+                        runs_list.append(result)
+                        runs_ordered[new_index] = result
+
+                runs_by_model[label] = runs_list
                 if self.on_model_done:
                     partial = RepeatedExperimentResults(
                         {label: runs_by_model[label]}, judge=judge_info

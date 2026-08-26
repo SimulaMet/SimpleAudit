@@ -256,3 +256,101 @@ def test_binary_judge_malformed_response_yields_error_marker():
     assert out["severity"] == "ERROR"
     assert input_tokens == 77
     assert output_tokens == 9
+
+
+# ===========================================================================
+# Score-based judges (helpfulness/factuality/harm) declare their own schema
+# ===========================================================================
+
+SCORE_JUDGES = {
+    "helpfulness": {
+        "required": {"score", "relevance", "accuracy", "clarity", "completeness", "feedback"},
+        "payload": {
+            "score": 8.5,
+            "relevance": 9,
+            "accuracy": 8,
+            "clarity": 9,
+            "completeness": 8,
+            "feedback": "Clear and accurate.",
+        },
+    },
+    "factuality": {
+        "required": {"score", "verdict", "factual_errors", "unsupported_claims", "reasoning"},
+        "payload": {
+            "score": 7,
+            "verdict": "partially_accurate",
+            "factual_errors": ["claimed X"],
+            "unsupported_claims": [],
+            "reasoning": "Mostly right.",
+        },
+    },
+    "harm": {
+        "required": {"harmful", "category", "severity", "explanation"},
+        "payload": {
+            "harmful": False,
+            "category": "none",
+            "severity": "none",
+            "explanation": "Nothing harmful.",
+        },
+    },
+}
+
+
+@pytest.mark.parametrize("name", sorted(SCORE_JUDGES))
+def test_score_judge_declares_response_schema(name):
+    cfg = get_judge(name)
+    assert "response_schema" in cfg, f"{name} must declare a response_schema"
+    schema = cfg["response_schema"]
+    assert schema["type"] == "object"
+    assert set(schema["required"]) == SCORE_JUDGES[name]["required"]
+    # The whole point: it must NOT be the severity shape.
+    assert "issues_found" not in schema["properties"]
+
+
+@pytest.mark.parametrize("name", sorted(SCORE_JUDGES))
+def test_score_judge_schema_keys_match_output_schema(name):
+    """response_schema and the human-readable output_schema must agree."""
+    cfg = get_judge(name)
+    assert set(cfg["response_schema"]["properties"]) == set(cfg["output_schema"])
+
+
+@pytest.mark.parametrize("name", sorted(SCORE_JUDGES))
+def test_auditor_picks_up_score_schema_from_config(name):
+    mock_client = MagicMock()
+    with patch.object(ModelAuditor, "_create_anyllm_client", return_value=mock_client):
+        auditor = ModelAuditor(
+            model="t", provider="openai",
+            judge_model="j", judge_provider="openai",
+            judge=name, show_progress=False,
+        )
+    assert auditor.judge_response_schema is not None
+    assert set(auditor.judge_response_schema["required"]) == SCORE_JUDGES[name]["required"]
+
+
+@pytest.mark.parametrize("name", sorted(SCORE_JUDGES))
+def test_score_judge_threads_schema_and_parses_payload(name):
+    """End-to-end: the judge's own schema is sent, and a score payload parses
+    back verbatim instead of being coerced into the severity shape."""
+    cfg = get_judge(name)
+    payload = SCORE_JUDGES[name]["payload"]
+    with patch.object(ModelAuditor, "_call_async",
+                      new=AsyncMock(return_value=(json.dumps(payload), 0, 0))) as m:
+        out, _, _ = asyncio.run(
+            ModelAuditor._judge_conversation_async(
+                client=MagicMock(),
+                model="judge",
+                scenario="desc",
+                conversation=[{"role": "user", "content": "x"},
+                              {"role": "assistant", "content": "y"}],
+                judge_prompt=cfg["judge_prompt"],
+                json_format=True,
+                response_schema=cfg["response_schema"],
+            )
+        )
+    # The forced schema is the judge's, not the default severity schema.
+    _, kwargs = m.call_args
+    sent = kwargs["response_format"]["json_schema"]["schema"]
+    assert sent is cfg["response_schema"]
+    assert sent is not DEFAULT_JUDGE_RESPONSE_SCHEMA
+    # Payload survives intact.
+    assert out == payload

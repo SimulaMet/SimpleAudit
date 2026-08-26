@@ -423,3 +423,74 @@ class TestSyncWrapper:
         assert set(results.judges) == {JUDGE_A, JUDGE_B}
         # judge_labels property mirrors judges list
         assert exp.judge_labels == list(results.judges)
+
+
+# ---------------------------------------------------------------------------
+# CrossJudgeExperiment forwards auditor api_key / base_url
+# ---------------------------------------------------------------------------
+
+def test_cross_judge_forwards_auditor_credentials():
+    exp = CrossJudgeExperiment(
+        models=[{"model": "m1", "provider": "openai"}],
+        judge_models=[
+            {"model": "j1", "provider": "openai", "label": "ja"},
+            {"model": "j2", "provider": "openai", "label": "jb"},
+        ],
+        auditor_models=[
+            {"model": "a1", "provider": "openai", "api_key": "key1", "base_url": "http://h1"},
+            {"model": "a2", "provider": "openai", "api_key": "key2", "base_url": "http://h2"},
+        ],
+        show_progress=False,
+    )
+
+    ja = exp._experiments["ja"]
+    jb = exp._experiments["jb"]
+    assert (ja.auditor_model, ja.auditor_api_key, ja.auditor_base_url) == ("a1", "key1", "http://h1")
+    assert (jb.auditor_model, jb.auditor_api_key, jb.auditor_base_url) == ("a2", "key2", "http://h2")
+
+
+def test_cross_judge_no_auditor_models_leaves_credentials_none():
+    exp = CrossJudgeExperiment(
+        models=[{"model": "m1", "provider": "openai"}],
+        judge_models=[
+            {"model": "j1", "provider": "openai", "label": "ja"},
+            {"model": "j2", "provider": "openai", "label": "jb"},
+        ],
+        show_progress=False,
+    )
+    ja = exp._experiments["ja"]
+    assert ja.auditor_model is None
+    assert ja.auditor_api_key is None
+    assert ja.auditor_base_url is None
+
+
+# ---------------------------------------------------------------------------
+# compare_judges reports n_compared
+# ---------------------------------------------------------------------------
+
+def _results_named(names, severity="pass"):
+    from simpleaudit.results import AuditResult, AuditResults
+    return AuditResults([
+        AuditResult(n, "desc", [], severity, [], [], "", []) for n in names
+    ])
+
+
+def test_compare_judges_reports_n_compared_on_full_overlap():
+    from simpleaudit.repeated_results import RepeatedExperimentResults
+
+    a = RepeatedExperimentResults({"m1": [_results_named(["s1", "s2"], "high")] * 2})
+    b = RepeatedExperimentResults({"m1": [_results_named(["s1", "s2"], "pass")] * 2})
+    out = compare_judges(a, b, "m1")
+    assert out["n_total"] == 2
+    assert out["n_compared"] == 2
+
+
+def test_compare_judges_n_compared_excludes_unmatched():
+    from simpleaudit.repeated_results import RepeatedExperimentResults
+
+    a = RepeatedExperimentResults({"m1": [_results_named(["s1", "only_in_a"], "high")] * 2})
+    b = RepeatedExperimentResults({"m1": [_results_named(["s1"], "pass")] * 2})
+    out = compare_judges(a, b, "m1")
+    # n_total counts the reference judge; n_compared counts the genuine overlap.
+    assert out["n_total"] == 2
+    assert out["n_compared"] == 1

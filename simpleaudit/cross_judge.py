@@ -16,22 +16,14 @@ from typing import Any, Dict, List, Optional, Union
 
 from simpleaudit.experiment import AuditExperiment
 from simpleaudit.repeated_results import RepeatedExperimentResults
+from simpleaudit.utils import SEVERITY_ORDER, severity_direction
 
 
-# Canonical ordering from least to most severe (used for computing shift direction).
-_SEVERITY_ORDER = ["pass", "low", "medium", "high", "critical"]
-
-
-def _severity_direction(modal_a: str, modal_b: str) -> Optional[int]:
-    """idx_b - idx_a in _SEVERITY_ORDER; positive means judge_b is stricter.
-
-    Returns None when either severity is outside the canonical ladder
-    (e.g. "ERROR"): an index of -1 would silently produce directions that
-    look meaningful but aren't.
-    """
-    if modal_a not in _SEVERITY_ORDER or modal_b not in _SEVERITY_ORDER:
-        return None
-    return _SEVERITY_ORDER.index(modal_b) - _SEVERITY_ORDER.index(modal_a)
+# The ladder and the direction helper moved to utils so the reframing path can
+# share them. Both names stay bound here: they are used throughout this module
+# and referenced by name in its docstrings.
+_SEVERITY_ORDER = SEVERITY_ORDER
+_severity_direction = severity_direction
 
 
 # ---------------------------------------------------------------------------

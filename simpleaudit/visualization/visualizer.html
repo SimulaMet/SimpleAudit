@@ -671,7 +671,8 @@
                             if (!resp.ok) throw new Error('Failed to load');
                             const data = await resp.json();
                             const runs = data.runs[model];
-                            processData(Array.isArray(runs) ? runs[0] : runs, `${item.name} \u2014 ${model}`, false);
+                            const runLabel = Array.isArray(runs) && runs.length > 1 ? ` \u2014 run 1 of ${runs.length}` : '';
+                            processData(Array.isArray(runs) ? runs[0] : runs, `${item.name} \u2014 ${model}${runLabel}`, false);
                         } catch (e) {
                             document.getElementById('file-info').textContent = `Error: ${e.message}`;
                         }
@@ -877,7 +878,8 @@
             const folderDiv = renderExperimentFolder(filename, key, experimentModels(data), (model) => {
                 try {
                     const runs = data.runs[model];
-                    processData(Array.isArray(runs) ? runs[0] : runs, `${filename} \u2014 ${model}`, true);
+                    const runLabel = Array.isArray(runs) && runs.length > 1 ? ` \u2014 run 1 of ${runs.length}` : '';
+                    processData(Array.isArray(runs) ? runs[0] : runs, `${filename} \u2014 ${model}${runLabel}`, true);
                 } catch (e) {
                     document.getElementById('file-info').textContent = `Error: ${e.message}`;
                 }

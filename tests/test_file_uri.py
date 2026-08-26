@@ -142,12 +142,22 @@ class TestMediaTypeResolution:
 
 class TestEncodingIsCached:
     def test_repeated_uris_are_read_once(self, png_path):
+        image_data_uri.cache_clear()
         for _ in range(3):
             image_content_block(file_uri=png_path)
         info = image_data_uri.cache_info()
         assert (info.misses, info.hits) == (1, 2)
 
+    def test_cache_clear_resets_counters(self, png_path):
+        image_data_uri.cache_clear()
+        image_content_block(file_uri=png_path)
+        assert image_data_uri.cache_info().misses == 1
+        image_data_uri.cache_clear()
+        assert image_data_uri.cache_info().misses == 0
+        assert image_data_uri.cache_info().hits == 0
+
     def test_a_new_run_re_reads_a_changed_file(self, png_path):
+        image_data_uri.cache_clear()
         scenario = _image_scenario(file_uri=png_path)
         first = _Capture(response="A bar chart.")
         _run(scenario=scenario, target=first, judge=_Capture(response=JUDGE_JSON))
@@ -166,6 +176,7 @@ class TestEncodingIsCached:
         assert base64.b64decode(encoded(second).split(",", 1)[1]) == regenerated
 
     def test_distinct_uris_are_cached_separately(self, png_path, tmp_path):
+        image_data_uri.cache_clear()
         other = tmp_path / "second.png"
         other.write_bytes(b"different-bytes")
         first = image_content_block(file_uri=png_path)
@@ -365,6 +376,7 @@ class TestFileUriEndToEnd:
         assert entry["file_uri"] == png_path
 
     def test_image_persists_across_turns(self, png_path):
+        image_data_uri.cache_clear()
         target = _Capture(response="A bar chart.")
         judge = _Capture(response=JUDGE_JSON)
         _run(

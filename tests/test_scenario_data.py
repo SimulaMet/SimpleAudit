@@ -24,7 +24,7 @@ class TestScenarioDataIntegrity:
     # Packs deliberately left out of "all" because they need model capabilities
     # "all" cannot assume. These are still covered by every other check below —
     # only the union count excludes them.
-    EXCLUDED_FROM_ALL_PACK = {"vision_integrity"}
+    EXCLUDED_FROM_ALL_PACK = {"vision_integrity", "judge_the_judge"}
 
     @pytest.fixture
     def all_pack_names(self):

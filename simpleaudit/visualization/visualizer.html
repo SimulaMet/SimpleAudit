@@ -76,8 +76,6 @@
             // initialization every time we are authorized
             loadFileTree();
             initResizer();
-            initInnerResizer();
-            autoCollapseSidebar();
             return true;
         }
 
@@ -129,55 +127,6 @@
         .tree-item.bg-indigo-100 {
             box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
         }
-        .fragility-tooltip {
-            position: relative;
-            cursor: default;
-        }
-        .fragility-tooltip .tooltip-content {
-            visibility: hidden;
-            opacity: 0;
-            position: fixed;
-            background: #1f2937;
-            color: #f9fafb;
-            padding: 10px 14px;
-            border-radius: 8px;
-            font-size: 12px;
-            line-height: 1.6;
-            white-space: nowrap;
-            z-index: 9999;
-            transition: opacity 0.15s ease, visibility 0.15s ease;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            pointer-events: none;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .fragility-tooltip .tooltip-content::after {
-            content: '';
-            position: absolute;
-            bottom: 100%;
-            left: 16px;
-            border: 6px solid transparent;
-            border-bottom-color: #1f2937;
-        }
-        .fragility-tooltip:hover .tooltip-content {
-            visibility: visible;
-            opacity: 1;
-        }
-        .fragility-tooltip .tooltip-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .fragility-tooltip .tooltip-row + .tooltip-row {
-            padding-top: 4px;
-            border-top: 1px solid rgba(255,255,255,0.1);
-        }
-        .fragility-tooltip .tooltip-label {
-            font-weight: 600;
-        }
-        .fragility-tooltip .tooltip-stable .tooltip-label { color: #34d399; }
-        .fragility-tooltip .tooltip-fragile .tooltip-label { color: #fbbf24; }
         .tree-children {
             margin-left: 1rem;
             border-left: 1px solid #e5e7eb;
@@ -246,9 +195,6 @@
             .resizer {
                 display: none;
             }
-            .resizer-inner {
-                display: none;
-            }
             /* Mobile view: Stack scenario list on top of detail */
             #detail-view.has-selection {
                 position: fixed;
@@ -267,7 +213,6 @@
         @media (min-width: 769px) {
             .back-button {
                 display: none !important;
-                margin: 0 !important;
             }
         }
         
@@ -338,7 +283,7 @@
     </style>
 </head>
 
-<body class="bg-gray-50 text-gray-900 h-screen flex flex-col overflow-hidden">
+<body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col">
 
     <!-- authentication overlay shown when a secret is required and not yet stored -->
     <div id="auth-overlay" class="fixed inset-0 bg-white/90 z-50 flex items-center justify-center hidden">
@@ -366,9 +311,9 @@
         </div>
     </div>
 
-    <main class="flex-1 flex flex-col overflow-hidden">
+    <main class="flex-1 flex flex-col">
     <!-- Header -->
-    <header class="bg-white border-b border-gray-200 px-4 py-2 flex justify-between items-center shadow-sm z-10">
+    <header class="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
         <div class="flex items-center gap-3">
             <button onclick="toggleSidebar()" class="text-gray-600 hover:text-indigo-600 transition-colors" title="Toggle file tree">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -409,7 +354,7 @@
     <div class="flex flex-1 overflow-hidden">
 
         <!-- File Tree Sidebar -->
-        <div id="file-tree-sidebar" class="w-56 border-r border-gray-200 bg-white flex flex-col overflow-hidden">
+        <div id="file-tree-sidebar" class="w-80 border-r border-gray-200 bg-white flex flex-col overflow-hidden">
             <div class="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
                 <h2 class="font-semibold text-gray-700 flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -440,30 +385,18 @@
             <!-- Sidebar / List View -->
             <div class="flex-1 flex flex-col md:flex-row overflow-hidden">
                 
-                <div class="w-full md:w-1/2 md:max-w-[45%] bg-white flex flex-col overflow-hidden" id="scenario-list-container">
+                <div class="w-full md:w-1/3 border-r border-gray-200 bg-white flex flex-col" id="scenario-list-container">
 
                     <!-- Dashboard / Stats -->
-                    <div id="dashboard" class="px-6 pt-2 pb-6 border-b border-gray-200 bg-gray-50 hidden">
-                        <!-- Run Selector (multi-run experiments) -->
-                        <div id="run-selector-bar" class="hidden mb-4 px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50">
-                            <div class="flex items-center justify-between gap-2">
-                                <button id="run-prev-btn" onclick="selectRun(currentRunIndex - 1)" class="px-2 py-1 text-xs rounded font-medium bg-white text-indigo-600 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">&larr; Prev</button>
-                                <div class="flex items-center gap-2">
-                                    <span class="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Run:</span>
-                                    <span id="run-selector-count" class="text-sm font-bold text-indigo-900">1 of 1</span>
-                                </div>
-                                <button id="run-next-btn" onclick="selectRun(currentRunIndex + 1)" class="px-2 py-1 text-xs rounded font-medium bg-white text-indigo-600 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Next &rarr;</button>
+                    <div id="dashboard" class="p-6 border-b border-gray-200 bg-gray-50 hidden">
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-100 text-center">
+                                <div class="text-xs text-gray-500 uppercase font-semibold">Pass Rate</div>
+                                <div class="text-2xl font-bold text-gray-900" id="stat-pass-rate">-</div>
                             </div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2 mb-4">
-                            <div class="bg-white p-2 rounded-lg shadow-sm border border-gray-100 text-center overflow-hidden">
-                                <div class="text-[10px] text-gray-500 uppercase font-semibold">Pass Rate</div>
-                                <div class="text-sm font-bold text-gray-900 whitespace-nowrap overflow-hidden text-ellipsis" id="stat-pass-rate">-</div>
-                            </div>
-                            <div class="bg-white p-2 rounded-lg shadow-sm border border-gray-100 text-center overflow-hidden">
-                                <div class="text-[10px] text-gray-500 uppercase font-semibold">Avg Score</div>
-                                <div class="text-sm font-bold text-gray-900 whitespace-nowrap overflow-hidden text-ellipsis" id="stat-avg-score">-</div>
+                            <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-100 text-center">
+                                <div class="text-xs text-gray-500 uppercase font-semibold">Avg Score</div>
+                                <div class="text-2xl font-bold text-gray-900" id="stat-avg-score">-</div>
                             </div>
                         </div>
 
@@ -483,24 +416,16 @@
                     </div>
 
                     <!-- Filters -->
-                    <div class="p-3 border-b border-gray-200 flex flex-col gap-2 hidden" id="filters">
-                        <div class="flex gap-2">
-                            <input type="text" id="search-input" placeholder="Search scenarios..."
-                                class="flex-1 min-w-0 bg-gray-100 border-none rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500">
-                            <div class="relative shrink-0" id="sort-wrapper">
-                                <button id="sort-btn" class="bg-gray-100 border-none rounded-md p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors" title="Sort scenarios">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9M3 12h5m8 0l4 4m0 0l-4 4m4-4H9"/>
-                                    </svg>
-                                </button>
-                                <select id="sort-select" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full">
-                                    <option value="default">Default</option>
-                                    <option value="score-asc">Score (Low-High)</option>
-                                    <option value="score-desc">Score (High-Low)</option>
-                                    <option value="severity">Severity</option>
-                                </select>
-                            </div>
-                        </div>
+                    <div class="p-4 border-b border-gray-200 flex flex-col sm:flex-row gap-2 hidden" id="filters">
+                        <input type="text" id="search-input" placeholder="Search scenarios..."
+                            class="flex-1 bg-gray-100 border-none rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500">
+                        <select id="sort-select"
+                            class="bg-gray-100 border-none rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 text-gray-700">
+                            <option value="default">Default</option>
+                            <option value="score-asc">Score (Low-High)</option>
+                            <option value="score-desc">Score (High-Low)</option>
+                            <option value="severity">Severity</option>
+                        </select>
                     </div>
 
                     <!-- List -->
@@ -511,11 +436,8 @@
                     </div>
                 </div>
 
-                <!-- Inner Resizer -->
-                <div class="resizer resizer-inner" id="resizer-inner"></div>
-
                 <!-- Detail View -->
-                <main class="flex-1 bg-gray-50 overflow-y-auto overflow-x-hidden p-4 md:px-4 md:py-2 min-w-0" id="detail-view">
+                <main class="flex-1 bg-gray-50 overflow-y-auto p-4 md:p-8" id="detail-view">
                     <div class="h-full flex flex-col items-center justify-center text-gray-400">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4 opacity-50" fill="none"
                             viewBox="0 0 24 24" stroke="currentColor">
@@ -550,7 +472,6 @@
         let uploadedExperiment = null; // Holds multi-result data from uploaded file
         let currentExperimentRuns = null; // { model, runs: [...] } for run switching
         let currentRunIndex = 0; // Index of the currently selected run
-        let currentFragility = null; // { scenarioName: { agreement, entropy, spread, mode } }
 
         // On page load, check for file and scenario in URL
         window.addEventListener('DOMContentLoaded', () => {
@@ -577,7 +498,6 @@
                             el.onclick = () => {
                                 currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
                                 currentRunIndex = 0;
-                                currentFragility = Array.isArray(runs) ? computeFragility(runs) : null;
                                 processData(Array.isArray(runs) ? runs[0] : runs, `${window.__inlinedName || 'export'} — ${model}${runLabel}`, true);
                             };
                             listEl.appendChild(el);
@@ -591,7 +511,6 @@
                 if (mode === 'scenario') {
                     document.body.classList.add('standalone-scenario');
                 }
-                resetMultiRunState();
                 processData(window.__inlinedData, window.__inlinedName || 'exported results', true);
                 return;
             }
@@ -619,44 +538,6 @@
                         }
                     });
                 }
-            }
-        });
-
-        // Fragility tooltip: position fixed, clamped to viewport on hover
-        document.addEventListener('mouseover', (e) => {
-            const trigger = e.target.closest('.fragility-tooltip[data-tooltip]');
-            if (!trigger) return;
-            const tip = trigger.querySelector('.tooltip-content');
-            if (!tip) return;
-            const rect = trigger.getBoundingClientRect();
-            tip.style.visibility = 'visible';
-            tip.style.opacity = '0';
-            // Measure after making visible
-            const tipW = tip.offsetWidth;
-            const tipH = tip.offsetHeight;
-            let left = rect.left;
-            let top = rect.bottom + 8;
-            // Clamp horizontally
-            if (left + tipW > window.innerWidth - 8) {
-                left = window.innerWidth - tipW - 8;
-            }
-            if (left < 8) left = 8;
-            // Clamp vertically (flip above if not enough room below)
-            if (top + tipH > window.innerHeight - 8) {
-                top = rect.top - tipH - 8;
-            }
-            if (top < 8) top = 8;
-            tip.style.left = left + 'px';
-            tip.style.top = top + 'px';
-            tip.style.opacity = '1';
-        });
-        document.addEventListener('mouseout', (e) => {
-            const trigger = e.target.closest('.fragility-tooltip[data-tooltip]');
-            if (!trigger) return;
-            const tip = trigger.querySelector('.tooltip-content');
-            if (tip) {
-                tip.style.opacity = '0';
-                tip.style.visibility = 'hidden';
             }
         });
 
@@ -748,23 +629,6 @@
         // the window 'load' handler configured earlier will call ensureLoggedIn
         // and then populate the UI.
 
-        // Auto-collapse file tree sidebar at narrow widths
-        function autoCollapseSidebar() {
-            const sidebar = document.getElementById('file-tree-sidebar');
-            const resizer = document.getElementById('resizer');
-            if (!sidebar || !resizer) return;
-            const hasSelection = currentExperimentSelection !== null;
-            const shouldHide = window.innerWidth < 1024 && hasSelection;
-            if (shouldHide && !sidebar.classList.contains('sidebar-hidden')) {
-                sidebar.classList.add('sidebar-hidden');
-                resizer.classList.add('sidebar-hidden');
-            } else if (!shouldHide && sidebar.classList.contains('sidebar-hidden')) {
-                sidebar.classList.remove('sidebar-hidden');
-                resizer.classList.remove('sidebar-hidden');
-            }
-        }
-        window.addEventListener('resize', autoCollapseSidebar);
-
         // --- Sidebar Toggle Functions ---
 
         function toggleSidebar() {
@@ -825,44 +689,6 @@
                 
                 sidebar.style.width = newWidth + 'px';
                 sidebarWidth = newWidth;
-            });
-
-            document.addEventListener('mouseup', () => {
-                if (isResizing) {
-                    isResizing = false;
-                    document.body.style.cursor = '';
-                    document.body.style.userSelect = '';
-                }
-            });
-        }
-
-        function initInnerResizer() {
-            const resizer = document.getElementById('resizer-inner');
-            const listContainer = document.getElementById('scenario-list-container');
-            if (!resizer || !listContainer) return;
-            let isResizing = false;
-            let startX = 0;
-            let startWidth = 0;
-
-            resizer.addEventListener('mousedown', (e) => {
-                isResizing = true;
-                startX = e.clientX;
-                startWidth = listContainer.offsetWidth;
-                document.body.style.cursor = 'col-resize';
-                document.body.style.userSelect = 'none';
-            });
-
-            document.addEventListener('mousemove', (e) => {
-                if (!isResizing) return;
-                
-                const dx = e.clientX - startX;
-                const parentWidth = listContainer.parentElement.offsetWidth;
-                const minList = 220;
-                const maxList = Math.floor(parentWidth * 0.45);
-                const newWidth = Math.max(minList, Math.min(maxList, startWidth + dx));
-                
-                listContainer.style.width = newWidth + 'px';
-                listContainer.style.flex = 'none';
             });
 
             document.addEventListener('mouseup', () => {
@@ -965,7 +791,6 @@
                             const runLabel = Array.isArray(runs) && runs.length > 1 ? ` \u2014 run 1 of ${runs.length}` : '';
                             currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
                             currentRunIndex = 0;
-                            currentFragility = Array.isArray(runs) ? computeFragility(runs) : null;
                             processData(Array.isArray(runs) ? runs[0] : runs, `${item.name} \u2014 ${model}${runLabel}`, false);
                         } catch (e) {
                             document.getElementById('file-info').textContent = `Error: ${e.message}`;
@@ -1046,7 +871,6 @@
                     currentExperimentSelection = selectionKey;
                     applyTreeSelectionState(fileDiv);
                     loadModel(model);
-                    autoCollapseSidebar();
                 };
                 childrenDiv.appendChild(fileDiv);
             });
@@ -1246,7 +1070,6 @@
                     }
                     
                     // Process the uploaded data, mark as custom upload
-                    resetMultiRunState();
                     processData(data, file.name + ' (uploaded)', true);
                     // Clear URL (remove query and hash)
                     if (history.replaceState) {
@@ -1315,7 +1138,6 @@
                 if (!response.ok) throw new Error('Failed to load JSON file');
 
                 const data = await response.json();
-                resetMultiRunState();
                 processData(data, filename);
             } catch (error) {
                 document.getElementById('file-info').textContent = `Error: ${error.message}`;
@@ -1347,7 +1169,6 @@
                     const runLabel = Array.isArray(runs) && runs.length > 1 ? ` \u2014 run 1 of ${runs.length}` : '';
                     currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
                     currentRunIndex = 0;
-                    currentFragility = Array.isArray(runs) ? computeFragility(runs) : null;
                     processData(Array.isArray(runs) ? runs[0] : runs, `${filename} \u2014 ${model}${runLabel}`, true);
                 } catch (e) {
                     document.getElementById('file-info').textContent = `Error: ${e.message}`;
@@ -1362,56 +1183,6 @@
             currentRunIndex = runIndex;
             const runLabel = runs.length > 1 ? ` \u2014 run ${runIndex + 1} of ${runs.length}` : '';
             processData(runs[runIndex], `${model}${runLabel}`, true);
-        }
-
-        // Compute per-scenario fragility from the full run list.
-        // Mirrors the Python _build_stability_report logic.
-        function computeFragility(runs) {
-            if (!runs || runs.length < 2) return null;
-            const SEV_ORDER = ['pass', 'low', 'medium', 'high', 'critical'];
-            const scenarioSevs = {}; // name -> [severities]
-            runs.forEach(run => {
-                const results = run.results || [];
-                results.forEach(r => {
-                    const name = r.scenario_name || r.name;
-                    if (!name) return;
-                    if (!scenarioSevs[name]) scenarioSevs[name] = [];
-                    scenarioSevs[name].push(r.severity);
-                });
-            });
-            const fragility = {};
-            Object.entries(scenarioSevs).forEach(([name, sevs]) => {
-                const counts = {};
-                sevs.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
-                const mode = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
-                const agreement = counts[mode] / sevs.length;
-                // Normalised Shannon entropy
-                const total = sevs.length;
-                const uniqueSevs = Object.keys(counts);
-                let rawEntropy = 0;
-                uniqueSevs.forEach(s => {
-                    const p = counts[s] / total;
-                    rawEntropy -= p * Math.log(p);
-                });
-                const logBase = uniqueSevs.length > 1 ? Math.log(uniqueSevs.length) : 1;
-                const entropy = logBase > 0 ? rawEntropy / logBase : 0;
-                // Ordinal spread
-                const positions = sevs.map(s => {
-                    const idx = SEV_ORDER.indexOf(s);
-                    return idx >= 0 ? idx : 0;
-                });
-                const mean = positions.reduce((a, b) => a + b, 0) / positions.length;
-                const variance = positions.reduce((a, b) => a + (b - mean) ** 2, 0) / positions.length;
-                const spread = Math.sqrt(variance);
-                fragility[name] = { agreement, entropy, spread, mode };
-            });
-            return fragility;
-        }
-
-        function resetMultiRunState() {
-            currentFragility = null;
-            currentExperimentRuns = null;
-            currentRunIndex = 0;
         }
 
         function processData(data, filename, isCustomUpload = false) {
@@ -1622,29 +1393,10 @@
             renderList();
         }
 
-        function updateRunSelectorBar() {
-            const bar = document.getElementById('run-selector-bar');
-            const count = document.getElementById('run-selector-count');
-            const prevBtn = document.getElementById('run-prev-btn');
-            const nextBtn = document.getElementById('run-next-btn');
-            if (!bar || !count) return;
-            if (currentExperimentRuns && currentExperimentRuns.runs.length > 1) {
-                bar.classList.remove('hidden');
-                const total = currentExperimentRuns.runs.length;
-                const idx = currentRunIndex;
-                count.textContent = `${idx + 1} of ${total}`;
-                if (prevBtn) prevBtn.disabled = idx <= 0;
-                if (nextBtn) nextBtn.disabled = idx >= total - 1;
-            } else {
-                bar.classList.add('hidden');
-            }
-        }
-
         function renderList() {
             const container = document.getElementById('scenario-list');
             if (!container) return;
             container.innerHTML = '';
-            updateRunSelectorBar();
 
             if (currentScenarios.length === 0) {
                 container.innerHTML = '<div class="text-center text-gray-400 mt-10">No matching scenarios found.</div>';
@@ -1761,37 +1513,42 @@
             // files, so only remote URLs can be previewed there.
             const standalone = (window.__customUpload || forceCustomUpload) === true;
 
-            // Fragility tooltip for the Score element (multi-run experiments)
-            let scoreHtml = '';
-            if (currentFragility && name && currentFragility[name]) {
-                const f = currentFragility[name];
-                const isFragile = f.agreement < 0.6;
-                const icon = isFragile ? '\u26a0\ufe0f' : '\u2705';
-                const label = isFragile ? 'Fragile' : 'Stable';
-                const cssClass = isFragile ? 'tooltip-fragile' : 'tooltip-stable';
-                scoreHtml = `<span class="fragility-tooltip" data-tooltip><span class="text-sm text-gray-500">Score: <strong class="${textColor}">${escapeHtml(scoreLabel)}</strong></span><span class="tooltip-content ${cssClass}"><span class="tooltip-row"><span>${icon}</span><span class="tooltip-label">${label}</span></span><span class="tooltip-row"><span>agreement ${(f.agreement * 100).toFixed(0)}%</span><span>\u00b7</span><span>entropy ${f.entropy.toFixed(2)}</span><span>\u00b7</span><span>spread ${f.spread.toFixed(2)}</span></span><span class="tooltip-row"><span>mode: ${f.mode}</span></span></span></span>`;
-            } else {
-                scoreHtml = `<span class="text-sm text-gray-500">Score: <strong class="${textColor}">${escapeHtml(scoreLabel)}</strong></span>`;
+            // Run selector for multi-run experiments
+            let runSelectorHtml = '';
+            if (currentExperimentRuns && currentExperimentRuns.runs.length > 1) {
+                const { runs } = currentExperimentRuns;
+                const currentRunIdx = currentRunIndex;
+                runSelectorHtml = `
+                    <div class="mb-4 flex items-center gap-2">
+                        <span class="text-xs font-medium text-gray-500 uppercase tracking-wide">Run:</span>
+                        <div class="flex gap-1">
+                            ${runs.map((_, i) => `
+                                <button onclick="selectRun(${i})" class="px-2.5 py-1 text-xs rounded ${i === currentRunIdx ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'} transition-colors">${i + 1}</button>
+                            `).join('')}
+                        </div>
+                        <span class="text-xs text-gray-400">${currentRunIdx + 1} of ${runs.length}</span>
+                    </div>`;
             }
 
             let html = `
                 <div class="max-w-4xl mx-auto space-y-6 pb-20" id="scenario-detail">
                     <!-- Mobile Back Button -->
-                    <button onclick="closeDetailView()" class="back-button flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium mb-4">
+                    <button onclick="closeDetailView()" class="back-button mb-4 flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                         </svg>
                         Back to list
                     </button>
+                    ${runSelectorHtml}
                     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                         <div class="flex justify-between items-start mb-4">
                             <div>
                                 <h2 class="text-2xl font-bold text-gray-900 leading-tight">${escapeHtml(name)}</h2>
-                                <div class="flex items-center gap-3 mt-2 flex-wrap">
+                                <div class="flex items-center gap-3 mt-2">
                                     <span class="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide ${statusColor} text-white bg-opacity-90">
                                         ${escapeHtml(severity)}
                                     </span>
-                                    ${scoreHtml}
+                                    <span class="text-sm text-gray-500">Score: <strong class="${textColor}">${escapeHtml(scoreLabel)}</strong></span>
                                 </div>
                             </div>
                             <button onclick="exportScenarioPdf()" title="Export this scenario as PDF" class="shrink-0 p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
@@ -1895,8 +1652,6 @@
 
             container.innerHTML = html;
             populateFilePreviews();
-
-
         }
 
         function escapeHtml(unsafe) {
@@ -2126,7 +1881,7 @@
     </script>
 
     </main>
-    <footer class="w-full text-center py-1.5 bg-gray-50 border-t border-gray-200 text-xs text-gray-400">
+    <footer class="w-full text-center py-4 bg-gray-50 border-t border-gray-200">
         <a href="https://pypi.org/project/simpleaudit/" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline">simpleaudit on PyPI</a>
     </footer>
 </body>

@@ -244,6 +244,42 @@
             0% { transform: translateX(0); }
             100% { transform: translateX(-50%); }
         }
+
+        /* Print styles */
+        @media print {
+            body.print-scenario, body.print-all {
+                display: block !important;
+                height: auto !important;
+                overflow: visible !important;
+            }
+            body.print-scenario > *:not(#detail-view),
+            body.print-all > *:not(#print-all-scenarios) {
+                display: none !important;
+            }
+            body.print-scenario #detail-view,
+            body.print-all #print-all-scenarios {
+                display: block !important;
+                overflow: visible !important;
+                height: auto !important;
+                max-height: none !important;
+                position: static !important;
+            }
+            body.print-scenario .back-button,
+            body.print-all .back-button,
+            body.print-scenario button[onclick*="exportScenarioPdf"],
+            body.print-all button[onclick*="exportScenarioPdf"],
+            body.print-all button[onclick*="exportFilePdf"] {
+                display: none !important;
+            }
+            body.print-scenario #scenario-detail,
+            body.print-all #print-all-scenarios > div {
+                max-width: 100% !important;
+            }
+            body.print-scenario .shadow-sm,
+            body.print-all .shadow-sm {
+                box-shadow: none !important;
+            }
+        }
     </style>
 </head>
 
@@ -769,7 +805,7 @@
                     fileDiv.innerHTML = `
                         <span class="file-icon text-base shrink-0"></span>
                         <span class="marquee-wrap text-gray-700 ${isSelected ? 'font-semibold' : ''}" title="${escapeHtml(item.name)}"><span class="marquee-text">${escapeHtml(item.name)}</span></span>
-                        <button onclick="event.stopPropagation(); downloadFileHtml('${escapeHtml(item.path)}')" class="shrink-0 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-indigo-600 transition-all p-1" title="Download this file as standalone HTML">
+                        <button onclick="event.stopPropagation(); downloadFileHtml('${escapeHtml(item.path)}')" class="shrink-0 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-indigo-600 transition-all p-1" title="Download as standalone HTML">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                             </svg>
@@ -1296,7 +1332,7 @@
                 document.getElementById('stat-pass-rate').previousElementSibling.textContent = 'Pass Rate';
                 if (globalScore !== null && globalScore !== undefined) {
                     // summary.score is on a 0-100 scale; label it as such
-                    document.getElementById('stat-avg-score').textContent = `${globalScore}/100`;
+                    document.getElementById('stat-avg-score').textContent = `${Math.round(globalScore * 100) / 100}/100`;
                     document.getElementById('stat-avg-score').previousElementSibling.textContent = 'Safety Score';
                 } else {
                     document.getElementById('stat-avg-score').textContent = avgScore === 'N/A' ? 'N/A' : `${avgScore}/10`;
@@ -1495,7 +1531,7 @@
             }
 
             let html = `
-                <div class="max-w-4xl mx-auto space-y-6 pb-20">
+                <div class="max-w-4xl mx-auto space-y-6 pb-20" id="scenario-detail">
                     <!-- Mobile Back Button -->
                     <button onclick="closeDetailView()" class="back-button mb-4 flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1515,6 +1551,9 @@
                                     <span class="text-sm text-gray-500">Score: <strong class="${textColor}">${escapeHtml(scoreLabel)}</strong></span>
                                 </div>
                             </div>
+                            <button onclick="exportScenarioPdf()" title="Export this scenario as PDF" class="shrink-0 p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                            </button>
                         </div>
                         <p class="text-gray-600 leading-relaxed">${escapeHtml(desc)}</p>
                         ${fileUris.length ? `
@@ -1728,6 +1767,77 @@
             ov.classList.remove('flex');
             const img = ov.querySelector('img');
             if (img) img.src = '';
+        }
+
+        // Footer HTML for PDF exports
+        function printFooterHtml() {
+            return `<div style="margin-top:2rem;padding-top:1rem;border-top:1px solid #e5e7eb;text-align:center;font-size:0.75rem;color:#6b7280;">
+                <a href="https://pypi.org/project/simpleaudit/" style="color:#4f46e5;text-decoration:none;">simpleaudit on PyPI</a>
+            </div>`;
+        }
+
+        // Export current scenario as PDF via print dialog
+        function exportScenarioPdf() {
+            const detail = document.getElementById('scenario-detail');
+            if (!detail) return;
+            // Clone into a standalone print container
+            const container = document.createElement('div');
+            container.id = 'print-all-scenarios';
+            container.innerHTML = detail.outerHTML + printFooterHtml();
+            document.body.appendChild(container);
+            document.body.classList.add('print-all');
+            setTimeout(() => {
+                window.print();
+                document.body.classList.remove('print-all');
+                container.remove();
+            }, 200);
+        }
+
+        // Export an entire file (all scenarios) as PDF
+        async function exportFilePdf(filePath) {
+            // Load the file if not already loaded
+            if (currentFilePath !== filePath) {
+                const filename = filePath.split('/').pop();
+                await loadJsonFile(filePath, filename);
+                await new Promise(r => setTimeout(r, 500));
+            }
+            // Render each scenario into a hidden container and collect HTML
+            const hiddenContainer = document.createElement('div');
+            hiddenContainer.style.display = 'none';
+            document.body.appendChild(hiddenContainer);
+            
+            const blocks = [];
+            for (const s of currentScenarios) {
+                // Temporarily point renderDetail at our hidden container
+                const detailView = document.getElementById('detail-view');
+                const origParent = detailView.parentNode;
+                const origNext = detailView.nextSibling;
+                origParent.removeChild(detailView);
+                hiddenContainer.appendChild(detailView);
+                
+                renderDetail(s, true);
+                const detail = document.getElementById('scenario-detail');
+                if (detail) blocks.push(detail.outerHTML);
+                
+                // Move detail-view back
+                hiddenContainer.removeChild(detailView);
+                origParent.insertBefore(detailView, origNext);
+            }
+            
+            hiddenContainer.remove();
+            
+            // Build print container with all scenarios
+            const container = document.createElement('div');
+            container.id = 'print-all-scenarios';
+            container.innerHTML = blocks.join('<hr class="my-8 border-gray-300">') + printFooterHtml();
+            document.body.appendChild(container);
+            document.body.classList.add('print-all');
+            
+            setTimeout(() => {
+                window.print();
+                document.body.classList.remove('print-all');
+                container.remove();
+            }, 200);
         }
 
         // Copy current URL to clipboard

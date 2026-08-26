@@ -541,7 +541,11 @@ Set `file_uri` to audit a vision model. The image (or list of images) is attache
 }
 ```
 
-The judge and the probe generator receive the image too, so these must also be vision models. Each image is read and base64-encoded once per run, however many turns or models it reaches.
+The judge and the probe generator receive the image too, so these must also be vision models.
+
+**Cost note:** the image is base64-encoded once per process (an in-memory LRU cache, 32 entries), but it is re-sent to the API **on every turn and to every model that sees it** — a multi-turn run with several models can upload the same image 10+ times. For a single-shot vision check, use `max_turns=1` to keep the cost down.
+
+Relative `file_uri` paths resolve against the **process working directory** (standard `fsspec` behavior), not against the scenario file's location.
 
 A scenario without a `test_prompt` has its opening prompt written by the auditor model, which sees the image before writing it. That works, but the prompt then depends on the auditor interpreting the image correctly — set `test_prompt` alongside `file_uri` whenever turn 0 needs to rest on a specific reading.
 

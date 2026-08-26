@@ -250,10 +250,32 @@ class RepeatedExperimentResults:
         return self._runs.keys()
 
     def values(self):
+        """Return the first run for each model (backward compat).
+
+        Use :meth:`runs` to access all runs for a specific model.
+        """
         return [runs[0] for runs in self._runs.values()]
 
     def items(self) -> List[Tuple[str, AuditResults]]:
+        """Return (model, first_run) pairs (backward compat).
+
+        Use :meth:`runs` to access all runs for a specific model.
+        """
         return [(label, runs[0]) for label, runs in self._runs.items()]
+
+    def all_runs(self) -> Dict[str, List[AuditResults]]:
+        """Return a dict mapping each model to its full list of runs.
+
+        Unlike :meth:`values` / :meth:`items` (which only expose run 0
+        for backward compatibility), this gives access to every run.
+
+        Example::
+
+            for model, runs in results.all_runs().items():
+                for i, run in enumerate(runs):
+                    print(f"{model} run {i}: {run.summary()}")
+        """
+        return {label: list(runs) for label, runs in self._runs.items()}
 
     # ------------------------------------------------------------------
     # Statistical methods

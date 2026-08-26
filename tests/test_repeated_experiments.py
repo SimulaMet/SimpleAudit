@@ -198,6 +198,34 @@ class TestAllRunsAccess:
         with pytest.raises(IndexError):
             results["model-a", -1]
 
+    def test_all_runs_returns_dict_of_all_runs(self):
+        results = self._make()
+        all_runs = results.all_runs()
+        assert set(all_runs.keys()) == {"model-a"}
+        assert len(all_runs["model-a"]) == 3
+        assert [r[0].severity for r in all_runs["model-a"]] == ["critical", "pass", "medium"]
+
+    def test_all_runs_returns_copies(self):
+        results = self._make()
+        all_runs = results.all_runs()
+        all_runs["model-a"].clear()
+        assert len(results.runs("model-a")) == 3
+
+    def test_all_runs_multiple_models(self):
+        r1 = _make_results(["pass"])
+        r2 = _make_results(["high"])
+        results = RepeatedExperimentResults({
+            "model-a": [r1, r2],
+            "model-b": [r1],
+        })
+        all_runs = results.all_runs()
+        assert len(all_runs["model-a"]) == 2
+        assert len(all_runs["model-b"]) == 1
+
+    def test_all_runs_empty(self):
+        results = RepeatedExperimentResults({})
+        assert results.all_runs() == {}
+
 
 # ---------------------------------------------------------------------------
 # RepeatedExperimentResults — stability statistics

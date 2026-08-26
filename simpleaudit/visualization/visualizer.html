@@ -1401,7 +1401,7 @@
                     return idx >= 0 ? idx : 0;
                 });
                 const mean = positions.reduce((a, b) => a + b, 0) / positions.length;
-                const variance = positions.reduce((a, b) => a + (b - mean) ** 2, 0) / (positions.length - 1 || 1);
+                const variance = positions.reduce((a, b) => a + (b - mean) ** 2, 0) / positions.length;
                 const spread = Math.sqrt(variance);
                 fragility[name] = { agreement, entropy, spread, mode };
             });

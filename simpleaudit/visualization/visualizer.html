@@ -1780,6 +1780,10 @@
         function exportScenarioPdf() {
             const detail = document.getElementById('scenario-detail');
             if (!detail) return;
+            // Set document title to file name for proper PDF filename
+            const origTitle = document.title;
+            const baseName = currentFilePath ? currentFilePath.split('/').pop().replace(/\.json$/i, '') : 'scenario';
+            document.title = baseName;
             // Clone into a standalone print container
             const container = document.createElement('div');
             container.id = 'print-all-scenarios';
@@ -1788,6 +1792,7 @@
             document.body.classList.add('print-all');
             setTimeout(() => {
                 window.print();
+                document.title = origTitle;
                 document.body.classList.remove('print-all');
                 container.remove();
             }, 200);

@@ -208,6 +208,59 @@ async def favicon():
 
 
 
+# --- standalone HTML export -------------------------------------------------
+
+def export_standalone_html(json_path: str, output_path: str) -> str:
+    """Create a self-contained HTML file with the audit results inlined.
+
+    The output can be opened directly in a browser (or sent to someone) —
+    no server and no JSON upload step required. The visualizer detects the
+    inlined data on load and renders it as a custom upload.
+
+    Args:
+        json_path: Path to the audit results JSON file.
+        output_path: Where to write the standalone HTML file.
+
+    Returns:
+        The output path.
+
+    Raises:
+        ValueError: If the JSON is not valid audit data.
+    """
+    json_path = os.path.abspath(json_path)
+    output_path = os.path.abspath(output_path)
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not is_valid_audit_data(data):
+        raise ValueError(f"{json_path} does not look like SimpleAudit results")
+
+    template_path = os.path.join(os.path.dirname(__file__), "visualizer.html")
+    with open(template_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    # Escape so the payload cannot break out of the inline <script> tag.
+    payload = json.dumps(data)
+    payload = payload.replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+    name = os.path.splitext(os.path.basename(json_path))[0]
+    name_json = json.dumps(name).replace("<", "\\u003c")
+    # Detect if this is an experiment (has runs) or a single run
+    is_experiment = "runs" in data and isinstance(data["runs"], dict)
+    mode_json = json.dumps("experiment" if is_experiment else "single")
+    inline = f"<script>window.__inlinedData = {payload}; window.__inlinedName = {name_json}; window.__standaloneMode = {mode_json};</script>\n"
+
+    if "</head>" not in html:
+        raise ValueError("visualizer.html has no </head> anchor — cannot inline data")
+
+    html = html.replace("</head>", f"{inline}</head>", 1)
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    return output_path
+
+
 # --- authentication helpers ------------------------------------------------
 from fastapi import Request, Depends, status
 

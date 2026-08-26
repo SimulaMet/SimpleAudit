@@ -98,6 +98,31 @@ Open a single HTML file directly in your browser and upload JSON files.
 - Offline environments
 - Privacy-sensitive data
 
+### Method 3: Standalone HTML Export (Share a Single File)
+
+Generate a self-contained HTML file with the results inlined — send it to
+someone and they can open it directly in a browser. No server, no JSON
+upload step, no network required.
+
+**From the CLI:**
+```bash
+simpleaudit export-html ./my_audit_results/audit_results.json
+# writes audit_results.html next to the JSON (or use -o to choose a path)
+```
+
+**From the visualizer UI:**
+Open the results in the visualizer (server or upload), then click
+**Download HTML** in the header. The downloaded file behaves like a
+custom upload — the full scenario list, detail view, and statistics are
+all available offline.
+
+**Notes:**
+- Works with all supported JSON shapes: array of results, `{results: [...]}`,
+  and multi-model experiment files (`{runs: {...}}`).
+- The HTML file is self-contained; image attachments referenced by URI are
+  still fetched at view time, so they need to be reachable from wherever
+  the file is opened.
+
 ---
 
 ## 📋 Supported JSON Formats

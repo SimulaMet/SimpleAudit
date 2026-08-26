@@ -127,6 +127,8 @@ simpleaudit serve --results_dir ./my_audit_results
 This will spin-up a local web server to explore results with scenario details. 👉 [Check for live demo.](https://simulamet-simpleauditvisualization.hf.space)
 See [visualization/README.md](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/visualization/README.md) for more options and features.
 
+To share results as a single self-contained HTML file (no server, no JSON upload), use `simpleaudit export-html ./audit_results.json` or the **Download HTML** button in the visualizer.
+
 > **Note:** Option 1 requires [`uv`](https://pypi.org/project/uv/) to be installed ([install guide](https://docs.astral.sh/uv/getting-started/installation/)).
 
 [![simpleaudit-visualization-ui](https://github.com/user-attachments/assets/f9bbb891-a847-48d4-85d6-6d6d99c9e017)](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/visualization/README.md)
@@ -198,6 +200,10 @@ results.stability("gpt-4o-mini").summary()
 
 # Print stability reports for all models
 results.summary()
+
+# Access individual runs (dict access returns the first run, for backward compat)
+results.runs("gpt-4o-mini")          # all 5 runs, in execution order
+results["gpt-4o-mini", 2]            # the third run specifically
 
 # Works with a single model too
 experiment = AuditExperiment(
@@ -537,7 +543,11 @@ Set `file_uri` to audit a vision model. The image (or list of images) is attache
 }
 ```
 
-The judge and the probe generator receive the image too, so these must also be vision models. Each image is read and base64-encoded once per run, however many turns or models it reaches.
+The judge and the probe generator receive the image too, so these must also be vision models.
+
+**Cost note:** the image is base64-encoded once per process (an in-memory LRU cache, 32 entries), but it is re-sent to the API **on every turn and to every model that sees it** — a multi-turn run with several models can upload the same image 10+ times. For a single-shot vision check, use `max_turns=1` to keep the cost down.
+
+Relative `file_uri` paths resolve against the **process working directory** (standard `fsspec` behavior), not against the scenario file's location.
 
 A scenario without a `test_prompt` has its opening prompt written by the auditor model, which sees the image before writing it. That works, but the prompt then depends on the auditor interpreting the image correctly — set `test_prompt` alongside `file_uri` whenever turn 0 needs to rest on a specific reading.
 

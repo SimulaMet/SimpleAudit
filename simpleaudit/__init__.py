@@ -41,6 +41,14 @@ from .judges import get_judge, list_judge_configs
 from .experiment import AuditExperiment
 from .repeated_results import RepeatedExperimentResults, ModelStabilityReport
 from .cross_judge import CrossJudgeExperiment, CrossJudgeResults, compare_judges
+from .reframing import (
+    PromptVariant,
+    ReframingResults,
+    StoredRecord,
+    load_stored_records,
+    reframing_check,
+    reframing_check_async,
+)
 
 __all__ = [
     "ModelAuditor",
@@ -56,5 +64,11 @@ __all__ = [
     "CrossJudgeExperiment",
     "CrossJudgeResults",
     "compare_judges",
+    "PromptVariant",
+    "ReframingResults",
+    "StoredRecord",
+    "load_stored_records",
+    "reframing_check",
+    "reframing_check_async",
 ]
 

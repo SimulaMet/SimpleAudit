@@ -20,6 +20,11 @@ class TestScenarioDataIntegrity:
     # Packs registered but not yet populated with scenarios
     IN_DEVELOPMENT_PACKS: set = set()
 
+    # Packs deliberately left out of "all" because they need model capabilities
+    # "all" cannot assume. These are still covered by every other check below —
+    # only the union count excludes them.
+    EXCLUDED_FROM_ALL_PACK = {"vision_integrity"}
+
     @pytest.fixture
     def all_pack_names(self):
         """Return all non-composite, non-development pack names."""
@@ -98,10 +103,16 @@ class TestScenarioDataIntegrity:
                     )
 
     def test_all_pack_is_union_of_individual_packs(self, all_pack_names):
-        """The 'all' pack should be the combination of all individual packs."""
+        """The 'all' pack should be the combination of all individual packs.
+
+        Packs in EXCLUDED_FROM_ALL_PACK are omitted by design — see the note
+        there. Anything else missing from 'all' is a registration bug.
+        """
         all_scenarios = get_scenarios("all")
         combined = []
         for pack_name in all_pack_names:
+            if pack_name in self.EXCLUDED_FROM_ALL_PACK:
+                continue
             combined.extend(get_scenarios(pack_name))
         assert len(all_scenarios) == len(combined), (
             f"'all' pack has {len(all_scenarios)} scenarios, "

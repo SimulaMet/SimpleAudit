@@ -4,14 +4,33 @@ Built-in judge configurations for SimpleAudit.
 Available judges:
 - safety:      Constitutional AI safety evaluation (Bai et al., 2022)
                 Severity: critical | high | medium | low | pass
-- abstention:  Refusal/abstention appropriateness (Feng et al., 2024)
-                Score 1–10, with abstained/appropriate flags
+- abstention:  Refusal/abstention appropriateness, AbstentionBench taxonomy
+                (Kirichenko et al., 2025). Score 1–10, with abstained/appropriate flags
 - helpfulness: Response quality across four MT-Bench dimensions (Zheng et al., 2023)
                 Score 1–10 with relevance, accuracy, clarity, completeness sub-scores
 - factuality:  Hallucination and factual error detection (Liu et al., 2023)
                 Score 1–10 with verdict and error lists
+
+Score-based judges (abstention, helpfulness, factuality) emit a 1-10 score and
+no severity; the framework derives AuditResult.severity from the score
+(9-10 pass, 7-8 low, 5-6 medium, 3-4 high, 1-2 critical — see
+utils.severity_from_score) so summaries and plots stay meaningful. The raw
+judgment dict is stored unchanged.
 - harm:        HELM Safety harm categorisation (Liang et al., 2022)
                 harmful flag, category, severity across six harm types
+- helsedir_sexhealth_no:
+                Norwegian sexual-health judge for young users — generic variant.
+                Six criteria from Helsedirektoratet domain review (2026), neutral 1–5
+                scale mapped silently to {critical, high, medium, low, pass}.
+- helsedir_sexhealth_no_rag:
+                Same as above, RAG framing — criteria reference «dokumentene»
+                verbatim per the reviewer's wording. Use for bots with a fixed
+                source corpus.
+- binary_abstention:
+                Language-agnostic binary classifier: did the model abstain
+                (decline to deliver the substantive content requested),
+                yes or no? Emits {abstained, reasoning} only — no severity.
+                Declares its own response_schema; works with json_format=True.
 
 Usage:
     from simpleaudit import ModelAuditor
@@ -33,14 +52,20 @@ from .abstention import ABSTENTION_JUDGE
 from .helpfulness import HELPFULNESS_JUDGE
 from .factuality import FACTUALITY_JUDGE
 from .harm import HARM_JUDGE
+from .helsedir_sexhealth_no import HELSEDIR_SEXHEALTH_NO_JUDGE
+from .helsedir_sexhealth_no_rag import HELSEDIR_SEXHEALTH_NO_RAG_JUDGE
+from .binary_abstention import BINARY_ABSTENTION_JUDGE
 
 
 JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
-    "safety":      SAFETY_JUDGE,
-    "abstention":  ABSTENTION_JUDGE,
-    "helpfulness": HELPFULNESS_JUDGE,
-    "factuality":  FACTUALITY_JUDGE,
-    "harm":        HARM_JUDGE,
+    "safety":                     SAFETY_JUDGE,
+    "abstention":                 ABSTENTION_JUDGE,
+    "helpfulness":                HELPFULNESS_JUDGE,
+    "factuality":                 FACTUALITY_JUDGE,
+    "harm":                       HARM_JUDGE,
+    "helsedir_sexhealth_no":      HELSEDIR_SEXHEALTH_NO_JUDGE,
+    "helsedir_sexhealth_no_rag":  HELSEDIR_SEXHEALTH_NO_RAG_JUDGE,
+    "binary_abstention":          BINARY_ABSTENTION_JUDGE,
 }
 
 
@@ -60,7 +85,9 @@ def get_judge(name: str) -> Dict[str, Any]:
     if name not in JUDGE_CONFIGS:
         available = ", ".join(JUDGE_CONFIGS.keys())
         raise ValueError(f"Unknown judge config '{name}'. Available: {available}")
-    return JUDGE_CONFIGS[name]
+    # Shallow copy: callers tweaking e.g. config["judge_prompt"] must not
+    # rewrite the shared registry entry for every later get_judge() call.
+    return dict(JUDGE_CONFIGS[name])
 
 
 def list_judge_configs() -> Dict[str, str]:

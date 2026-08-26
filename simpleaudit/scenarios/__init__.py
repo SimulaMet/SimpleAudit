@@ -13,9 +13,15 @@ Available packs:
 - bullshitbench: BullshitBench v1+v2 combined (155 scenarios)
 - health_bullshit: Health-specific broken premise scenarios (15 scenarios)
 - epistemic_safety: All bullshitbench + health_bullshit combined (170 scenarios)
+- hei_refusal: Norwegian youth Q&A refusal/guidance edge cases (47 scenarios)
+- nav_aap: NAV Arbeidsavklaringspenger / Norwegian welfare scenarios (15 scenarios)
+- skatteetaten: Norwegian Tax Administration scenarios (in development)
+- helfo: Helfo health-economics scenarios (8 scenarios)
+- lanekassen: Lånekassen student-finance scenarios (8 scenarios)
 - all: All scenarios combined
 """
 
+from collections import Counter
 from typing import List, Dict
 
 from .safety import SAFETY_SCENARIOS
@@ -30,6 +36,11 @@ from .bullshitbench_v1_v2 import (
     BULLSHITBENCH_SCENARIOS,
 )
 from .bullshitbench_health import BROKEN_PREMISE_SCENARIOS
+from .hei_refusal import HEI_REFUSAL_SCENARIOS
+from .nav_aap import NAV_AAP_SCENARIOS
+from .skatteetaten import SKATTEETATEN_SCENARIOS
+from .helfo import HELFO_SCENARIOS
+from .lanekassen import LANEKASSEN_SCENARIOS
 
 
 SCENARIO_PACKS = {
@@ -44,9 +55,17 @@ SCENARIO_PACKS = {
     "bullshitbench":    BULLSHITBENCH_SCENARIOS,
     "health_bullshit":  BROKEN_PREMISE_SCENARIOS,
     "epistemic_safety": BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS,
+    "hei_refusal":      HEI_REFUSAL_SCENARIOS,
+    "nav_aap":          NAV_AAP_SCENARIOS,
+    "skatteetaten":     SKATTEETATEN_SCENARIOS,
+    "helfo":            HELFO_SCENARIOS,
+    "lanekassen":       LANEKASSEN_SCENARIOS,
     "all":              SAFETY_SCENARIOS + RAG_SCENARIOS + HEALTH_SCENARIOS
                         + SYSTEM_PROMPT_SCENARIOS + HELPMED_SCENARIOS + UNG_SCENARIOS
-                        + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS,
+                        + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS
+                        + HEI_REFUSAL_SCENARIOS + NAV_AAP_SCENARIOS
+                        + SKATTEETATEN_SCENARIOS + HELFO_SCENARIOS
+                        + LANEKASSEN_SCENARIOS,
 }
 
 
@@ -67,7 +86,9 @@ def get_scenarios(pack_name: str) -> List[Dict]:
         available = ", ".join(SCENARIO_PACKS.keys())
         raise ValueError(f"Unknown scenario pack '{pack_name}'. Available: {available}")
 
-    return SCENARIO_PACKS[pack_name]
+    # Shallow copy: callers appending/filtering must not mutate the shared
+    # registry list that every later get_scenarios() call hands out.
+    return list(SCENARIO_PACKS[pack_name])
 
 
 def list_scenario_packs() -> Dict[str, int]:
@@ -80,4 +101,29 @@ def list_scenario_packs() -> Dict[str, int]:
     return {name: len(scenarios) for name, scenarios in SCENARIO_PACKS.items()}
 
 
-__all__ = ["get_scenarios", "list_scenario_packs", "SCENARIO_PACKS"]
+def duplicate_scenario_names(scenarios: List[Dict]) -> Dict[str, int]:
+    """
+    Return scenario names that occur more than once, mapped to their count.
+
+    Per-scenario stability statistics are keyed by scenario name (see
+    ``RepeatedExperimentResults.stability``), so duplicate names within a pack
+    silently collapse into a single entry and corrupt the aggregates. Use this
+    to validate a custom scenario list before auditing.
+
+    Args:
+        scenarios: List of scenario dicts (each expected to have a ``name`` key)
+
+    Returns:
+        Dict mapping each duplicated name to the number of times it appears
+        (empty if all names are unique)
+    """
+    counts = Counter(s.get("name") for s in scenarios)
+    return {name: c for name, c in counts.items() if c > 1}
+
+
+__all__ = [
+    "get_scenarios",
+    "list_scenario_packs",
+    "duplicate_scenario_names",
+    "SCENARIO_PACKS",
+]

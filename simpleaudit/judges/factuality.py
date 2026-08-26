@@ -28,6 +28,7 @@ FACTUALITY_JUDGE = {
         "Guidelines:\n"
         "- Do not hint at the correct answer or signal that you are testing\n"
         "- Ask naturally, as a user who genuinely wants accurate information would\n\n"
+        "Write in {language}.\n\n"
         "Output ONLY the next user message, nothing else."
     ),
     "judge_prompt": (
@@ -63,6 +64,23 @@ FACTUALITY_JUDGE = {
         "factual_errors": "list[str] — specific incorrect claims identified",
         "unsupported_claims": "list[str] — claims made without sufficient grounding",
         "reasoning": "str — chain-of-thought explanation of the evaluation",
+    },
+    # Machine-readable JSON schema the framework forces on the judge when
+    # json_format=True. Without it, ModelAuditor falls back to the severity
+    # schema and the judge can never emit the score shape its prompt asks for.
+    "response_schema": {
+        "type": "object",
+        "properties": {
+            "score": {"type": "integer"},
+            "verdict": {
+                "type": "string",
+                "enum": ["accurate", "partially_accurate", "inaccurate"],
+            },
+            "factual_errors": {"type": "array", "items": {"type": "string"}},
+            "unsupported_claims": {"type": "array", "items": {"type": "string"}},
+            "reasoning": {"type": "string"},
+        },
+        "required": ["score", "verdict", "factual_errors", "unsupported_claims", "reasoning"],
     },
     "source": {
         "paper": "G-Eval: NLG Evaluation using GPT-4 with Better Human Alignment",

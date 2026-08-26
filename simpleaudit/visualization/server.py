@@ -3,6 +3,7 @@ FastAPI server for visualizing SimpleAudit results.
 """
 import json
 import os
+import secrets
 from pathlib import Path
 from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException
@@ -26,29 +27,79 @@ CONTACT_EMAIL = os.getenv("SIMPLEAUDIT_VISUALIZER_EMAIL", "sushant@simula.no")
 RESULTS_DIR = None
 
 
+def _looks_like_audit_result(obj: object) -> bool:
+    return (
+        isinstance(obj, dict)
+        and ("scenario_name" in obj or "name" in obj)
+        and "severity" in obj
+    )
+
+
+def _experiment_models(data: object) -> List[str]:
+    """Model labels in an experiment file that have at least one loadable run.
+
+    A run is loadable when it is a dict holding a non-empty list of
+    audit-shaped results. Both the file tree and the JSON endpoint derive
+    their notion of "experiment" from this list, so the tree never shows an
+    entry (file or model) that the endpoint would refuse to serve.
+    """
+    if not isinstance(data, dict):
+        return []
+    runs = data.get("runs")
+    if not isinstance(runs, dict):
+        return []
+    models = []
+    for label, run_list in runs.items():
+        entries = run_list if isinstance(run_list, list) else [run_list]
+        for entry in entries:
+            if (
+                isinstance(entry, dict)
+                and isinstance(entry.get("results"), list)
+                and entry["results"]
+                and all(_looks_like_audit_result(item) for item in entry["results"])
+            ):
+                models.append(label)
+                break
+    return models
+
+
+def is_valid_audit_data(data) -> bool:
+    """Check whether parsed JSON has the shape of audit results."""
+
+    # Legacy shape: a list[AuditResult]
+    if isinstance(data, list):
+        return bool(data) and all(_looks_like_audit_result(item) for item in data)
+
+    # Current shape: {"results": list[AuditResult], ...}
+    if isinstance(data, dict) and "results" in data:
+        results = data["results"]
+        return (
+            isinstance(results, list)
+            and bool(results)
+            and all(_looks_like_audit_result(item) for item in results)
+        )
+
+    # Multi-model experiment shape: {"runs": {"model": [{"results": [...]}]}}
+    if isinstance(data, dict) and "runs" in data:
+        return bool(_experiment_models(data))
+
+    return False
+
+
 def is_valid_audit_json(file_path: str) -> bool:
     """
     Check if a JSON file contains valid audit results.
-    
+
     Args:
         file_path: Full path to the JSON file
-    
+
     Returns:
         True if the file contains valid audit results, False otherwise
     """
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        
-        # Check if it's an array
-        if isinstance(data, list):
-            return len(data) > 0
-        
-        # Check if it's an object with a 'results' key that's an array
-        if isinstance(data, dict) and 'results' in data:
-            return isinstance(data['results'], list) and len(data['results']) > 0
-        
-        return False
+        return is_valid_audit_data(data)
     except (json.JSONDecodeError, IOError, Exception):
         return False
 
@@ -87,8 +138,21 @@ def get_file_tree(directory: str, base_path: str = "") -> List[Dict]:
                     "children": children
                 })
         elif os.path.isfile(full_path) and entry.endswith('.json'):
-            # Validate JSON file before including it
-            if is_valid_audit_json(full_path):
+            # Parse once, then classify as a multi-model experiment or a plain results file
+            try:
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except Exception:
+                continue
+            experiment_models = _experiment_models(data)
+            if experiment_models:
+                items.append({
+                    "name": entry,
+                    "type": "experiment",
+                    "path": rel_path,
+                    "models": experiment_models
+                })
+            elif is_valid_audit_data(data):
                 items.append({
                     "name": entry,
                     "type": "file",
@@ -154,8 +218,12 @@ def check_secret(request: Request):
     """
     if not SECRET:
         return
-    token = request.headers.get("X-Secret")
-    if token != SECRET:
+    token = request.headers.get("X-Secret") or ""
+    # Constant-time comparison to avoid leaking the secret via timing. Compare
+    # UTF-8 bytes: compare_digest raises TypeError on non-ASCII str operands, so
+    # a non-ASCII header (or a non-ASCII configured secret) would otherwise turn
+    # a clean 401 into a 500.
+    if not secrets.compare_digest(token.encode("utf-8"), SECRET.encode("utf-8")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
 @app.get("/api/auth")
@@ -178,7 +246,10 @@ async def auth_check(request: Request):
     return JSONResponse(content={"ok": True, "enabled": bool(SECRET), "contact_email": CONTACT_EMAIL})
 
 @app.get("/api/files", dependencies=[Depends(check_secret)])
-async def get_files():
+def get_files():
+    # Plain def (not async): building the tree opens and json-parses every
+    # result file, and FastAPI runs sync endpoints in its threadpool instead
+    # of blocking the event loop for all concurrent requests.
     """Get the file tree of JSON files in the results directory."""
     if not RESULTS_DIR:
         raise HTTPException(status_code=500, detail="Results directory not set")
@@ -192,31 +263,42 @@ async def get_files():
 
 
 @app.get("/api/json/{file_path:path}", dependencies=[Depends(check_secret)])
-async def get_json_file(file_path: str):
+def get_json_file(file_path: str):
+    # Plain def for the same reason as get_files: file reads + json.load of
+    # arbitrarily large result files must not stall the event loop.
     """Get the contents of a specific JSON file."""
     if not RESULTS_DIR:
         raise HTTPException(status_code=500, detail="Results directory not set")
-    
-    # Security: Ensure the path doesn't escape the results directory
-    full_path = os.path.normpath(os.path.join(RESULTS_DIR, file_path))
-    
-    if not full_path.startswith(os.path.normpath(RESULTS_DIR)):
+
+    root = os.path.realpath(os.path.abspath(RESULTS_DIR))
+
+    try:
+        full_path = os.path.realpath(os.path.join(root, file_path))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    if not full_path.startswith(root + os.sep):
         raise HTTPException(status_code=403, detail="Access denied")
-    
-    if not os.path.exists(full_path):
+
+    if not os.path.isfile(full_path):
         raise HTTPException(status_code=404, detail="File not found")
-    
-    if not full_path.endswith('.json'):
+
+    if os.path.splitext(full_path)[1].lower() != ".json":
         raise HTTPException(status_code=400, detail="Not a JSON file")
-    
+
     try:
         with open(full_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return JSONResponse(content=data)
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
+    except OSError:
+        raise HTTPException(status_code=500, detail="Error reading file")
+
+    # Serve only files shaped like audit results.
+    if not is_valid_audit_data(data):
+        raise HTTPException(status_code=403, detail="Not an audit results file")
+
+    return JSONResponse(content=data)
 
 
 def start_server(results_dir: str, host: str = "127.0.0.1", port: int = 8000):

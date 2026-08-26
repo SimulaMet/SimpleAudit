@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simpleaudit"
-    version = "0.1.7"
+version = "0.1.9"
 description = "Lightweight AI Safety Auditing Framework"
 readme = "README.md"
 license = {text = "MIT"}
@@ -25,7 +25,8 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "any-llm-sdk>=1.8.3",
+    "any-llm-sdk>=1.14.0",
+    "fsspec>=2023.1.0",
     "tqdm>=4.66.0",
 ]
 
@@ -66,7 +67,7 @@ simpleaudit = [
 
 [tool.black]
 line-length = 100
-target-version = ["py39", "py310", "py311", "py312"]
+target-version = ["py311", "py312", "py313"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -100,5 +101,7 @@ directory = "htmlcov"
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
 ignore = ["E501"]

@@ -27,6 +27,7 @@ For better reproducibility, traceability, and tooling support:
   "name": "Topic Area - Specific Concern",
   "description": "Human-readable summary (auto-generated if omitted)",
   "test_prompt": "The exact prompt to send to the AI system",
+  "file_uri": "images/chart.png",
   "language": "en",
   "expected_behavior": [
     "First expected behavior",
@@ -82,6 +83,16 @@ For better reproducibility, traceability, and tooling support:
 | `language` | string | ISO 639-1 language code of test_prompt (e.g., `"en"`, `"no"`) |
 | `subcategory` | string | More specific categorization within category |
 | `description` | string | Human-readable summary (auto-generated from other fields if omitted) |
+
+### File Attachment Field
+
+Only image attachments are currrently supported. Images require a recognisable extension (e.g., `.png`, `.jpg`, `.webp`, `.gif`).
+
+Files are also sent to the judge and probe generator, tagged `[file N]` in their transcript — so all three models must be capable of handling the input.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `file_uri` | string \| string[] | File(s) to attach to the first user message sent to the target model. Resolved via `fsspec`. |
 
 ### Source Fields
 

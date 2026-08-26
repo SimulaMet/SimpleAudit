@@ -1,0 +1,53 @@
+# SimpleAudit — CODEOWNERS
+#
+# GitHub uses this file to auto-request reviews from the right people when a PR
+# touches matching paths. See GOVERNANCE.md for the roles behind these owners.
+#
+# IMPORTANT:
+#   * The file must be named exactly "CODEOWNERS" (no extension) and live at the
+#     repo root, in .github/, or in docs/. Recommended: .github/CODEOWNERS
+#   * Every owner listed must be a repository collaborator with write access,
+#     otherwise GitHub silently ignores that entry.
+#   * Later matches override earlier ones.
+#
+# Syntax:  <path-pattern>   @owner [@owner ...]
+
+# ---------------------------------------------------------------------------
+# Default owner for everything
+# ---------------------------------------------------------------------------
+*                                               @kelkalot
+
+# ---------------------------------------------------------------------------
+# Co-maintainers — uncomment and verify each GitHub handle + write access.
+# (Add maintainers from GOVERNANCE.md once their handles are confirmed.)
+# ---------------------------------------------------------------------------
+# *                                             @kelkalot @sushantgautam
+
+# ---------------------------------------------------------------------------
+# Domain-specific ownership — fill in handles, then uncomment.
+# These route reviews to the people responsible for sensitive areas.
+# ---------------------------------------------------------------------------
+
+# Core auditing / judge engine (methodology-sensitive)
+# /simpleaudit/                                 @kelkalot
+
+# Health / clinical scenarios & judges  (Norwegian Directorate of Health advisors)
+# /simpleaudit/scenarios/health.py              @kelkalot   # + <health-advisor>
+# /simpleaudit/scenarios/helpmed.py             @kelkalot   # + <health-advisor>
+# /simpleaudit/scenarios/bullshitbench_health.py  @kelkalot
+# /simpleaudit/judges/helsedir_sexhealth_no.py     @kelkalot
+# /simpleaudit/judges/helsedir_sexhealth_no_rag.py @kelkalot
+
+# Youth-domain scenario packs (provenance-sensitive)
+# /simpleaudit/scenarios/ung.py                 @kelkalot
+# /simpleaudit/scenarios/hei_refusal.py         @kelkalot
+
+# Norwegian public-sector packs
+# /simpleaudit/scenarios/nav_aap.py             @kelkalot
+# /simpleaudit/scenarios/skatteetaten.py        @kelkalot
+
+# Governance, security & policy docs
+# /GOVERNANCE.md                                @kelkalot
+# /SECURITY.md                                  @kelkalot
+# /CODE_OF_CONDUCT.md                           @kelkalot
+# /DPG.md                                       @kelkalot

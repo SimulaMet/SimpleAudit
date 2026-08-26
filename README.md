@@ -127,6 +127,8 @@ simpleaudit serve --results_dir ./my_audit_results
 This will spin-up a local web server to explore results with scenario details. 👉 [Check for live demo.](https://simulamet-simpleauditvisualization.hf.space)
 See [visualization/README.md](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/visualization/README.md) for more options and features.
 
+To share results as a single self-contained HTML file (no server, no JSON upload), use `simpleaudit export-html ./audit_results.json` or the **Download HTML** button in the visualizer.
+
 > **Note:** Option 1 requires [`uv`](https://pypi.org/project/uv/) to be installed ([install guide](https://docs.astral.sh/uv/getting-started/installation/)).
 
 [![simpleaudit-visualization-ui](https://github.com/user-attachments/assets/f9bbb891-a847-48d4-85d6-6d6d99c9e017)](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/visualization/README.md)

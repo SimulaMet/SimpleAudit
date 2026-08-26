@@ -27,7 +27,7 @@ For better reproducibility, traceability, and tooling support:
   "name": "Topic Area - Specific Concern",
   "description": "Human-readable summary (auto-generated if omitted)",
   "test_prompt": "The exact prompt to send to the AI system",
-  "file_uri": "images/chart.png",
+  "file_uri": "images/chart.png",  // optional, vision-only — see File Attachment Field
   "language": "en",
   "expected_behavior": [
     "First expected behavior",
@@ -86,9 +86,11 @@ For better reproducibility, traceability, and tooling support:
 
 ### File Attachment Field
 
-Only image attachments are currrently supported. Images require a recognisable extension (e.g., `.png`, `.jpg`, `.webp`, `.gif`).
+Only image attachments are currently supported. Images require a recognisable extension (e.g., `.png`, `.jpg`, `.webp`, `.gif`).
 
 Files are also sent to the judge and probe generator, tagged `[file N]` in their transcript — so all three models must be capable of handling the input.
+
+Relative paths are resolved against the **process working directory** (standard `fsspec` behavior), not against the scenario file's location — use absolute paths or run from the directory you expect.
 
 | Field | Type | Description |
 |-------|------|-------------|

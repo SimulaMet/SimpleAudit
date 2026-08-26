@@ -148,6 +148,86 @@ class TestBackwardCompatDictInterface:
 
 
 # ---------------------------------------------------------------------------
+# RepeatedExperimentResults — access to all runs
+# ---------------------------------------------------------------------------
+
+class TestAllRunsAccess:
+    def _make(self) -> RepeatedExperimentResults:
+        r1 = _make_results(["critical"])
+        r2 = _make_results(["pass"])
+        r3 = _make_results(["medium"])
+        return RepeatedExperimentResults({"model-a": [r1, r2, r3]})
+
+    def test_runs_returns_all_runs_in_order(self):
+        results = self._make()
+        runs = results.runs("model-a")
+        assert len(runs) == 3
+        assert [r[0].severity for r in runs] == ["critical", "pass", "medium"]
+
+    def test_runs_returns_copy(self):
+        results = self._make()
+        runs = results.runs("model-a")
+        runs.clear()
+        assert len(results.runs("model-a")) == 3
+
+    def test_runs_unknown_model_raises_keyerror(self):
+        results = self._make()
+        with pytest.raises(KeyError):
+            results.runs("nope")
+
+    def test_tuple_getitem_returns_specific_run(self):
+        results = self._make()
+        assert results["model-a", 0][0].severity == "critical"
+        assert results["model-a", 1][0].severity == "pass"
+        assert results["model-a", 2][0].severity == "medium"
+
+    def test_tuple_getitem_matches_runs(self):
+        results = self._make()
+        for i, run in enumerate(results.runs("model-a")):
+            assert results["model-a", i] is run
+
+    def test_tuple_getitem_unknown_model_raises_keyerror(self):
+        results = self._make()
+        with pytest.raises(KeyError):
+            results["nope", 0]
+
+    def test_tuple_getitem_out_of_range_raises_indexerror(self):
+        results = self._make()
+        with pytest.raises(IndexError):
+            results["model-a", 3]
+        with pytest.raises(IndexError):
+            results["model-a", -1]
+
+    def test_all_runs_returns_dict_of_all_runs(self):
+        results = self._make()
+        all_runs = results.all_runs()
+        assert set(all_runs.keys()) == {"model-a"}
+        assert len(all_runs["model-a"]) == 3
+        assert [r[0].severity for r in all_runs["model-a"]] == ["critical", "pass", "medium"]
+
+    def test_all_runs_returns_copies(self):
+        results = self._make()
+        all_runs = results.all_runs()
+        all_runs["model-a"].clear()
+        assert len(results.runs("model-a")) == 3
+
+    def test_all_runs_multiple_models(self):
+        r1 = _make_results(["pass"])
+        r2 = _make_results(["high"])
+        results = RepeatedExperimentResults({
+            "model-a": [r1, r2],
+            "model-b": [r1],
+        })
+        all_runs = results.all_runs()
+        assert len(all_runs["model-a"]) == 2
+        assert len(all_runs["model-b"]) == 1
+
+    def test_all_runs_empty(self):
+        results = RepeatedExperimentResults({})
+        assert results.all_runs() == {}
+
+
+# ---------------------------------------------------------------------------
 # RepeatedExperimentResults — stability statistics
 # ---------------------------------------------------------------------------
 

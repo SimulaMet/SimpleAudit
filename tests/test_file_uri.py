@@ -19,7 +19,11 @@ from simpleaudit.utils import image_data_uri, image_media_type, image_content_bl
 
 from .fakes import FakeClient, make_auditor
 
-PNG_BYTES = b"\x89PNG\r\n\x1a\nnot-a-real-image"
+# A real, minimal 1x1 red PNG — not just a header glued to ASCII, so the
+# tests keep passing if image validation starts checking magic bytes.
+PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+)
 
 JUDGE_JSON = json.dumps({
     "severity": "pass",
@@ -28,14 +32,6 @@ JUDGE_JSON = json.dumps({
     "summary": "Fine.",
     "recommendations": [],
 })
-
-
-@pytest.fixture(autouse=True)
-def clear_image_cache():
-    """Encoded payloads are cached process-wide; keep tests independent."""
-    image_data_uri.cache_clear()
-    yield
-    image_data_uri.cache_clear()
 
 
 @pytest.fixture
@@ -64,9 +60,9 @@ class _Capture:
         return next(m for m in self.last if m["role"] == "user")
 
 
-def _image_scenario(*, file_uri):
+def _image_scenario(*, file_uri, name="Image read"):
     return {
-        "name": "Image read",
+        "name": name,
         "description": "Model should describe the image",
         "test_prompt": "What is in this image?",
         "file_uri": file_uri,
@@ -74,13 +70,23 @@ def _image_scenario(*, file_uri):
 
 
 def _run(*, scenario, target, judge, auditor=None, max_turns=1):
+    return _run_batch(
+        scenarios=[scenario],
+        target=target,
+        judge=judge,
+        auditor=auditor,
+        max_turns=max_turns,
+    )
+
+
+def _run_batch(*, scenarios, target, judge, auditor=None, max_turns=1):
     ma = make_auditor(
         target=FakeClient(response_fn=target),
         judge=FakeClient(response_fn=judge),
         auditor=FakeClient(response_fn=auditor) if auditor else None,
         max_turns=max_turns,
     )
-    return asyncio.run(ma.run_async(scenarios=[scenario], max_turns=max_turns))
+    return asyncio.run(ma.run_async(scenarios=scenarios, max_turns=max_turns))
 
 
 # --- image_content_block ---------------------------------------------------
@@ -136,19 +142,30 @@ class TestMediaTypeResolution:
 
 class TestEncodingIsCached:
     def test_repeated_uris_are_read_once(self, png_path):
+        image_data_uri.cache_clear()
         for _ in range(3):
             image_content_block(file_uri=png_path)
         info = image_data_uri.cache_info()
         assert (info.misses, info.hits) == (1, 2)
 
+    def test_cache_clear_resets_counters(self, png_path):
+        image_data_uri.cache_clear()
+        image_content_block(file_uri=png_path)
+        assert image_data_uri.cache_info().misses == 1
+        image_data_uri.cache_clear()
+        assert image_data_uri.cache_info().misses == 0
+        assert image_data_uri.cache_info().hits == 0
+
     def test_a_new_run_re_reads_a_changed_file(self, png_path):
+        image_data_uri.cache_clear()
         scenario = _image_scenario(file_uri=png_path)
         first = _Capture(response="A bar chart.")
         _run(scenario=scenario, target=first, judge=_Capture(response=JUDGE_JSON))
 
         # Same URI, new bytes — the notebook loop of regenerating a figure and
         # re-auditing must not replay the old encoding.
-        pathlib.Path(png_path).write_bytes(b"\x89PNG\r\n\x1a\nregenerated")
+        regenerated = PNG_BYTES + b"regenerated"
+        pathlib.Path(png_path).write_bytes(regenerated)
         second = _Capture(response="A line chart.")
         _run(scenario=scenario, target=second, judge=_Capture(response=JUDGE_JSON))
 
@@ -156,17 +173,31 @@ class TestEncodingIsCached:
             return capture.first_user_message()["content"][1]["image_url"]["url"]
 
         assert encoded(first) != encoded(second)
-        assert base64.b64decode(encoded(second).split(",", 1)[1]) == (
-            b"\x89PNG\r\n\x1a\nregenerated"
-        )
+        assert base64.b64decode(encoded(second).split(",", 1)[1]) == regenerated
 
     def test_distinct_uris_are_cached_separately(self, png_path, tmp_path):
+        image_data_uri.cache_clear()
         other = tmp_path / "second.png"
         other.write_bytes(b"different-bytes")
         first = image_content_block(file_uri=png_path)
         second = image_content_block(file_uri=str(other))
         assert first["image_url"]["url"] != second["image_url"]["url"]
         assert image_data_uri.cache_info().misses == 2
+
+
+class TestFsspecRoundTrip:
+    def test_memory_uri_round_trips_through_fsspec(self):
+        # Exercise fsspec beyond local paths: write to an in-memory filesystem,
+        # then encode from the memory:// URI.
+        import fsspec
+
+        fs = fsspec.filesystem("memory")
+        fs.pipe("dir/chart.png", PNG_BYTES)
+        block = image_content_block(file_uri="memory://dir/chart.png")
+        assert block["type"] == "image_url"
+        url = block["image_url"]["url"]
+        assert url.startswith("data:image/png;base64,")
+        assert base64.b64decode(url.split(",", 1)[1]) == PNG_BYTES
 
 
 # --- _expand_files ----------------------------------------------------------
@@ -196,13 +227,18 @@ class TestExpandFiles:
             "file_uri": png_path,
         }
 
-    def test_list_of_uris_produces_one_block_each(self, png_path):
+    def test_list_of_uris_produces_one_block_each(self, png_path, tmp_path):
+        # Two distinct files, so reordering or misattribution is detectable.
+        other = tmp_path / "second.png"
+        other.write_bytes(PNG_BYTES + b"-second")
         expanded = _expand_files(
-            message={"role": "user", "content": "Compare", "file_uri": [png_path, png_path]}
+            message={"role": "user", "content": "Compare", "file_uri": [png_path, str(other)]}
         )
         content = expanded["content"]
         assert len(content) == 3
         assert [block["type"] for block in content] == ["text", "image_url", "image_url"]
+        assert base64.b64decode(content[1]["image_url"]["url"].split(",", 1)[1]) == PNG_BYTES
+        assert base64.b64decode(content[2]["image_url"]["url"].split(",", 1)[1]) == PNG_BYTES + b"-second"
 
 
 class TestRenderConversation:
@@ -340,6 +376,7 @@ class TestFileUriEndToEnd:
         assert entry["file_uri"] == png_path
 
     def test_image_persists_across_turns(self, png_path):
+        image_data_uri.cache_clear()
         target = _Capture(response="A bar chart.")
         judge = _Capture(response=JUDGE_JSON)
         _run(
@@ -357,18 +394,28 @@ class TestFileUriEndToEnd:
         # ...but it is read and encoded only once across those turns.
         assert image_data_uri.cache_info().misses == 1
 
-    def test_bad_file_uri_fails_the_scenario_not_the_run(self):
+    def test_bad_file_uri_fails_the_scenario_not_the_run(self, png_path):
+        # A multi-scenario batch: the broken scenario must come back as an
+        # ERROR result while the healthy sibling still runs to completion —
+        # one bad file must not abort the whole run.
         target = _Capture(response="A bar chart.")
         judge = _Capture(response=JUDGE_JSON)
-        results = _run(
-            scenario=_image_scenario(file_uri="/tmp/screenshot"),
+        results = _run_batch(
+            scenarios=[
+                _image_scenario(file_uri="/tmp/screenshot", name="Broken image"),
+                _image_scenario(file_uri=png_path, name="Fine image"),
+            ],
             target=target,
             judge=judge,
         )
 
-        result = results.results[0]
-        assert result.severity == "ERROR"
-        assert "Cannot determine an image type" in " ".join(result.issues_found)
+        by_name = {r.scenario_name: r for r in results.results}
+        assert set(by_name) == {"Broken image", "Fine image"}
+        assert by_name["Broken image"].severity == "ERROR"
+        assert "Cannot determine an image type" in " ".join(by_name["Broken image"].issues_found)
+        # The sibling ran normally and kept its file_uri in the stored conversation.
+        assert by_name["Fine image"].severity != "ERROR"
+        assert by_name["Fine image"].conversation[0]["file_uri"] == png_path
 
     def test_scenario_without_file_uri_is_unchanged(self):
         target = _Capture(response="Sure.")

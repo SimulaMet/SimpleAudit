@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SimpleAudit Result Visualizer</title>
-    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -80,6 +80,10 @@
         }
 
         window.addEventListener('load', async () => {
+            // Standalone export: no server, skip auth and file tree loading
+            if (window.__inlinedData) {
+                return;
+            }
             const submit = document.getElementById('auth-submit');
             if (submit) {
                 submit.addEventListener('click', async () => {
@@ -212,8 +216,33 @@
             }
         }
         
+        /* Standalone scenario export: no list to go back to */
+        body.standalone-scenario .back-button {
+            display: none !important;
+        }
+        
         .sidebar-hidden {
             display: none !important;
+        }
+        
+        /* Marquee effect for truncated file tree names */
+        .tree-item .marquee-wrap {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            position: relative;
+        }
+        .tree-item .marquee-text {
+            display: inline-block;
+            white-space: nowrap;
+            padding-right: 2em;
+        }
+        .tree-item:hover .marquee-text {
+            animation: marquee-scroll 3s linear infinite;
+        }
+        @keyframes marquee-scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
         }
     </style>
 </head>
@@ -405,9 +434,50 @@
         let sidebarWidth = 320; // Default width in pixels
         let expandedFolders = new Set(); // Track expanded folders
         let uploadedExperiment = null; // Holds multi-result data from uploaded file
+        let currentExperimentRuns = null; // { model, runs: [...] } for run switching
+        let currentRunIndex = 0; // Index of the currently selected run
 
         // On page load, check for file and scenario in URL
         window.addEventListener('DOMContentLoaded', () => {
+            // Standalone export: the JSON was inlined into this HTML file, so
+            // load it directly — no server, no upload step.
+            if (window.__inlinedData) {
+                window.__customUpload = true;
+                const mode = window.__standaloneMode || 'single';
+                if (mode === 'experiment') {
+                    // Experiment export: file tree sidebar and resizer are
+                    // already removed from the HTML.  Render the model picker
+                    // in the scenario list area so the user can choose a model.
+                    const data = window.__inlinedData;
+                    const models = experimentModels(data);
+                    const listEl = document.getElementById('scenario-list');
+                    if (listEl && models.length > 0) {
+                        listEl.innerHTML = '';
+                        models.forEach(model => {
+                            const runs = data.runs[model];
+                            const runLabel = Array.isArray(runs) && runs.length > 1 ? ` — run 1 of ${runs.length}` : '';
+                            const el = document.createElement('div');
+                            el.className = 'p-3 rounded-lg border border-gray-200 bg-white cursor-pointer hover:bg-gray-50 transition-colors';
+                            el.innerHTML = `<div class="flex items-center gap-2"><span class="file-icon text-base"></span><span class="text-sm font-medium text-gray-700">${escapeHtml(model)}</span>${runLabel ? `<span class="text-xs text-gray-400">${runLabel}</span>` : ''}</div>`;
+                            el.onclick = () => {
+                                currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
+                                currentRunIndex = 0;
+                                processData(Array.isArray(runs) ? runs[0] : runs, `${window.__inlinedName || 'export'} — ${model}${runLabel}`, true);
+                            };
+                            listEl.appendChild(el);
+                        });
+                        document.getElementById('file-info').textContent = `${window.__inlinedName || 'exported results'} — select a model`;
+                        return;
+                    }
+                }
+                // 'single' and 'scenario' modes: the HTML already has the
+                // appropriate elements removed.  Just process the data.
+                if (mode === 'scenario') {
+                    document.body.classList.add('standalone-scenario');
+                }
+                processData(window.__inlinedData, window.__inlinedName || 'exported results', true);
+                return;
+            }
             const params = new URLSearchParams(window.location.search);
             let file = params.get('case');
             // If there is a file param, this is a server file, not a custom upload
@@ -514,8 +584,10 @@
         }
 
         // Initialize
-        document.getElementById('search-input').addEventListener('input', handleFilter);
-        document.getElementById('sort-select').addEventListener('change', handleFilter);
+        const searchInput = document.getElementById('search-input');
+        const sortSelect = document.getElementById('sort-select');
+        if (searchInput) searchInput.addEventListener('input', handleFilter);
+        if (sortSelect) sortSelect.addEventListener('change', handleFilter);
 
         // the actual loading of data and resizer must wait until auth is settled;
         // the window 'load' handler configured earlier will call ensureLoggedIn
@@ -527,6 +599,7 @@
             const sidebar = document.getElementById('file-tree-sidebar');
             const resizer = document.getElementById('resizer');
             const overlay = document.querySelector('.mobile-overlay');
+            if (!sidebar) return;
             
             if (window.innerWidth < 768) {
                 // Mobile behavior - toggle overlay sidebar
@@ -549,7 +622,7 @@
         function closeMobileSidebar() {
             const sidebar = document.getElementById('file-tree-sidebar');
             const overlay = document.querySelector('.mobile-overlay');
-            
+            if (!sidebar || !overlay) return;
             sidebar.classList.remove('mobile-open');
             overlay.classList.remove('active');
         }
@@ -559,6 +632,7 @@
         function initResizer() {
             const resizer = document.getElementById('resizer');
             const sidebar = document.getElementById('file-tree-sidebar');
+            if (!resizer || !sidebar) return;
             let isResizing = false;
             let startX = 0;
             let startWidth = 0;
@@ -592,7 +666,13 @@
 
         // --- File Tree Functions ---
 
+        let currentFileTree = [];
+
         async function loadFileTree() {
+            // Standalone export: no server, skip file tree loading
+            if (window.__inlinedData) {
+                return;
+            }
             const container = document.getElementById('file-tree');
             container.innerHTML = '<div class="text-center text-gray-400"><div class="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto mb-2"></div>Loading files...</div>';
             
@@ -601,6 +681,7 @@
                 if (!response.ok) throw new Error('Failed to load files');
                 
                 const data = await response.json();
+                currentFileTree = data.tree;
                 renderFileTree(data.tree, container);
             } catch (error) {
                 container.innerHTML = `<div class="text-center text-red-500 p-4">Error loading files: ${escapeHtml(error.message)}</div>`;
@@ -629,15 +710,15 @@
                     const folderDiv = document.createElement('div');
                     
                     const header = document.createElement('div');
-                    header.className = 'tree-item flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
+                    header.className = 'tree-item group flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
                     
                     // Check if this folder should be expanded (either explicitly or it contains the selected file)
                     const shouldBeOpen = expandedFolders.has(item.path) || isParentOfSelectedFile(item);
                     
                     header.innerHTML = `
-                        <span class="folder-icon text-base ${shouldBeOpen ? 'open' : ''}"></span>
-                        <span class="flex-1 font-medium text-gray-700">${escapeHtml(item.name)}</span>
-                        <span class="text-xs text-gray-400">${item.children.length}</span>
+                        <span class="folder-icon text-base ${shouldBeOpen ? 'open' : ''} shrink-0"></span>
+                        <span class="marquee-wrap font-medium text-gray-700" title="${escapeHtml(item.name)}"><span class="marquee-text">${escapeHtml(item.name)}</span></span>
+                        <span class="text-xs text-gray-400 shrink-0">${item.children.length}</span>
                     `;
                     
                     const childrenDiv = document.createElement('div');
@@ -671,7 +752,10 @@
                             if (!resp.ok) throw new Error('Failed to load');
                             const data = await resp.json();
                             const runs = data.runs[model];
-                            processData(Array.isArray(runs) ? runs[0] : runs, `${item.name} \u2014 ${model}`, false);
+                            const runLabel = Array.isArray(runs) && runs.length > 1 ? ` \u2014 run 1 of ${runs.length}` : '';
+                            currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
+                            currentRunIndex = 0;
+                            processData(Array.isArray(runs) ? runs[0] : runs, `${item.name} \u2014 ${model}${runLabel}`, false);
                         } catch (e) {
                             document.getElementById('file-info').textContent = `Error: ${e.message}`;
                         }
@@ -681,10 +765,15 @@
                     // JSON file
                     const fileDiv = document.createElement('div');
                     const isSelected = currentFilePath === item.path;
-                    fileDiv.className = `tree-item flex items-center py-1 px-2 rounded hover:bg-indigo-50 text-sm transition-colors ${isSelected ? 'bg-indigo-100 ring-1 ring-indigo-500' : ''}`;
+                    fileDiv.className = `tree-item group flex items-center py-1 px-2 rounded hover:bg-indigo-50 text-sm transition-colors ${isSelected ? 'bg-indigo-100 ring-1 ring-indigo-500' : ''}`;
                     fileDiv.innerHTML = `
-                        <span class="file-icon text-base"></span>
-                        <span class="flex-1 text-gray-700 ${isSelected ? 'font-semibold' : ''}">${escapeHtml(item.name)}</span>
+                        <span class="file-icon text-base shrink-0"></span>
+                        <span class="marquee-wrap text-gray-700 ${isSelected ? 'font-semibold' : ''}" title="${escapeHtml(item.name)}"><span class="marquee-text">${escapeHtml(item.name)}</span></span>
+                        <button onclick="event.stopPropagation(); downloadFileHtml('${escapeHtml(item.path)}')" class="shrink-0 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-indigo-600 transition-all p-1" title="Download this file as standalone HTML">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                        </button>
                     `;
                     fileDiv.onclick = () => {
                         currentExperimentSelection = null;
@@ -709,13 +798,20 @@
         // Render a multi-model experiment as an expandable folder with model children.
         // loadModel(model) is invoked when a model row is clicked.
         function renderExperimentFolder(name, key, models, loadModel, isOpen) {
+            // Strip .json extension for cleaner folder display
+            const displayName = name.replace(/\.json$/i, '');
             const folderDiv = document.createElement('div');
             const header = document.createElement('div');
-            header.className = 'tree-item flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
+            header.className = 'tree-item group flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
             header.innerHTML = `
-                <span class="folder-icon text-base ${isOpen ? 'open' : ''}"></span>
-                <span class="flex-1 font-medium text-gray-700">${escapeHtml(name)}</span>
-                <span class="text-xs text-gray-400">${models.length}</span>
+                <span class="folder-icon text-base ${isOpen ? 'open' : ''} shrink-0"></span>
+                <span class="marquee-wrap font-medium text-gray-700" title="${escapeHtml(displayName)}"><span class="marquee-text">${escapeHtml(displayName)}</span></span>
+                <button onclick="event.stopPropagation(); downloadFileHtml('${escapeHtml(key)}')" class="shrink-0 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-indigo-600 transition-all p-1" title="Download this experiment as standalone HTML">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                </button>
+                <span class="text-xs text-gray-400 shrink-0">${models.length}</span>
             `;
             const childrenDiv = document.createElement('div');
             childrenDiv.className = `tree-children ${isOpen ? '' : 'hidden'}`;
@@ -761,6 +857,156 @@
             const text = selectedElement.querySelector('.flex-1');
             if (text) text.classList.add('font-semibold');
         }
+
+        // Download a file (experiment or single run) as standalone HTML
+        async function downloadFileHtml(filePath) {
+            // Find the item in the file tree
+            const item = findTreeItem(currentFileTree, filePath);
+            if (!item) {
+                alert('Could not find file: ' + filePath);
+                return;
+            }
+            const name = item.name;
+            const isExperiment = item.type === 'experiment';
+            
+            // Fetch the actual JSON data from the server
+            let data;
+            try {
+                const resp = await apiFetch(`/api/json/${encodeURIComponent(filePath)}`);
+                if (!resp.ok) throw new Error('Failed to load');
+                data = await resp.json();
+            } catch (e) {
+                alert('Failed to load data: ' + e.message);
+                return;
+            }
+            
+            const json = JSON.stringify(data)
+                .replace(/</g, '\\u003c')
+                .replace(/\u2028/g, '\u2028')
+                .replace(/\u2029/g, '\u2029');
+            const script = '<script>window.__inlinedData = ' + json + '; window.__inlinedName = ' + JSON.stringify(name).replace(/</g, '\\u003c') + '; window.__standaloneMode = ' + JSON.stringify(isExperiment ? 'experiment' : 'single') + ';<' + '/script>';
+            let html = document.documentElement.outerHTML;
+            // Remove the file tree sidebar and resizer (scenario picker stays)
+            html = removeDivBlock(html, '<div id="file-tree-sidebar"');
+            html = removeDivBlock(html, '<div class="resizer" id="resizer">');
+            html = removeUploadButton(html);
+            html = removeDownloadButtons(html);
+            html = removeHamburgerButton(html);
+            html = html.replace('</head>', `${script}\n</head>`);
+            const blob = new Blob([html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${name.replace(/[^a-zA-Z0-9._-]+/g, '_')}.html`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Helper: find an item in the file tree by path
+        function findTreeItem(items, path) {
+            for (const item of items) {
+                if (item.path === path) return item;
+                if (item.children) {
+                    const found = findTreeItem(item.children, path);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+
+        // Remove a top-level <div> block from an HTML string by its opening
+        // marker.  The marker can be any substring within the opening <div> tag.
+        // The function finds the <div> tag that contains the marker, then removes
+        // the entire block including all nested divs.
+        function removeDivBlock(html, marker) {
+            const markerPos = html.indexOf(marker);
+            if (markerPos === -1) return html;
+            // Find the start of the <div> tag that contains this marker
+            let divStart = html.lastIndexOf('<div', markerPos);
+            if (divStart === -1) return html;
+            // Verify this is actually a <div> tag (not </div>)
+            if (html[divStart + 4] !== ' ' && html[divStart + 4] !== '>') return html;
+            // Now count depth from the <div> tag start
+            let depth = 0, i = divStart;
+            while (i < html.length) {
+                if (html[i] === '<' && html[i + 1] === 'd' && html[i + 2] === 'i' && html[i + 3] === 'v' && (html[i + 4] === ' ' || html[i + 4] === '>')) depth++;
+                if (html.substring(i, i + 6) === '</div>') {
+                    depth--;
+                    if (depth === 0) { i += 6; break; }
+                }
+                i++;
+            }
+            return html.substring(0, divStart) + html.substring(i);
+        }
+
+        // Remove the Upload JSON button and its hidden file input from an HTML string
+        function removeUploadButton(html) {
+            const marker = 'id="upload-json-input"';
+            const markerPos = html.indexOf(marker);
+            if (markerPos === -1) return html;
+            // Find the start of the <input> tag
+            const inputStart = html.lastIndexOf('<input', markerPos);
+            if (inputStart === -1) return html;
+            // Find the end of the <input> tag
+            const inputEnd = html.indexOf('>', inputStart) + 1;
+            // Now find the <button> that follows
+            const btnStart = html.indexOf('<button', inputEnd);
+            if (btnStart === -1) return html.substring(0, inputStart) + html.substring(inputEnd);
+            const btnEnd = html.indexOf('</button>', btnStart) + '</button>'.length;
+            return html.substring(0, inputStart) + html.substring(btnEnd);
+        }
+
+        // Remove all download buttons (file tree + scenario list) from an HTML string
+        function removeDownloadButtons(html) {
+            // Remove file tree download buttons
+            html = html.replace(/<button onclick="event\.stopPropagation\(\); downloadFileHtml\([^)]*\)"[^>]*>[\s\S]*?<\/button>/g, '');
+            // Remove scenario download buttons
+            html = html.replace(/<button onclick="event\.stopPropagation\(\); downloadScenarioHtml\([^)]*\)"[^>]*>[\s\S]*?<\/button>/g, '');
+            return html;
+        }
+
+        // Remove the hamburger (toggle sidebar) button from an HTML string
+        function removeHamburgerButton(html) {
+            const marker = 'title="Toggle file tree"';
+            const markerPos = html.indexOf(marker);
+            if (markerPos === -1) return html;
+            const btnStart = html.lastIndexOf('<button', markerPos);
+            if (btnStart === -1) return html;
+            const btnEnd = html.indexOf('</button>', btnStart) + '</button>'.length;
+            return html.substring(0, btnStart) + html.substring(btnEnd);
+        }
+
+        function downloadScenarioHtml(scenarioId) {
+            const s = currentScenarios.find(sc => sc.id === scenarioId);
+            if (!s) return;
+            const title = s.scenario_name || s.name || scenarioId;
+            // Wrap in an array so processData() recognizes it as a valid format
+            const json = JSON.stringify([s])
+                .replace(/</g, '\\u003c')
+                .replace(/\u2028/g, '\\u2028')
+                .replace(/\u2029/g, '\\u2029');
+            const script = '<script>window.__inlinedData = ' + json + '; window.__inlinedName = ' + JSON.stringify(title).replace(/</g, '\\u003c') + '; window.__standaloneMode = "scenario";<' + '/script>';
+            let html = document.documentElement.outerHTML;
+            // Remove file tree sidebar
+            html = removeDivBlock(html, '<div id="file-tree-sidebar"');
+            // Remove resizer
+            html = removeDivBlock(html, '<div class="resizer" id="resizer">');
+            // Remove scenario list container (includes dashboard, filters, and list)
+            // Use a simple marker since the class list can change (e.g. has-detail)
+            html = removeDivBlock(html, 'id="scenario-list-container"');
+            html = removeUploadButton(html);
+            html = removeDownloadButtons(html);
+            html = removeHamburgerButton(html);
+            html = html.replace('</head>', script + '\n</head>');
+            const blob = new Blob([html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${title.replace(/[^a-zA-Z0-9._-]+/g, '_')}.html`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
 
         // Handle uploaded file
         function handleUploadedFile(event) {
@@ -824,6 +1070,14 @@
             window.__customUpload = false;
             uploadedExperiment = null;
 
+            // Update URL with ?case=... so Copy URL works immediately
+            if (history.replaceState) {
+                const url = new URL(window.location);
+                url.searchParams.set('case', encodeURIComponent(path));
+                url.hash = '';
+                history.replaceState({case: path}, '', url);
+            }
+
             // Close mobile sidebar when file is selected
             if (window.innerWidth < 768) {
                 closeMobileSidebar();
@@ -877,7 +1131,10 @@
             const folderDiv = renderExperimentFolder(filename, key, experimentModels(data), (model) => {
                 try {
                     const runs = data.runs[model];
-                    processData(Array.isArray(runs) ? runs[0] : runs, `${filename} \u2014 ${model}`, true);
+                    const runLabel = Array.isArray(runs) && runs.length > 1 ? ` \u2014 run 1 of ${runs.length}` : '';
+                    currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
+                    currentRunIndex = 0;
+                    processData(Array.isArray(runs) ? runs[0] : runs, `${filename} \u2014 ${model}${runLabel}`, true);
                 } catch (e) {
                     document.getElementById('file-info').textContent = `Error: ${e.message}`;
                 }
@@ -885,7 +1142,19 @@
             document.getElementById('file-tree').appendChild(folderDiv);
         }
 
+        function selectRun(runIndex) {
+            if (!currentExperimentRuns || !currentExperimentRuns.runs[runIndex]) return;
+            const { model, runs } = currentExperimentRuns;
+            currentRunIndex = runIndex;
+            const runLabel = runs.length > 1 ? ` \u2014 run ${runIndex + 1} of ${runs.length}` : '';
+            processData(runs[runIndex], `${model}${runLabel}`, true);
+        }
+
         function processData(data, filename, isCustomUpload = false) {
+            // Remember the last processed payload so "Download HTML" can
+            // re-embed it in a standalone export.
+            window.__lastProcessedData = data;
+            window.__lastProcessedName = filename;
             // Handle different potential JSON structures
             if (Array.isArray(data)) {
                 allScenarios = data;
@@ -896,7 +1165,11 @@
                 if (isCustomUpload) {
                     uploadedExperiment = { data, filename };
                     expandedFolders.add(`upload::${filename}`);
-                    appendExperimentToTree(data, filename);
+                    // In standalone exports the file tree sidebar is removed,
+                    // so skip appending to it.
+                    if (!window.__inlinedData) {
+                        appendExperimentToTree(data, filename);
+                    }
                 } else if (currentFilePath) {
                     // Server experiment opened directly (e.g. via a ?case= link):
                     // the file tree already lists it, so just expand its folder
@@ -905,12 +1178,16 @@
                     loadFileTree();
                 }
                 // Show a prompt to select a model
-                document.getElementById('file-info').textContent = `${filename} — select a model`;
-                document.getElementById('scenario-list').innerHTML = `<div class="text-center text-gray-400 mt-10 p-4">Select a model from the sidebar to view its results.</div>`;
+                const fileInfo = document.getElementById('file-info');
+                if (fileInfo) fileInfo.textContent = `${filename} — select a model`;
+                const scenarioList = document.getElementById('scenario-list');
+                if (scenarioList) scenarioList.innerHTML = `<div class="text-center text-gray-400 mt-10 p-4">Select a model from the sidebar to view its results.</div>`;
                 return;
             } else {
-                document.getElementById('file-info').textContent = `Error: Invalid format`;
-                document.getElementById('scenario-list').innerHTML = `
+                const fileInfo = document.getElementById('file-info');
+                if (fileInfo) fileInfo.textContent = `Error: Invalid format`;
+                const scenarioList = document.getElementById('scenario-list');
+                if (scenarioList) scenarioList.innerHTML = `
                     <div class="text-center text-red-500 p-4 m-4">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -966,9 +1243,12 @@
                 }
             });
 
-            document.getElementById('file-info').textContent = `${filename} • ${allScenarios.length} scenarios`;
-            document.getElementById('dashboard').classList.remove('hidden');
-            document.getElementById('filters').classList.remove('hidden');
+            const fileInfo = document.getElementById('file-info');
+            if (fileInfo) fileInfo.textContent = allScenarios.length === 1 ? filename : `${filename} • ${allScenarios.length} scenarios`;
+            const dashboard = document.getElementById('dashboard');
+            if (dashboard) dashboard.classList.remove('hidden');
+            const filters = document.getElementById('filters');
+            if (filters) filters.classList.remove('hidden');
 
             updateStats(globalScore);
             handleFilter();
@@ -985,6 +1265,9 @@
         // --- Stats & Dashboard ---
 
         function updateStats(globalScore) {
+            // In standalone 'scenario' mode the dashboard is removed from the
+            // HTML, so skip stats rendering.
+            if (!document.getElementById('severity-bar')) return;
             const total = allScenarios.length;
             const fileIsCustom = total > 0 && isCustomSchema(allScenarios[0]);
 
@@ -1051,8 +1334,11 @@
         // --- Filtering and List Rendering ---
 
         function handleFilter() {
-            const query = document.getElementById('search-input').value.toLowerCase();
-            const sortMode = document.getElementById('sort-select').value;
+            const searchInput = document.getElementById('search-input');
+            const sortSelect = document.getElementById('sort-select');
+            if (!searchInput || !sortSelect) return;
+            const query = searchInput.value.toLowerCase();
+            const sortMode = sortSelect.value;
 
             currentScenarios = allScenarios.filter(s => {
                 const name = (s.scenario_name || s.name || '').toLowerCase();
@@ -1074,6 +1360,7 @@
 
         function renderList() {
             const container = document.getElementById('scenario-list');
+            if (!container) return;
             container.innerHTML = '';
 
             if (currentScenarios.length === 0) {
@@ -1098,7 +1385,14 @@
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-start">
                             <h3 class="font-medium text-gray-900 truncate text-sm" title="${escapeHtml(s.scenario_name || s.name || '')}">${escapeHtml(s.scenario_name || s.name || 'Untitled Scenario')}</h3>
-                            <span class="text-xs font-bold ${textColor} ml-2 shrink-0">${escapeHtml(scoreLabel)}</span>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button onclick="event.stopPropagation(); downloadScenarioHtml('${s.id}')" class="text-gray-400 hover:text-indigo-600 transition-colors p-1" title="Download this scenario as standalone HTML">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                </button>
+                                <span class="text-xs font-bold ${textColor}">${escapeHtml(scoreLabel)}</span>
+                            </div>
                         </div>
                         <p class="text-xs text-gray-500 mt-1 line-clamp-2">${escapeHtml(s.scenario_description || s.description || 'No description')}</p>
                     </div>
@@ -1136,14 +1430,16 @@
             // Mobile: Show detail view full screen
             if (window.innerWidth < 768) {
                 document.getElementById('detail-view').classList.add('has-selection');
-                document.getElementById('scenario-list-container').classList.add('has-detail');
+                const listContainer = document.getElementById('scenario-list-container');
+                if (listContainer) listContainer.classList.add('has-detail');
             }
         }
 
         function closeDetailView() {
             // Mobile: Go back to list view
             document.getElementById('detail-view').classList.remove('has-selection');
-            document.getElementById('scenario-list-container').classList.remove('has-detail');
+            const listContainer = document.getElementById('scenario-list-container');
+            if (listContainer) listContainer.classList.remove('has-detail');
             selectedScenarioId = null;
             
             // Reset detail view
@@ -1182,6 +1478,23 @@
             // files, so only remote URLs can be previewed there.
             const standalone = (window.__customUpload || forceCustomUpload) === true;
 
+            // Run selector for multi-run experiments
+            let runSelectorHtml = '';
+            if (currentExperimentRuns && currentExperimentRuns.runs.length > 1) {
+                const { runs } = currentExperimentRuns;
+                const currentRunIdx = currentRunIndex;
+                runSelectorHtml = `
+                    <div class="mb-4 flex items-center gap-2">
+                        <span class="text-xs font-medium text-gray-500 uppercase tracking-wide">Run:</span>
+                        <div class="flex gap-1">
+                            ${runs.map((_, i) => `
+                                <button onclick="selectRun(${i})" class="px-2.5 py-1 text-xs rounded ${i === currentRunIdx ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'} transition-colors">${i + 1}</button>
+                            `).join('')}
+                        </div>
+                        <span class="text-xs text-gray-400">${currentRunIdx + 1} of ${runs.length}</span>
+                    </div>`;
+            }
+
             let html = `
                 <div class="max-w-4xl mx-auto space-y-6 pb-20">
                     <!-- Mobile Back Button -->
@@ -1191,7 +1504,7 @@
                         </svg>
                         Back to list
                     </button>
-                    
+                    ${runSelectorHtml}
                     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                         <div class="flex justify-between items-start mb-4">
                             <div>
@@ -1231,8 +1544,8 @@
                 `;
             }
 
-            // Only show Copy URL if not a custom upload (from global or forced)
-            const showCopyUrl = !(window.__customUpload || forceCustomUpload);
+            // Only show Copy URL if not a custom upload and not a standalone export
+            const showCopyUrl = !(window.__customUpload || forceCustomUpload || window.__inlinedData);
 
             if (history && history.length > 0) {
                 html += `<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">

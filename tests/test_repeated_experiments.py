@@ -453,7 +453,22 @@ class TestSerialization:
         assert "n_repetitions" in d
         assert "models" in d
         assert "aggregate" in d
+        assert "stability" in d
         assert "runs" in d
+
+    def test_to_dict_stability_includes_fragility_fields(self):
+        runs = [_make_results(["pass"]), _make_results(["critical"])]
+        results = RepeatedExperimentResults({"m": runs})
+        d = results.to_dict()
+        stab = d["stability"]["m"]
+        assert "per_scenario" in stab
+        scenario = stab["per_scenario"]["scenario_0"]
+        assert "entropy" in scenario
+        assert "ordinal_spread" in scenario
+        assert "agreement_rate" in scenario
+        # pass/critical → agreement 0.5, entropy > 0
+        assert scenario["agreement_rate"] == 0.5
+        assert scenario["entropy"] > 0
 
     def test_to_dict_n_repetitions_matches_run_count(self):
         runs = [_make_results(["pass"]), _make_results(["low"])]

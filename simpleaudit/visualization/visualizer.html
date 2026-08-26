@@ -472,6 +472,7 @@
         let uploadedExperiment = null; // Holds multi-result data from uploaded file
         let currentExperimentRuns = null; // { model, runs: [...] } for run switching
         let currentRunIndex = 0; // Index of the currently selected run
+        let currentFragility = null; // { scenarioName: { agreement, entropy, spread, mode } }
 
         // On page load, check for file and scenario in URL
         window.addEventListener('DOMContentLoaded', () => {
@@ -498,6 +499,7 @@
                             el.onclick = () => {
                                 currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
                                 currentRunIndex = 0;
+                                currentFragility = Array.isArray(runs) ? computeFragility(runs) : null;
                                 processData(Array.isArray(runs) ? runs[0] : runs, `${window.__inlinedName || 'export'} — ${model}${runLabel}`, true);
                             };
                             listEl.appendChild(el);
@@ -791,6 +793,7 @@
                             const runLabel = Array.isArray(runs) && runs.length > 1 ? ` \u2014 run 1 of ${runs.length}` : '';
                             currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
                             currentRunIndex = 0;
+                            currentFragility = Array.isArray(runs) ? computeFragility(runs) : null;
                             processData(Array.isArray(runs) ? runs[0] : runs, `${item.name} \u2014 ${model}${runLabel}`, false);
                         } catch (e) {
                             document.getElementById('file-info').textContent = `Error: ${e.message}`;
@@ -1169,6 +1172,7 @@
                     const runLabel = Array.isArray(runs) && runs.length > 1 ? ` \u2014 run 1 of ${runs.length}` : '';
                     currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
                     currentRunIndex = 0;
+                    currentFragility = Array.isArray(runs) ? computeFragility(runs) : null;
                     processData(Array.isArray(runs) ? runs[0] : runs, `${filename} \u2014 ${model}${runLabel}`, true);
                 } catch (e) {
                     document.getElementById('file-info').textContent = `Error: ${e.message}`;
@@ -1183,6 +1187,50 @@
             currentRunIndex = runIndex;
             const runLabel = runs.length > 1 ? ` \u2014 run ${runIndex + 1} of ${runs.length}` : '';
             processData(runs[runIndex], `${model}${runLabel}`, true);
+        }
+
+        // Compute per-scenario fragility from the full run list.
+        // Mirrors the Python _build_stability_report logic.
+        function computeFragility(runs) {
+            if (!runs || runs.length < 2) return null;
+            const SEV_ORDER = ['pass', 'low', 'medium', 'high', 'critical'];
+            const scenarioSevs = {}; // name -> [severities]
+            runs.forEach(run => {
+                const results = run.results || [];
+                results.forEach(r => {
+                    const name = r.scenario_name || r.name;
+                    if (!name) return;
+                    if (!scenarioSevs[name]) scenarioSevs[name] = [];
+                    scenarioSevs[name].push(r.severity);
+                });
+            });
+            const fragility = {};
+            Object.entries(scenarioSevs).forEach(([name, sevs]) => {
+                const counts = {};
+                sevs.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+                const mode = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+                const agreement = counts[mode] / sevs.length;
+                // Normalised Shannon entropy
+                const total = sevs.length;
+                const uniqueSevs = Object.keys(counts);
+                let rawEntropy = 0;
+                uniqueSevs.forEach(s => {
+                    const p = counts[s] / total;
+                    rawEntropy -= p * Math.log(p);
+                });
+                const logBase = uniqueSevs.length > 1 ? Math.log(uniqueSevs.length) : 1;
+                const entropy = logBase > 0 ? rawEntropy / logBase : 0;
+                // Ordinal spread
+                const positions = sevs.map(s => {
+                    const idx = SEV_ORDER.indexOf(s);
+                    return idx >= 0 ? idx : 0;
+                });
+                const mean = positions.reduce((a, b) => a + b, 0) / positions.length;
+                const variance = positions.reduce((a, b) => a + (b - mean) ** 2, 0) / (positions.length - 1 || 1);
+                const spread = Math.sqrt(variance);
+                fragility[name] = { agreement, entropy, spread, mode };
+            });
+            return fragility;
         }
 
         function processData(data, filename, isCustomUpload = false) {
@@ -1530,6 +1578,21 @@
                     </div>`;
             }
 
+            // Fragility badge for the current scenario (multi-run experiments)
+            let fragilityHtml = '';
+            if (currentFragility && name && currentFragility[name]) {
+                const f = currentFragility[name];
+                const isFragile = f.agreement < 0.6;
+                const badgeColor = isFragile ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                fragilityHtml = `
+                    <div class="mb-4 p-3 rounded-lg border ${badgeColor} text-xs">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="font-semibold">${isFragile ? '\u26a0\ufe0f Fragile' : '\u2705 Stable'}</span>
+                            <span class="opacity-70">agreement ${(f.agreement * 100).toFixed(0)}% &middot; entropy ${f.entropy.toFixed(2)} &middot; spread ${f.spread.toFixed(2)} &middot; mode: ${f.mode}</span>
+                        </div>
+                    </div>`;
+            }
+
             let html = `
                 <div class="max-w-4xl mx-auto space-y-6 pb-20" id="scenario-detail">
                     <!-- Mobile Back Button -->
@@ -1540,6 +1603,7 @@
                         Back to list
                     </button>
                     ${runSelectorHtml}
+                    ${fragilityHtml}
                     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                         <div class="flex justify-between items-start mb-4">
                             <div>

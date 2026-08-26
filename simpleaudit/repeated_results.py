@@ -6,6 +6,7 @@ stability statistics across runs.
 """
 
 import json
+import math
 import statistics
 import warnings
 from collections import Counter
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple, Union
 
 from simpleaudit.results import AuditResult, AuditResults, _atomic_json_dump
+from simpleaudit.utils import SEVERITY_ORDER
 
 
 # ---------------------------------------------------------------------------
@@ -26,6 +28,8 @@ class ScenarioStats:
     severity_distribution: Dict[str, int]  # raw counts across all N runs
     most_common_severity: str
     agreement_rate: float                  # fraction of runs matching the mode
+    entropy: float                         # normalised Shannon entropy over severity distribution (0.0 = perfectly stable)
+    ordinal_spread: float                  # std of severity positions on the 0–4 ordinal scale (0.0 = perfectly stable)
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -60,17 +64,41 @@ class ModelStabilityReport:
         if self.per_scenario:
             print()
             print("Per-Scenario Stability:")
-            header = f"  {'Scenario':<35} {'Pass Rate':>9}   {'Agreement':>9}   Mode"
+            header = f"  {'Scenario':<35} {'Pass Rate':>9}   {'Agreement':>9}   {'Entropy':>8}   {'Spread':>7}   Mode"
             print(header)
             print("  " + "-" * (len(header) - 2))
             for name, stats in self.per_scenario.items():
                 short = name[:34]
+                flag = " ⚠" if stats.agreement_rate < 0.6 else ""
                 print(
                     f"  {short:<35} {stats.pass_rate * 100:>8.0f}%"
                     f"   {stats.agreement_rate * 100:>8.0f}%"
-                    f"   {stats.most_common_severity}"
+                    f"   {stats.entropy:>7.2f}"
+                    f"   {stats.ordinal_spread:>6.2f}"
+                    f"   {stats.most_common_severity}{flag}"
                 )
         print()
+
+    def fragile(self, threshold: float = 0.6) -> Dict[str, ScenarioStats]:
+        """Return scenarios whose modal-verdict share is below *threshold*.
+
+        A scenario is *fragile* when the judge's severity verdict disagrees
+        across ``n_repetitions`` runs — i.e. the modal verdict is held by less
+        than *threshold* of the runs.  These are the scenarios most likely to
+        flip under perturbation (see arXiv:2608.12645, *Jagged Judges*).
+
+        Example::
+
+            stab = results.stability("my-model")
+            fragile = stab.fragile(threshold=0.6)
+            for name, stats in fragile.items():
+                print(f"{name}: agreement={stats.agreement_rate:.2f}")
+        """
+        return {
+            name: stats
+            for name, stats in self.per_scenario.items()
+            if stats.agreement_rate < threshold
+        }
 
     def to_dict(self) -> Dict:
         return {
@@ -166,11 +194,32 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
                 continue
             dist = dict(Counter(severities))
             mode_sev = Counter(severities).most_common(1)[0][0]
+            n = len(severities)
+
+            # Normalised Shannon entropy over the severity distribution.
+            # 0.0 = all runs agree (perfectly stable); 1.0 = uniform spread.
+            counts = [dist[s] for s in dist]
+            total = sum(counts)
+            log_base = math.log(len(dist)) if len(dist) > 1 else 1.0
+            raw_entropy = -sum(
+                (c / total) * math.log(c / total) for c in counts if c > 0
+            )
+            entropy = raw_entropy / log_base if log_base > 0 else 0.0
+
+            # Ordinal spread: std of severity positions on the 0–4 scale.
+            positions = [
+                SEVERITY_ORDER.index(s) if s in SEVERITY_ORDER else 0
+                for s in severities
+            ]
+            ordinal_spread = statistics.stdev(positions) if n >= 2 else 0.0
+
             per_scenario[scenario_name] = ScenarioStats(
-                pass_rate=severities.count("pass") / len(severities),
+                pass_rate=severities.count("pass") / n,
                 severity_distribution=dist,
                 most_common_severity=mode_sev,
-                agreement_rate=severities.count(mode_sev) / len(severities),
+                agreement_rate=severities.count(mode_sev) / n,
+                entropy=round(entropy, 4),
+                ordinal_spread=round(ordinal_spread, 4),
             )
 
     return ModelStabilityReport(

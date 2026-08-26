@@ -290,6 +290,159 @@ class TestStabilityStats:
 
 
 # ---------------------------------------------------------------------------
+# RepeatedExperimentResults — fragility signal (Part 1 of #48)
+# ---------------------------------------------------------------------------
+
+class TestFragilitySignal:
+    """Per-scenario fragility: entropy, ordinal spread, fragile() accessor."""
+
+    def _uniform_results(self) -> RepeatedExperimentResults:
+        """3 runs, 1 scenario, all different severities → max disagreement."""
+        return RepeatedExperimentResults({
+            "m": [
+                _make_results(["pass"]),
+                _make_results(["medium"]),
+                _make_results(["critical"]),
+            ]
+        })
+
+    def test_entropy_zero_when_all_runs_agree(self):
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["pass"]), _make_results(["pass"]), _make_results(["pass"])]
+        })
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert stats.entropy == 0.0
+
+    def test_entropy_positive_when_runs_disagree(self):
+        results = self._uniform_results()
+        stats = results.stability("m").per_scenario["scenario_0"]
+        # 3 distinct severities out of 5 possible → entropy > 0
+        assert stats.entropy > 0.0
+        # Normalised: max entropy for 3 distinct values is log(3), so
+        # entropy should be 1.0 (uniform over 3 categories)
+        assert abs(stats.entropy - 1.0) < 0.01
+
+    def test_entropy_between_zero_and_one(self):
+        # 2 runs: pass, pass → entropy 0
+        # 2 runs: pass, low → entropy 1.0 (uniform over 2)
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["pass"]), _make_results(["low"])]
+        })
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert 0.0 < stats.entropy <= 1.0
+
+    def test_ordinal_spread_zero_when_all_runs_agree(self):
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["high"]), _make_results(["high"]), _make_results(["high"])]
+        })
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert stats.ordinal_spread == 0.0
+
+    def test_ordinal_spread_positive_when_severities_differ(self):
+        # pass=0, medium=2, critical=4 → positions [0, 2, 4]
+        # std = sqrt(((0-2)^2 + (2-2)^2 + (4-2)^2) / 2) = sqrt(8/2) = 2.0
+        results = self._uniform_results()
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert abs(stats.ordinal_spread - 2.0) < 0.01
+
+    def test_ordinal_spread_small_for_adjacent_severities(self):
+        # pass=0, low=1 → positions [0, 1] → sample std = 1/√2 ≈ 0.7071
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["pass"]), _make_results(["low"])]
+        })
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert abs(stats.ordinal_spread - 0.7071) < 0.01
+
+    def test_fragile_returns_empty_when_all_stable(self):
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["pass"]), _make_results(["pass"]), _make_results(["pass"])]
+        })
+        report = results.stability("m")
+        assert report.fragile(threshold=0.6) == {}
+
+    def test_fragile_returns_disagreement_scenarios(self):
+        # 3 runs, 3 different severities → agreement = 1/3 ≈ 0.33 < 0.6
+        results = self._uniform_results()
+        report = results.stability("m")
+        fragile = report.fragile(threshold=0.6)
+        assert "scenario_0" in fragile
+        assert fragile["scenario_0"].agreement_rate < 0.6
+
+    def test_fragile_threshold_boundary(self):
+        # 2 runs: pass, pass → agreement = 1.0 (not fragile)
+        # 2 runs: pass, low  → agreement = 0.5 (fragile at threshold 0.6)
+        results = RepeatedExperimentResults({
+            "m": [
+                _make_results(["pass"]),
+                _make_results(["low"]),
+            ]
+        })
+        report = results.stability("m")
+        # agreement = 0.5 < 0.6 → fragile
+        assert "scenario_0" in report.fragile(threshold=0.6)
+        # agreement = 0.5 < 0.5 is False → not fragile at threshold 0.5
+        assert "scenario_0" not in report.fragile(threshold=0.5)
+
+    def test_fragile_default_threshold(self):
+        # 4 runs: pass, pass, pass, low → agreement = 3/4 = 0.75 (not fragile)
+        results = RepeatedExperimentResults({
+            "m": [
+                _make_results(["pass"]),
+                _make_results(["pass"]),
+                _make_results(["pass"]),
+                _make_results(["low"]),
+            ]
+        })
+        report = results.stability("m")
+        assert "scenario_0" not in report.fragile()
+
+    def test_fragile_multiple_scenarios(self):
+        # 2 scenarios: s0 stable, s1 unstable
+        def _two_scenario(sev0, sev1):
+            return AuditResults([
+                AuditResult(
+                    scenario_name="stable", scenario_description="d",
+                    conversation=[], severity=sev0, issues_found=[],
+                    positive_behaviors=[], summary="", recommendations=[],
+                ),
+                AuditResult(
+                    scenario_name="unstable", scenario_description="d",
+                    conversation=[], severity=sev1, issues_found=[],
+                    positive_behaviors=[], summary="", recommendations=[],
+                ),
+            ])
+
+        results = RepeatedExperimentResults({
+            "m": [
+                _two_scenario("pass", "pass"),
+                _two_scenario("pass", "critical"),
+                _two_scenario("pass", "medium"),
+            ]
+        })
+        report = results.stability("m")
+        fragile = report.fragile(threshold=0.6)
+        assert "stable" not in fragile
+        assert "unstable" in fragile
+
+    def test_to_dict_includes_fragility_fields(self):
+        results = self._uniform_results()
+        report = results.stability("m")
+        d = report.to_dict()
+        stats = d["per_scenario"]["scenario_0"]
+        assert "entropy" in stats
+        assert "ordinal_spread" in stats
+
+    def test_single_run_has_zero_fragility(self):
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["high"])]
+        })
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert stats.entropy == 0.0
+        assert stats.ordinal_spread == 0.0
+        assert stats.agreement_rate == 1.0
+
+
+# ---------------------------------------------------------------------------
 # RepeatedExperimentResults — serialization
 # ---------------------------------------------------------------------------
 

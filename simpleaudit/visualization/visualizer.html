@@ -80,6 +80,10 @@
         }
 
         window.addEventListener('load', async () => {
+            // Standalone export: no server, skip auth and file tree loading
+            if (window.__inlinedData) {
+                return;
+            }
             const submit = document.getElementById('auth-submit');
             if (submit) {
                 submit.addEventListener('click', async () => {
@@ -276,12 +280,6 @@
                 </svg>
                 <span class="hidden md:inline">Upload JSON</span>
             </button>
-            <button id="download-standalone-button" onclick="downloadStandaloneHtml()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-2" title="Download a self-contained HTML file with the current results inlined — no server or JSON upload needed">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                <span class="hidden md:inline">Download HTML</span>
-            </button>
             <button id="logout-button" onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors hidden">
                 Logout
             </button>
@@ -418,6 +416,23 @@
             // load it directly — no server, no upload step.
             if (window.__inlinedData) {
                 window.__customUpload = true;
+                const mode = window.__standaloneMode || 'single';
+                if (mode === 'scenario') {
+                    // Single-scenario export: no sidebar, no list, no summary
+                    // The HTML already has these removed, just process the data
+                } else if (mode === 'single') {
+                    // Single-run export: hide the sidebar entirely
+                    const sidebar = document.querySelector('aside');
+                    if (sidebar) sidebar.style.display = 'none';
+                    const resizer = document.getElementById('resizer');
+                    if (resizer) resizer.style.display = 'none';
+                } else {
+                    // Experiment export: show the model tree in the sidebar
+                    const fileTree = document.getElementById('file-tree');
+                    if (fileTree) {
+                        fileTree.innerHTML = '';
+                    }
+                }
                 processData(window.__inlinedData, window.__inlinedName || 'exported results', true);
                 return;
             }
@@ -605,7 +620,13 @@
 
         // --- File Tree Functions ---
 
+        let currentFileTree = [];
+
         async function loadFileTree() {
+            // Standalone export: no server, skip file tree loading
+            if (window.__inlinedData) {
+                return;
+            }
             const container = document.getElementById('file-tree');
             container.innerHTML = '<div class="text-center text-gray-400"><div class="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto mb-2"></div>Loading files...</div>';
             
@@ -614,6 +635,7 @@
                 if (!response.ok) throw new Error('Failed to load files');
                 
                 const data = await response.json();
+                currentFileTree = data.tree;
                 renderFileTree(data.tree, container);
             } catch (error) {
                 container.innerHTML = `<div class="text-center text-red-500 p-4">Error loading files: ${escapeHtml(error.message)}</div>`;
@@ -642,7 +664,7 @@
                     const folderDiv = document.createElement('div');
                     
                     const header = document.createElement('div');
-                    header.className = 'tree-item flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
+                    header.className = 'tree-item group flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
                     
                     // Check if this folder should be expanded (either explicitly or it contains the selected file)
                     const shouldBeOpen = expandedFolders.has(item.path) || isParentOfSelectedFile(item);
@@ -695,10 +717,15 @@
                     // JSON file
                     const fileDiv = document.createElement('div');
                     const isSelected = currentFilePath === item.path;
-                    fileDiv.className = `tree-item flex items-center py-1 px-2 rounded hover:bg-indigo-50 text-sm transition-colors ${isSelected ? 'bg-indigo-100 ring-1 ring-indigo-500' : ''}`;
+                    fileDiv.className = `tree-item group flex items-center py-1 px-2 rounded hover:bg-indigo-50 text-sm transition-colors ${isSelected ? 'bg-indigo-100 ring-1 ring-indigo-500' : ''}`;
                     fileDiv.innerHTML = `
                         <span class="file-icon text-base"></span>
                         <span class="flex-1 text-gray-700 ${isSelected ? 'font-semibold' : ''}">${escapeHtml(item.name)}</span>
+                        <button onclick="event.stopPropagation(); downloadFileHtml('${escapeHtml(item.path)}')" class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-indigo-600 transition-all p-1" title="Download this file as standalone HTML">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                        </button>
                     `;
                     fileDiv.onclick = () => {
                         currentExperimentSelection = null;
@@ -725,10 +752,15 @@
         function renderExperimentFolder(name, key, models, loadModel, isOpen) {
             const folderDiv = document.createElement('div');
             const header = document.createElement('div');
-            header.className = 'tree-item flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
+            header.className = 'tree-item group flex items-center py-1 px-2 rounded hover:bg-gray-100 text-sm';
             header.innerHTML = `
                 <span class="folder-icon text-base ${isOpen ? 'open' : ''}"></span>
                 <span class="flex-1 font-medium text-gray-700">${escapeHtml(name)}</span>
+                <button onclick="event.stopPropagation(); downloadFileHtml('${escapeHtml(key)}')" class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-indigo-600 transition-all p-1" title="Download this experiment as standalone HTML">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                </button>
                 <span class="text-xs text-gray-400">${models.length}</span>
             `;
             const childrenDiv = document.createElement('div');
@@ -776,35 +808,112 @@
             if (text) text.classList.add('font-semibold');
         }
 
-        // Download a self-contained HTML file with the current results
-        // inlined — send it to someone and they can open it directly, no
-        // server or JSON upload needed.
-        function downloadStandaloneHtml() {
-            const data = window.__lastProcessedData;
-            if (!data) {
-                alert('Load a results file first, then download the standalone HTML.');
+        // Download a file (experiment or single run) as standalone HTML
+        async function downloadFileHtml(filePath) {
+            // Find the item in the file tree
+            const item = findTreeItem(currentFileTree, filePath);
+            if (!item) {
+                alert('Could not find file: ' + filePath);
                 return;
             }
-            const name = window.__lastProcessedName || 'audit-results';
+            const name = item.name;
+            const isExperiment = item.type === 'experiment';
+            
+            // Fetch the actual JSON data from the server
+            let data;
+            try {
+                const resp = await apiFetch(`/api/json/${encodeURIComponent(filePath)}`);
+                if (!resp.ok) throw new Error('Failed to load');
+                data = await resp.json();
+            } catch (e) {
+                alert('Failed to load data: ' + e.message);
+                return;
+            }
+            
             const json = JSON.stringify(data)
-                .replace(/</g, '\\u003c')  // keep </script> from breaking out of the inline tag
+                .replace(/</g, '\\u003c')
                 .replace(/\u2028/g, '\u2028')
                 .replace(/\u2029/g, '\u2029');
-            const script = `<script>window.__inlinedData = ${json}; window.__inlinedName = ${JSON.stringify(name).replace(/</g, '\\u003c')};<\/script>`;
-            const html = document.documentElement.outerHTML.replace(
-                '</head>',
-                `${script}\n</head>`
-            );
+            const script = '<script>window.__inlinedData = ' + json + '; window.__inlinedName = ' + JSON.stringify(name).replace(/</g, '\\u003c') + '; window.__standaloneMode = ' + JSON.stringify(isExperiment ? 'experiment' : 'single') + ';<' + '/script>';
+            let html = document.documentElement.outerHTML;
+            // For single-file exports, remove the sidebar and resizer
+            if (!isExperiment) {
+                html = removeDivBlock(html, '<div id="file-tree-sidebar"');
+                const resizerStart = html.indexOf('<div class="resizer" id="resizer">');
+                if (resizerStart !== -1) {
+                    const resizerEnd = html.indexOf('</div>', resizerStart) + 6;
+                    html = html.substring(0, resizerStart) + html.substring(resizerEnd);
+                }
+            }
+            html = html.replace('</head>', `${script}\n</head>`);
             const blob = new Blob([html], { type: 'text/html' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = `${name.replace(/[^a-zA-Z0-9._-]+/g, '_')}.html`;
-            document.body.appendChild(a);
             a.click();
-            a.remove();
             URL.revokeObjectURL(url);
         }
+
+        // Helper: find an item in the file tree by path
+        function findTreeItem(items, path) {
+            for (const item of items) {
+                if (item.path === path) return item;
+                if (item.children) {
+                    const found = findTreeItem(item.children, path);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+
+        // Download a single scenario as standalone HTML
+        function removeDivBlock(html, startMarker) {
+            const start = html.indexOf(startMarker);
+            if (start === -1) return html;
+            let depth = 0, i = start;
+            while (i < html.length) {
+                if (html.substring(i, i + 5) === '<div ') depth++;
+                if (html.substring(i, i + 6) === '</div>') {
+                    depth--;
+                    if (depth === 0) { i += 6; break; }
+                }
+                i++;
+            }
+            return html.substring(0, start) + html.substring(i);
+        }
+
+        function downloadScenarioHtml(scenarioId) {
+            const s = currentScenarios.find(sc => sc.id === scenarioId);
+            if (!s) return;
+            const title = s.scenario_name || s.name || scenarioId;
+            const json = JSON.stringify(s)
+                .replace(/</g, '\\u003c')
+                .replace(/\u2028/g, '\\u2028')
+                .replace(/\u2029/g, '\\u2029');
+            const script = '<script>window.__inlinedData = ' + json + '; window.__standaloneMode = "scenario";' +
+                'document.addEventListener("DOMContentLoaded",function(){var b=document.querySelector(".back-button");if(b)b.style.display="none";});<' + '/script>';
+            let html = document.documentElement.outerHTML;
+            // Remove sidebar (it's a <div>, not <aside>)
+            html = removeDivBlock(html, '<div id="file-tree-sidebar"');
+            // Remove resizer
+            const resizerStart = html.indexOf('<div class="resizer" id="resizer">');
+            if (resizerStart !== -1) {
+                const resizerEnd = html.indexOf('</div>', resizerStart) + 6;
+                html = html.substring(0, resizerStart) + html.substring(resizerEnd);
+            }
+            // Remove scenario list container (includes dashboard, filters, and list)
+            html = removeDivBlock(html, '<div class="w-full md:w-1/3 border-r border-gray-200 bg-white flex flex-col" id="scenario-list-container">');
+            html = html.replace('</head>', script + '\n</head>');
+            const blob = new Blob([html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${title.replace(/[^a-zA-Z0-9._-]+/g, '_')}.html`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
 
         // Handle uploaded file
         function handleUploadedFile(event) {
@@ -1147,7 +1256,14 @@
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-start">
                             <h3 class="font-medium text-gray-900 truncate text-sm" title="${escapeHtml(s.scenario_name || s.name || '')}">${escapeHtml(s.scenario_name || s.name || 'Untitled Scenario')}</h3>
-                            <span class="text-xs font-bold ${textColor} ml-2 shrink-0">${escapeHtml(scoreLabel)}</span>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button onclick="event.stopPropagation(); downloadScenarioHtml('${s.id}')" class="text-gray-400 hover:text-indigo-600 transition-colors p-1" title="Download this scenario as standalone HTML">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                </button>
+                                <span class="text-xs font-bold ${textColor}">${escapeHtml(scoreLabel)}</span>
+                            </div>
                         </div>
                         <p class="text-xs text-gray-500 mt-1 line-clamp-2">${escapeHtml(s.scenario_description || s.description || 'No description')}</p>
                     </div>

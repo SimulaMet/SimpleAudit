@@ -245,7 +245,10 @@ def export_standalone_html(json_path: str, output_path: str) -> str:
     payload = payload.replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
     name = os.path.splitext(os.path.basename(json_path))[0]
     name_json = json.dumps(name).replace("<", "\\u003c")
-    inline = f"<script>window.__inlinedData = {payload}; window.__inlinedName = {name_json};</script>\n"
+    # Detect if this is an experiment (has runs) or a single run
+    is_experiment = "runs" in data and isinstance(data["runs"], dict)
+    mode_json = json.dumps("experiment" if is_experiment else "single")
+    inline = f"<script>window.__inlinedData = {payload}; window.__inlinedName = {name_json}; window.__standaloneMode = {mode_json};</script>\n"
 
     if "</head>" not in html:
         raise ValueError("visualizer.html has no </head> anchor — cannot inline data")

@@ -219,6 +219,38 @@ results.stability("my-model").summary()
 results.save("repeated_experiment.json")
 ```
 
+##### Fragility Signal
+
+Each scenario's verdict can be *fragile* — the judge disagrees across runs, making the severity unreliable. The stability report includes per-scenario **entropy** (normalised Shannon, 0 = perfectly stable) and **ordinal spread** (std of severity positions on the 0–4 scale). Scenarios with agreement below 60% are flagged ⚠ in the summary.
+
+```python
+stab = results.stability("gpt-4o-mini")
+
+# Scenarios where the judge's verdict is unreliable
+fragile = stab.fragile(threshold=0.6)
+for name, stats in fragile.items():
+    print(f"{name}: agreement={stats.agreement_rate:.2f}, entropy={stats.entropy:.2f}")
+```
+
+This is motivated by the *Jagged Judges* finding (arXiv:2608.12645): LLM judges can be locally consistent yet globally unstable, flipping verdicts on individual scenarios without changing the aggregate score.
+
+##### Adaptive Reruns
+
+Instead of running a fixed number of repetitions for every scenario, `adaptive_reruns` spends extra budget only on scenarios that need it:
+
+```python
+experiment = AuditExperiment(
+    models=[{"model": "my-model", "provider": "ollama"}],
+    judge_model="gpt-4o",
+    judge_provider="openai",
+    n_repetitions=5,
+    adaptive_reruns={"agreement_target": 0.8, "max_extra": 5},
+)
+results = experiment.run("safety")
+```
+
+After the base 5 runs, any scenario whose modal verdict is held by fewer than 80% of runs is re-run up to 5 additional times. Reruns stop early once every scenario meets the target. This is off by default (`adaptive_reruns=None`).
+
 Use `save_dir` to persist each run as it completes and automatically resume after a crash:
 
 ```python

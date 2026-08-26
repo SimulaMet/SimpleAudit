@@ -357,6 +357,10 @@ class RepeatedExperimentResults:
                 label: _build_model_aggregate(runs)
                 for label, runs in self._runs.items()
             },
+            "stability": {
+                label: _build_stability_report(label, runs).to_dict()
+                for label, runs in self._runs.items()
+            },
             "runs": {
                 label: [run.to_dict() for run in runs]
                 for label, runs in self._runs.items()

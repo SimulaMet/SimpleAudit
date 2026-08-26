@@ -484,15 +484,23 @@
 
                     <!-- Filters -->
                     <div class="p-3 border-b border-gray-200 flex flex-col gap-2 hidden" id="filters">
-                        <input type="text" id="search-input" placeholder="Search scenarios..."
-                            class="w-full bg-gray-100 border-none rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500">
-                        <select id="sort-select"
-                            class="w-full bg-gray-100 border-none rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 text-gray-700">
-                            <option value="default">Default</option>
-                            <option value="score-asc">Score (Low-High)</option>
-                            <option value="score-desc">Score (High-Low)</option>
-                            <option value="severity">Severity</option>
-                        </select>
+                        <div class="flex gap-2">
+                            <input type="text" id="search-input" placeholder="Search scenarios..."
+                                class="flex-1 min-w-0 bg-gray-100 border-none rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500">
+                            <div class="relative shrink-0" id="sort-wrapper">
+                                <button id="sort-btn" class="bg-gray-100 border-none rounded-md p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors" title="Sort scenarios">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9M3 12h5m8 0l4 4m0 0l-4 4m4-4H9"/>
+                                    </svg>
+                                </button>
+                                <select id="sort-select" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full">
+                                    <option value="default">Default</option>
+                                    <option value="score-asc">Score (Low-High)</option>
+                                    <option value="score-desc">Score (High-Low)</option>
+                                    <option value="severity">Severity</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- List -->
@@ -2118,7 +2126,7 @@
     </script>
 
     </main>
-    <footer class="w-full text-center py-4 bg-gray-50 border-t border-gray-200">
+    <footer class="w-full text-center py-1.5 bg-gray-50 border-t border-gray-200 text-xs text-gray-400">
         <a href="https://pypi.org/project/simpleaudit/" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline">simpleaudit on PyPI</a>
     </footer>
 </body>

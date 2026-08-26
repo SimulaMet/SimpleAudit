@@ -264,3 +264,93 @@ def test_run_async_all_failing_still_completes():
     assert len(results) == 2
     assert all(r.severity == "ERROR" for r in results)
     assert results.severity_distribution.get("ERROR") == 2
+
+
+# --- judge_fields tests ---------------------------------------------------
+
+def test_build_judge_schema_default():
+    """Default schema includes all five fields."""
+    from simpleaudit.model_auditor import build_judge_schema, DEFAULT_JUDGE_RESPONSE_SCHEMA
+    schema = build_judge_schema(None)
+    assert schema == DEFAULT_JUDGE_RESPONSE_SCHEMA
+    assert set(schema["properties"].keys()) == {
+        "severity", "issues_found", "positive_behaviors", "summary", "recommendations"
+    }
+
+
+def test_build_judge_schema_restricted():
+    """Restricted fields produce a schema with only those fields + severity."""
+    from simpleaudit.model_auditor import build_judge_schema
+    schema = build_judge_schema(["issues_found"])
+    assert set(schema["properties"].keys()) == {"severity", "issues_found"}
+    assert schema["required"] == ["severity", "issues_found"]
+
+
+def test_build_judge_schema_severity_always_present():
+    """Severity is always included even if not in the fields list."""
+    from simpleaudit.model_auditor import build_judge_schema
+    schema = build_judge_schema(["summary"])
+    assert "severity" in schema["properties"]
+    assert "summary" in schema["properties"]
+    assert "issues_found" not in schema["properties"]
+
+
+def test_build_judge_json_snippet_default():
+    """Default snippet contains all five fields."""
+    from simpleaudit.model_auditor import build_judge_json_snippet
+    snippet = build_judge_json_snippet(None)
+    assert '"severity"' in snippet
+    assert '"issues_found"' in snippet
+    assert '"positive_behaviors"' in snippet
+    assert '"summary"' in snippet
+    assert '"recommendations"' in snippet
+
+
+def test_build_judge_json_snippet_restricted():
+    """Restricted snippet only contains the requested fields."""
+    from simpleaudit.model_auditor import build_judge_json_snippet
+    snippet = build_judge_json_snippet(["issues_found"])
+    assert '"severity"' in snippet
+    assert '"issues_found"' in snippet
+    assert '"summary"' not in snippet
+    assert '"recommendations"' not in snippet
+    assert '"positive_behaviors"' not in snippet
+
+
+def test_model_auditor_judge_fields_stored():
+    """judge_fields is stored on the instance."""
+    with patch("simpleaudit.model_auditor.AnyLLM") as mock_anyllm:
+        mock_anyllm.create.return_value = MagicMock()
+        auditor = ModelAuditor(
+            model="m", provider="openai",
+            judge_model="j", judge_provider="openai",
+            judge_fields=["severity", "issues_found"],
+        )
+        assert auditor.judge_fields == ["severity", "issues_found"]
+
+
+def test_model_auditor_judge_fields_overrides_schema():
+    """judge_fields overrides the response schema even when a judge config is used."""
+    with patch("simpleaudit.model_auditor.AnyLLM") as mock_anyllm:
+        mock_anyllm.create.return_value = MagicMock()
+        auditor = ModelAuditor(
+            model="m", provider="openai",
+            judge_model="j", judge_provider="openai",
+            judge="safety",
+            judge_fields=["severity", "summary"],
+        )
+        # Schema should only have severity + summary
+        assert set(auditor.judge_response_schema["properties"].keys()) == {"severity", "summary"}
+        assert auditor.judge_response_schema["required"] == ["severity", "summary"]
+
+
+def test_model_auditor_judge_fields_none_keeps_default():
+    """When judge_fields is None, the default schema is used."""
+    with patch("simpleaudit.model_auditor.AnyLLM") as mock_anyllm:
+        mock_anyllm.create.return_value = MagicMock()
+        auditor = ModelAuditor(
+            model="m", provider="openai",
+            judge_model="j", judge_provider="openai",
+        )
+        assert auditor.judge_fields is None
+        assert auditor.judge_response_schema is None  # no explicit schema set

@@ -4,6 +4,7 @@ Tests for ModelAuditor class.
 Run with: pytest tests/test_model_auditor.py -v
 """
 
+import asyncio
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
@@ -209,3 +210,57 @@ def test_no_auditor_model_reuses_judge_as_auditor():
 
     assert len(created) == 2
     assert auditor.auditor_client is auditor.judge_client
+
+
+# ---------------------------------------------------------------------------
+# run_async records an ERROR result instead of aborting the whole batch
+# ---------------------------------------------------------------------------
+
+def _target_that_raises_on(marker: str):
+    from tests.fakes import FakeClient
+
+    def fn(**kwargs):
+        text = " ".join(m.get("content", "") for m in kwargs.get("messages", []))
+        if marker in text:
+            raise RuntimeError("simulated API failure")
+        return "A safe and helpful response."
+    return FakeClient(fn)
+
+
+def test_run_async_isolates_failing_scenario():
+    from tests.fakes import fixed_severity_judge, make_auditor
+
+    auditor = make_auditor(
+        target=_target_that_raises_on("boom"),
+        judge=fixed_severity_judge("pass"),
+        max_turns=1,
+    )
+    scenarios = [
+        {"name": "ok", "description": "d1", "test_prompt": "a calm question"},
+        {"name": "fails", "description": "d2", "test_prompt": "this is boom"},
+    ]
+    results = asyncio.run(auditor.run_async(scenarios=scenarios, max_turns=1))
+
+    assert len(results) == 2
+    by_name = {r.scenario_name: r for r in results}
+    assert by_name["ok"].severity == "pass"
+    assert by_name["fails"].severity == "ERROR"
+    assert "simulated API failure" in by_name["fails"].issues_found[0]
+
+
+def test_run_async_all_failing_still_completes():
+    from tests.fakes import fixed_severity_judge, make_auditor
+
+    auditor = make_auditor(
+        target=_target_that_raises_on("boom"),
+        judge=fixed_severity_judge("pass"),
+        max_turns=1,
+    )
+    scenarios = [
+        {"name": "s1", "description": "d", "test_prompt": "boom one"},
+        {"name": "s2", "description": "d", "test_prompt": "boom two"},
+    ]
+    results = asyncio.run(auditor.run_async(scenarios=scenarios, max_turns=1))
+    assert len(results) == 2
+    assert all(r.severity == "ERROR" for r in results)
+    assert results.severity_distribution.get("ERROR") == 2

@@ -152,3 +152,54 @@ def test_model_auditor_requires_provider():
             os.environ["OPENAI_API_KEY"] = original_openai
         if original_xai:
             os.environ["XAI_API_KEY"] = original_xai
+
+
+# ---------------------------------------------------------------------------
+# __version__ is single-sourced from package metadata
+# ---------------------------------------------------------------------------
+
+def test_version_is_single_sourced_and_not_stale():
+    """__version__ must come from installed package metadata, not a stale literal.
+
+    The old bug: __init__.py hardcoded a version that drifted from
+    pyproject.toml. The fix reads importlib.metadata at runtime, so the two
+    can never disagree.
+    """
+    import re
+    from importlib.metadata import version as pkg_version
+    from pathlib import Path
+
+    import simpleaudit
+
+    # The runtime version must match what the package metadata reports.
+    assert simpleaudit.__version__ == pkg_version("simpleaudit")
+
+    # And that metadata version must match pyproject.toml (the source of truth).
+    pyproject = Path(simpleaudit.__file__).parent.parent / "pyproject.toml"
+    if pyproject.exists():
+        m = re.search(r'^version\s*=\s*["\']([^"\']+)["\']', pyproject.read_text(), re.MULTILINE)
+        assert m, "pyproject.toml must declare a version"
+        assert simpleaudit.__version__ == m.group(1), (
+            f"__version__={simpleaudit.__version__!r} != pyproject {m.group(1)!r}"
+        )
+
+
+def test_fallback_version_literal_matches_pyproject():
+    """The PackageNotFoundError fallback literal in __init__.py must equal the
+    pyproject.toml version, so an uninstalled checkout still reports the right
+    version instead of a stale one."""
+    import re
+    from pathlib import Path
+
+    import simpleaudit
+
+    init_src = Path(simpleaudit.__file__).read_text()
+    m = re.search(r'except\s+PackageNotFoundError:.*?\n\s*__version__\s*=\s*["\']([^"\']+)["\']', init_src)
+    assert m, "fallback literal not found in __init__.py"
+
+    pyproject = Path(simpleaudit.__file__).parent.parent / "pyproject.toml"
+    p = re.search(r'^version\s*=\s*["\']([^"\']+)["\']', pyproject.read_text(), re.MULTILINE)
+    assert p, "pyproject.toml must declare a version"
+    assert m.group(1) == p.group(1), (
+        f"fallback literal {m.group(1)!r} != pyproject {p.group(1)!r}"
+    )

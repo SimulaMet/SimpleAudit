@@ -6,7 +6,8 @@ Ensures every scenario in every pack has the required fields and valid structure
 
 import pytest
 
-from simpleaudit.scenarios import SCENARIO_PACKS, get_scenarios, list_scenario_packs
+from simpleaudit.results import AuditResult, AuditResults
+from simpleaudit.scenarios import SCENARIO_PACKS, duplicate_scenario_names, get_scenarios, list_scenario_packs
 
 
 class TestScenarioDataIntegrity:
@@ -171,3 +172,55 @@ class TestBullshitBenchScenarioStructure:
                 f"Pack '{pack_name}', scenario {i} ({scenario.get('name', '?')}): "
                 f"test_prompt is empty or not a string"
             )
+
+
+# ---------------------------------------------------------------------------
+# Duplicate scenario names
+# ---------------------------------------------------------------------------
+
+from simpleaudit.scenarios import SCENARIO_PACKS, duplicate_scenario_names
+
+
+@pytest.mark.parametrize("pack_name", sorted(SCENARIO_PACKS))
+def test_builtin_packs_have_unique_scenario_names(pack_name):
+    dups = duplicate_scenario_names(SCENARIO_PACKS[pack_name])
+    assert dups == {}, f"Pack '{pack_name}' has duplicate scenario names: {dups}"
+
+
+def test_ung_pack_still_has_1000_scenarios():
+    assert len(SCENARIO_PACKS["ung"]) == 1000
+
+
+def test_duplicate_scenario_names_detects_and_counts():
+    scenarios = [
+        {"name": "a", "description": "x"},
+        {"name": "a", "description": "y"},
+        {"name": "b", "description": "z"},
+        {"name": "b", "description": "w"},
+        {"name": "b", "description": "v"},
+    ]
+    assert duplicate_scenario_names(scenarios) == {"a": 2, "b": 3}
+
+
+def test_duplicate_scenario_names_empty_when_unique():
+    scenarios = [{"name": "a"}, {"name": "b"}]
+    assert duplicate_scenario_names(scenarios) == {}
+
+
+def test_stability_warns_on_duplicate_scenario_names():
+    from simpleaudit.repeated_results import _build_stability_report
+
+    results = [
+        AuditResults([
+            AuditResult("dup", "d", [], "high", [], [], "", []),
+            AuditResult("dup", "d", [], "pass", [], [], "", []),
+        ]),
+        AuditResults([
+            AuditResult("dup", "d", [], "high", [], [], "", []),
+            AuditResult("dup", "d", [], "pass", [], [], "", []),
+        ]),
+    ]
+    with pytest.warns(UserWarning, match="duplicate scenario names"):
+        report = _build_stability_report("m1", results)
+    # The duplicated scenario is still reported (not dropped).
+    assert "dup" in report.per_scenario

@@ -261,3 +261,25 @@ class TestCallAsync:
         assert len(messages) == 2
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] == "user"
+
+
+# ---------------------------------------------------------------------------
+# strip_thinking: content before an unclosed tag must be preserved
+# ---------------------------------------------------------------------------
+
+class TestStripThinkingDanglingTag:
+    def test_content_before_unclosed_tag_preserved(self):
+        text = "Here is the answer. <think>now I ramble without closing"
+        assert ModelAuditor.strip_thinking(text) == "Here is the answer."
+
+    def test_complete_block_then_dangling_open_keeps_middle(self):
+        text = "<think>plan</think>The real answer. <think>dangling tail"
+        assert ModelAuditor.strip_thinking(text) == "The real answer."
+
+    def test_pure_unclosed_tag_still_returns_empty(self):
+        # Backwards-compatible: nothing precedes the open tag.
+        assert ModelAuditor.strip_thinking("<think>only thoughts...") == ""
+
+    def test_complete_block_unaffected(self):
+        text = "<think>reasoning</think>Final."
+        assert ModelAuditor.strip_thinking(text) == "Final."

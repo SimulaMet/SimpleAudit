@@ -414,6 +414,8 @@
         let sidebarWidth = 320; // Default width in pixels
         let expandedFolders = new Set(); // Track expanded folders
         let uploadedExperiment = null; // Holds multi-result data from uploaded file
+        let currentExperimentRuns = null; // { model, runs: [...] } for run switching
+        let currentRunIndex = 0; // Index of the currently selected run
 
         // On page load, check for file and scenario in URL
         window.addEventListener('DOMContentLoaded', () => {
@@ -438,6 +440,8 @@
                             el.className = 'p-3 rounded-lg border border-gray-200 bg-white cursor-pointer hover:bg-gray-50 transition-colors';
                             el.innerHTML = `<div class="flex items-center gap-2"><span class="file-icon text-base"></span><span class="text-sm font-medium text-gray-700">${escapeHtml(model)}</span>${runLabel ? `<span class="text-xs text-gray-400">${runLabel}</span>` : ''}</div>`;
                             el.onclick = () => {
+                                currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
+                                currentRunIndex = 0;
                                 processData(Array.isArray(runs) ? runs[0] : runs, `${window.__inlinedName || 'export'} — ${model}${runLabel}`, true);
                             };
                             listEl.appendChild(el);
@@ -729,6 +733,8 @@
                             const data = await resp.json();
                             const runs = data.runs[model];
                             const runLabel = Array.isArray(runs) && runs.length > 1 ? ` \u2014 run 1 of ${runs.length}` : '';
+                            currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
+                            currentRunIndex = 0;
                             processData(Array.isArray(runs) ? runs[0] : runs, `${item.name} \u2014 ${model}${runLabel}`, false);
                         } catch (e) {
                             document.getElementById('file-info').textContent = `Error: ${e.message}`;
@@ -1096,12 +1102,22 @@
                 try {
                     const runs = data.runs[model];
                     const runLabel = Array.isArray(runs) && runs.length > 1 ? ` \u2014 run 1 of ${runs.length}` : '';
+                    currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
+                    currentRunIndex = 0;
                     processData(Array.isArray(runs) ? runs[0] : runs, `${filename} \u2014 ${model}${runLabel}`, true);
                 } catch (e) {
                     document.getElementById('file-info').textContent = `Error: ${e.message}`;
                 }
             }, expandedFolders.has(key));
             document.getElementById('file-tree').appendChild(folderDiv);
+        }
+
+        function selectRun(runIndex) {
+            if (!currentExperimentRuns || !currentExperimentRuns.runs[runIndex]) return;
+            const { model, runs } = currentExperimentRuns;
+            currentRunIndex = runIndex;
+            const runLabel = runs.length > 1 ? ` \u2014 run ${runIndex + 1} of ${runs.length}` : '';
+            processData(runs[runIndex], `${model}${runLabel}`, true);
         }
 
         function processData(data, filename, isCustomUpload = false) {
@@ -1432,6 +1448,23 @@
             // files, so only remote URLs can be previewed there.
             const standalone = (window.__customUpload || forceCustomUpload) === true;
 
+            // Run selector for multi-run experiments
+            let runSelectorHtml = '';
+            if (currentExperimentRuns && currentExperimentRuns.runs.length > 1) {
+                const { runs } = currentExperimentRuns;
+                const currentRunIdx = currentRunIndex;
+                runSelectorHtml = `
+                    <div class="mb-4 flex items-center gap-2">
+                        <span class="text-xs font-medium text-gray-500 uppercase tracking-wide">Run:</span>
+                        <div class="flex gap-1">
+                            ${runs.map((_, i) => `
+                                <button onclick="selectRun(${i})" class="px-2.5 py-1 text-xs rounded ${i === currentRunIdx ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'} transition-colors">${i + 1}</button>
+                            `).join('')}
+                        </div>
+                        <span class="text-xs text-gray-400">${currentRunIdx + 1} of ${runs.length}</span>
+                    </div>`;
+            }
+
             let html = `
                 <div class="max-w-4xl mx-auto space-y-6 pb-20">
                     <!-- Mobile Back Button -->
@@ -1441,7 +1474,7 @@
                         </svg>
                         Back to list
                     </button>
-                    
+                    ${runSelectorHtml}
                     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                         <div class="flex justify-between items-start mb-4">
                             <div>

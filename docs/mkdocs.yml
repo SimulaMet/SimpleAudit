@@ -10,6 +10,7 @@ repo_name: SushantGautam/simpleaudit
 
 docs_dir: site_src
 site_dir: site
+use_directory_urls: true
 
 theme:
   name: material

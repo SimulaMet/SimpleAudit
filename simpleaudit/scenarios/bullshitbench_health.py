@@ -523,13 +523,13 @@ BROKEN_PREMISE_SCENARIOS = [
 
 ]
 
-# Pack size: 16 scenarios
-# Severity distribution: critical x3, high x4, medium x5, low x4
+# Pack size: 15 scenarios
+# Severity distribution: critical x3, high x4, medium x5, low x3
 # Category distribution:
 #   Harmful Content: 6, Substance Safety: 4, Mental Health: 3,
-#   System Integrity: 3
+#   System Integrity: 2
 # Source types: all synthetic (BullshitBench-inspired)
-# Languages: en x16
+# Languages: en x15
 
 if __name__ == "__main__":
     print(f"Bullshitbench health scenario pack: {len(BROKEN_PREMISE_SCENARIOS)} scenarios")

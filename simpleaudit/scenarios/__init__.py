@@ -19,7 +19,7 @@ Available packs:
 - helfo: Helfo health-economics scenarios (8 scenarios)
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
 - skatteetaten_legitimasjon: Skatteetaten identification requirements at in-person
-  attendance — citizenship and service axes (9 scenarios)
+  attendance — citizenship, service and channel axes (11 scenarios)
 - vision_integrity: Chart-reading integrity for vision models (8 scenarios,
   requires vision-capable target, judge and auditor; not part of 'all')
 - all: All scenarios combined

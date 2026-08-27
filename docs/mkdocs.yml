@@ -67,7 +67,6 @@ markdown_extensions:
 
 nav:
   - index.md
-  - llms.txt
   - Guides:
     - Start Here:
       - guides/getting-started.md

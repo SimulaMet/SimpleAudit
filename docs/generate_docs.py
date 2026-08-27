@@ -1009,7 +1009,13 @@ def render_module_reference(module_name):
 
 
 def build_api_reference():
-    """Generate reference/*.md for every module. Returns list of (module, slug)."""
+    """Generate reference/*.md for every module using mkdocstrings directives.
+
+    Each page contains a `::: module` directive so mkdocstrings renders the
+    API at build time — this enables github_url source links, show_source,
+    and all other mkdocstrings options from autodocs.yml.
+    Returns list of (module, slug).
+    """
     os.makedirs(REF, exist_ok=True)
     modules = []
     for dirpath, _, filenames in os.walk(PKG_PATH):
@@ -1025,8 +1031,25 @@ def build_api_reference():
 
     rendered = []
     for mod in modules:
+        # Skip modules in directories without __init__.py (not importable)
+        parts = mod.split(".")
+        # Walk up: each parent package must have __init__.py
+        importable = True
+        for i in range(1, len(parts)):
+            parent_dir = os.path.join(ROOT, *parts[:i])
+            if not os.path.isfile(os.path.join(parent_dir, "__init__.py")):
+                importable = False
+                break
+        if not importable:
+            print(f"    reference: {mod} (skipped — no __init__.py in parent)")
+            continue
         print(f"    reference: {mod}")
-        content = render_module_reference(mod)
+        desc = MODULE_DESCRIPTIONS.get(mod, "")
+        lines = [f"## {mod}", ""]
+        if desc:
+            lines += [desc, ""]
+        lines += ["::: " + mod, ""]
+        content = "\n".join(lines)
         slug = mod.replace(".", "_")
         with open(os.path.join(REF, f"{slug}.md"), "w") as f:
             f.write(content)
@@ -1535,9 +1558,8 @@ def build_mkdocs_yml(nav):
             mk = dict(p["mkdocstrings"])
             handlers = mk.get("handlers", {})
             py = handlers.get("python", {})
-            opts = py.get("options", {})
-            opts["paths"] = [ROOT]
-            py["options"] = opts
+            # paths is a top-level handler config field (not under options)
+            py["paths"] = [ROOT]
             handlers["python"] = py
             mk["handlers"] = handlers
             plugins.append({"mkdocstrings": mk})

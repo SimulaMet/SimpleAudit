@@ -150,7 +150,7 @@ site:
   url: https://sushantgautam.github.io/simpleaudit-docs/
   repo_url: https://github.com/SushantGautam/simpleaudit
   repo_name: SushantGautam/simpleaudit
-  # edit_uri: "blob/main/docs/"   # Path from repo_url to docs dir (auto-derived for GitHub)
+  # edit_uri: "blob/main/docs/"   # "Edit this page" link → GitHub (auto-derived for GitHub)
   # author: "Sushant Gautam"      # Meta tag in HTML head
   # copyright: "© 2026 Sushant Gautam"  # Footer copyright line
 
@@ -194,6 +194,8 @@ plugins:
             docstring_style: numpy
             show_source: true
             merge_init_into_class: true
+            # Per-symbol GitHub source links are auto-derived from the theme's
+            # repo_url (site.repo_url in this file). No explicit github_url needed.
 
 # --- Markdown extensions ---
 markdown_extensions:

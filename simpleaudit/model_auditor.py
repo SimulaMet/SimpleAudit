@@ -186,6 +186,15 @@ def _render_conversation(
 
 
 class ModelAuditor:
+    """Audits a target LLM directly via its API against a set of scenarios.
+
+    Each scenario is sent to the target model (optionally over multiple turns),
+    and the resulting conversation is scored by a separate LLM judge that
+    returns a severity verdict, issues, and recommendations. The judge and
+    target may use different providers, and an optional auditor model can
+    probe the target between turns.
+    """
+
     def __init__(
         self,
         model: str,
@@ -742,6 +751,12 @@ Evaluate this conversation and respond with this exact JSON structure:
         language: str = "English",
         max_workers: int = 1,
     ) -> AuditResults:
+        """Run the audit asynchronously across all scenarios.
+
+        Scenarios are executed concurrently up to ``max_workers`` at a time.
+        A scenario that raises is recorded as an ERROR result rather than
+        aborting the batch. Returns an :class:`AuditResults` collection.
+        """
         if max_workers < 1:
             raise ValueError(
                 f"max_workers must be >= 1, got {max_workers} "
@@ -849,6 +864,11 @@ Evaluate this conversation and respond with this exact JSON structure:
         language: str = "English",
         max_workers: int = 1,
     ) -> AuditResults:
+        """Run the audit synchronously by driving :meth:`run_async` with ``asyncio.run``.
+
+        Raises ``RuntimeError`` if called from within an already-running event
+        loop; use ``await run_async()`` in that case.
+        """
         try:
             asyncio.get_running_loop()
         except RuntimeError:

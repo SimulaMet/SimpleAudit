@@ -12,6 +12,15 @@ from simpleaudit.repeated_results import RepeatedExperimentResults
 
 
 class AuditExperiment:
+    """Runs audits across multiple models and compares their results.
+
+    Each model is audited with the same scenarios and judge configuration,
+    optionally repeated ``n_repetitions`` times (with optional adaptive
+    reruns for low-agreement scenarios). Results can be cached to disk for
+    resuming interrupted experiments, and per-model completion can be
+    reported via the ``on_model_done`` callback.
+    """
+
     def __init__(
         self,
         models: List[Dict[str, Any]],
@@ -242,6 +251,13 @@ class AuditExperiment:
         language: str = "English",
         max_workers: int = 1,
     ) -> RepeatedExperimentResults:
+        """Run the experiment asynchronously across all configured models.
+
+        For each model, runs the audit ``n_repetitions`` times (resuming from
+        disk cache when available), optionally performs adaptive reruns on
+        scenarios below the agreement target, and saves results when a
+        ``save_dir`` is configured. Returns a :class:`RepeatedExperimentResults`.
+        """
         judge_info = {
             k: v for k, v in {
                 "judge_model": self.judge_model,
@@ -372,6 +388,11 @@ class AuditExperiment:
         language: str = "English",
         max_workers: int = 1,
     ) -> RepeatedExperimentResults:
+        """Run the experiment synchronously by driving :meth:`run_async` with ``asyncio.run``.
+
+        Raises ``RuntimeError`` if called from within an already-running event
+        loop; use ``await run_async()`` in that case.
+        """
         try:
             asyncio.get_running_loop()
         except RuntimeError:

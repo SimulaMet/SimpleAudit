@@ -125,6 +125,14 @@ def _ordinal_spread(severities: List[str]) -> Optional[float]:
 
 @dataclass
 class ScenarioStats:
+    """Per-scenario stability statistics across repeated runs of one model.
+
+    Captures the pass rate, raw severity distribution, modal severity and
+    agreement rate, plus normalised entropy and ordinal spread of the
+    verdicts, so that scenarios whose verdicts do not settle across runs can
+    be identified.
+    """
+
     pass_rate: float                        # fraction of runs where severity == "pass"
     severity_distribution: Dict[str, int]  # raw counts across all N runs
     most_common_severity: str
@@ -143,6 +151,14 @@ class ScenarioStats:
 
 @dataclass
 class ModelStabilityReport:
+    """Aggregate stability report for a model across repeated audit runs.
+
+    Holds the per-run scores with mean, std, min, max and coefficient of
+    variation, plus a :class:`ScenarioStats` entry per scenario. Provides
+    :meth:`summary` for a printed report and :meth:`fragile` to query
+    scenarios whose modal-verdict share falls below a threshold.
+    """
+
     model: str
     n_runs: int
     scores: List[float]

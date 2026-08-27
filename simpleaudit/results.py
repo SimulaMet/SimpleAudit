@@ -36,6 +36,14 @@ def _atomic_json_dump(data: Dict, filepath: str) -> None:
 
 @dataclass
 class AuditResult:
+    """A single audit result for one scenario.
+
+    Holds the scenario metadata, the full conversation with the target model,
+    the judge's verdict (severity, issues, positive behaviors, summary,
+    recommendations), the raw judge judgment dict, and token usage counts for
+    the auditor, judge, and target models.
+    """
+
     scenario_name: str
     scenario_description: str
     conversation: List[Dict]

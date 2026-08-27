@@ -1216,6 +1216,112 @@ def build_index_md(pages, reference_modules):
     return "\n".join(lines)
 
 
+def build_llms_txt(pages, reference_modules):
+    """Generate llms.txt — a markdown index for AI agents (https://llmstxt.org)."""
+    page_map = {p["slug"]: p for p in pages}
+    base = SITE_URL.rstrip("/") if SITE_URL else ""
+
+    lines = [
+        f"# {SITE_NAME}",
+        "",
+        SITE_DESCRIPTION,
+        "",
+        f"> {REPO_URL}",
+        "",
+        "## Guides",
+        "",
+    ]
+    for section_name, slugs in NARRATIVE_SECTIONS:
+        section_pages = [page_map[s] for s in slugs if s in page_map]
+        if not section_pages:
+            continue
+        for p in section_pages:
+            desc = p.get("description", "")
+            url = f"{base}/guides/{p['slug']}/" if base else f"guides/{p['slug']}/"
+            lines.append(f"- [{p['title']}]({url}): {desc}" if desc else f"- [{p['title']}]({url})")
+    lines.append("")
+
+    lines.append("## API Reference")
+    lines.append("")
+    for section_name, _ in REFERENCE_SECTIONS:
+        mods = _section_modules(section_name, reference_modules)
+        if not mods:
+            continue
+        for m in mods:
+            slug = m.replace(".", "_")
+            desc = MODULE_DESCRIPTIONS.get(m, "")
+            url = f"{base}/reference/{slug}/" if base else f"reference/{slug}/"
+            lines.append(f"- [{m}]({url}): {desc}" if desc else f"- [{m}]({url})")
+    lines.append("")
+
+    content = "\n".join(lines)
+    with open(os.path.join(SITE_SRC, "llms.txt"), "w") as f:
+        f.write(content)
+    print(f"  llms.txt ({len(lines)} lines)")
+
+
+def build_llms_full_txt(pages, reference_modules):
+    """Generate llms-full.txt — all docs in one flat file for single-shot ingestion."""
+    page_map = {p["slug"]: p for p in pages}
+    parts = [
+        f"# {SITE_NAME} — Full Documentation",
+        "",
+        SITE_DESCRIPTION,
+        "",
+        f"Source: {REPO_URL}",
+        "",
+        "=" * 60,
+        "",
+    ]
+
+    # Guides
+    for section_name, slugs in NARRATIVE_SECTIONS:
+        section_pages = [page_map[s] for s in slugs if s in page_map]
+        if not section_pages:
+            continue
+        for p in section_pages:
+            path = os.path.join(OUT, f"{p['slug']}.md")
+            if os.path.exists(path):
+                parts.append(f"{'=' * 60}")
+                parts.append(f"## {p['title']}")
+                parts.append("")
+                parts.append(read_file(path))
+                parts.append("")
+
+    # Unassigned guides
+    assigned = {s for _, slugs in NARRATIVE_SECTIONS for s in slugs}
+    for p in pages:
+        if p["slug"] not in assigned:
+            path = os.path.join(OUT, f"{p['slug']}.md")
+            if os.path.exists(path):
+                parts.append(f"{'=' * 60}")
+                parts.append(f"## {p['title']}")
+                parts.append("")
+                parts.append(read_file(path))
+                parts.append("")
+
+    # API reference
+    for section_name, _ in REFERENCE_SECTIONS:
+        mods = _section_modules(section_name, reference_modules)
+        if not mods:
+            continue
+        for m in mods:
+            slug = m.replace(".", "_")
+            path = os.path.join(REF, f"{slug}.md")
+            if os.path.exists(path):
+                parts.append(f"{'=' * 60}")
+                parts.append(f"## {m}")
+                parts.append("")
+                parts.append(read_file(path))
+                parts.append("")
+
+    content = "\n".join(parts)
+    with open(os.path.join(SITE_SRC, "llms-full.txt"), "w") as f:
+        f.write(content)
+    size_kb = len(content) // 1024
+    print(f"  llms-full.txt ({size_kb} KB)")
+
+
 def cross_link_guides():
     """Append a 'See Also' section to each guide page with links to related pages."""
     guides_dir = OUT
@@ -1318,7 +1424,7 @@ def cross_link_guides():
 def build_nav(pages, reference_modules):
     """Build the mkdocs nav structure."""
     page_map = {p["slug"]: p for p in pages}
-    nav = ["index.md"]
+    nav = ["index.md", "llms.txt"]
 
     nav.append(["Guides", []])
     guides_nav = nav[-1][1]
@@ -1624,6 +1730,9 @@ def main():
     nav = build_nav(pages, reference_modules)
     build_mkdocs_yml(nav)
     print("  mkdocs.yml")
+
+    build_llms_txt(pages, reference_modules)
+    build_llms_full_txt(pages, reference_modules)
 
     img_src = os.path.join(PKG_PATH, "images")
     img_dst = os.path.join(SITE_SRC, "images")

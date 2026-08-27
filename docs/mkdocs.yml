@@ -149,5 +149,4 @@ nav:
       - reference/simpleaudit_scenarios_system_prompt.md
       - reference/simpleaudit_scenarios_ung.md
       - reference/simpleaudit_scenarios_vision_integrity.md
-    - Visualization:
-      - reference/simpleaudit_visualization_server.md
+    - reference/simpleaudit_visualization_server.md

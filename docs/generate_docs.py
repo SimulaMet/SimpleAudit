@@ -1342,7 +1342,10 @@ def build_nav(pages, reference_modules):
         mods = _section_modules(section_name, reference_modules)
         if not mods:
             continue
-        ref_nav.append([section_name, [f"reference/{m.replace('.', '_')}.md" for m in mods]])
+        if len(mods) == 1:
+            ref_nav.append(f"reference/{mods[0].replace('.', '_')}.md")
+        else:
+            ref_nav.append([section_name, [f"reference/{m.replace('.', '_')}.md" for m in mods]])
 
     return nav
 

@@ -150,9 +150,14 @@ site:
   url: https://sushantgautam.github.io/simpleaudit-docs/
   repo_url: https://github.com/SushantGautam/simpleaudit
   repo_name: SushantGautam/simpleaudit
+  # --- Optional site fields (uncomment to enable) ---
   # edit_uri: "blob/main/docs/"   # "Edit this page" link → GitHub (auto-derived for GitHub)
   # author: "Sushant Gautam"      # Meta tag in HTML head
   # copyright: "© 2026 Sushant Gautam"  # Footer copyright line
+  # keywords: [AI safety, LLM auditing, model evaluation]  # Meta keywords
+  # remote_branch: gh-pages       # Branch for "Edit this page" (default: main)
+  # remote_root: docs/             # Root of docs in the repo (default: /)
+  # locale: en                     # Site language (affects search, dates)
 
 # --- Build directories ---
 build:
@@ -161,6 +166,7 @@ build:
   # use_directory_urls: true     # Default: true (clean URLs like /page/ not /page.html)
   # strict: false                # Halt on warnings (CI uses --strict flag instead)
   # dev_addr: "127.0.0.1:8000"  # mkdocs serve address
+  # dev_port: 8000               # mkdocs serve port (default: 8000)
 
 # --- Extra assets (relative to docs_dir) ---
 # extra_css:
@@ -169,24 +175,54 @@ build:
 #   - js/extra.js
 # extra:
 #   version: "1.0"               # Passed to theme templates
+#   social:                      # Social links in footer
+#     - icon: github-alt
+#       link: https://github.com/SushantGautam/simpleaudit
+#     - icon: envelope
+#       link: mailto:sushant@example.com
 
 # --- Theme ---
 theme:
   name: material
   primary: indigo
   accent: indigo
+  # favicon: assets/favicon.png  # Browser tab icon (file in site_src/assets/)
+  # logo: assets/logo.png        # Header logo (replaces site name text)
+  # font:                        # Custom fonts
+  #   text: Roboto
+  #   code: Roboto Mono
+  # icon:                        # Override default Material icons
+  #   repo: fontawesome/brands/github
   features:
     - navigation.sections
     - navigation.top
     - navigation.footer
+    - navigation.indexes         # Show section indexes in nav
+    - navigation.tracking        # Highlight current page in nav
     - content.code.copy
+    - content.code.annotate      # Line annotations in code blocks
     - search.highlight
     - search.suggest
     - toc.follow
+    - toc.title                  # Show "On this page" heading
+  # palette:                     # Dark mode color scheme
+  #   - scheme: slate
+  #     toggle:
+  #       icon: material/brightness-4
+  #       name: Switch to light mode
+  #   - scheme: default
+  #     toggle:
+  #       icon: material/brightness-7
+  #       name: Switch to dark mode
+  # sticky_navigation: true      # Pin nav to top on scroll
+  # sticky_header: true          # Pin header to top on scroll
 
 # --- Plugins ---
 plugins:
-  - search
+  - search:
+      # separator: (?:\b|['"\s])  # Custom search token separator
+      # suggest: true             # Enable search suggestions (requires feature)
+      # preview: true             # Show preview in search dropdown
   - mkdocstrings:
       handlers:
         python:
@@ -196,6 +232,17 @@ plugins:
             merge_init_into_class: true
             # Per-symbol GitHub source links are auto-derived from the theme's
             # repo_url (site.repo_url in this file). No explicit github_url needed.
+            # filters: ["!_*"]    # Hide private members (default: public only)
+            # heading_level: 2    # Starting heading level for members
+            # show_if_no_docstring: false  # Hide members without docstrings
+            # member_order: source # Sort by source order (default: alphabetical)
+            # inherited_members: false   # Don't show inherited members
+            # members_order: source      # Order members by source
+            # docstring_process:         # Custom docstring processors
+            #   - griffe.docstrings.google
+  # - awesome-pages              # Auto-generate nav from folder structure
+  # - git-commits                # Show commit history per page
+  # - minify                     # Minify HTML/CSS/JS for production
 
 # --- Markdown extensions ---
 markdown_extensions:
@@ -205,8 +252,11 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
+      # title: On this page   # Custom TOC title
   - pymdownx.highlight:
       anchor_linenums: true
+      # line_spans: __span    # CSS class for line spans
+      # pygments_lang_class: true  # Use language class for styling
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences:
@@ -215,3 +265,13 @@ markdown_extensions:
           class: mermaid
           # The generator converts this to the !!python/name: tag in mkdocs.yml
           format: pymdownx.superfences.fence_code_format
+        # - name: tab-set
+        #   format: pymdownx.superfences.tabbed_fences
+  # - pymdownx.critic           # Track changes (~~deleted~~, ++added++)
+  # - pymdownx.caret             # Caret notation (subscript/superscript)
+  # - pymdownx.mark              # ==highlight==
+  # - pymdownx.tilde             # ~~strikethrough~~
+  # - pymdownx.keys              # Keyboard keys (e.g. (ctrl)+(s))
+  # - pymdownx.betterem          # Smart emphasis
+  # - pymdownx.smarts            # Smart punctuation
+  # - pymdownx.tasklist          # Task lists with checkboxes

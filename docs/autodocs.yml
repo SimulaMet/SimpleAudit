@@ -3,11 +3,9 @@
 # The script is generic — all project-specific values live here.
 
 # --- Project identity ---
+# Used in LLM prompts and the index page.
+# Full site identity (name, description, URLs) lives under `site:` below.
 project_name: SimpleAudit
-site_description: "Lightweight AI Safety Auditing Framework"
-site_url: https://sushantgautam.github.io/simpleaudit-docs/
-repo_url: https://github.com/SushantGautam/simpleaudit
-repo_name: SushantGautam/simpleaudit
 
 # --- Package discovery ---
 # Name of the top-level Python package to document.
@@ -139,8 +137,60 @@ kb:
     - FAQ.md
     - DPG.md
 
-# --- MkDocs theme (optional overrides) ---
+# ============================================================================
+# MkDocs site configuration
+# Everything below drives the generated mkdocs.yml.
+# Edit these values here — NOT in mkdocs.yml (it's regenerated on each run).
+# ============================================================================
+
+# --- Site identity (top-level mkdocs.yml fields) ---
+site:
+  name: SimpleAudit
+  description: "Lightweight AI Safety Auditing Framework"
+  url: https://sushantgautam.github.io/simpleaudit-docs/
+  repo_url: https://github.com/SushantGautam/simpleaudit
+  repo_name: SushantGautam/simpleaudit
+
+# --- Theme ---
 theme:
   name: material
   primary: indigo
   accent: indigo
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - search.highlight
+    - search.suggest
+    - toc.follow
+
+# --- Plugins ---
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            show_source: true
+            merge_init_into_class: true
+
+# --- Markdown extensions ---
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          # The generator converts this to the !!python/name: tag in mkdocs.yml
+          format: pymdownx.superfences.fence_code_format

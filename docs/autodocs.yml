@@ -186,7 +186,7 @@ theme:
   name: material
   primary: indigo
   accent: indigo
-  # favicon: assets/favicon.png  # Browser tab icon (file in site_src/assets/)
+  favicon: assets/favicon.png
   # logo: assets/logo.png        # Header logo (replaces site name text)
   # font:                        # Custom fonts
   #   text: Roboto

@@ -31,13 +31,17 @@ theme:
   - navigation.sections
   - navigation.top
   - navigation.footer
+  - navigation.indexes
+  - navigation.tracking
   - content.code.copy
+  - content.code.annotate
   - search.highlight
   - search.suggest
   - toc.follow
+  - toc.title
 
 plugins:
-  - search
+  - search: null
   - mkdocstrings:
       handlers:
         python:

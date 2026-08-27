@@ -187,7 +187,7 @@ theme:
   primary: indigo
   accent: indigo
   favicon: assets/favicon.png
-  # logo: assets/logo.png        # Header logo (replaces site name text)
+  logo: assets/favicon.png
   # font:                        # Custom fonts
   #   text: Roboto
   #   code: Roboto Mono

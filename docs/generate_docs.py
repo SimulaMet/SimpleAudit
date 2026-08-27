@@ -2,10 +2,14 @@
 """
 SimpleAudit documentation generator — two-layer pipeline.
 
+This script lives in the simpleaudit-docs repo. It reads the simpleaudit
+package source from SIMPLEAUDIT_ROOT (default: sibling directory) and
+writes the MkDocs source tree into ./site_src/.
+
 Layer 1 (deterministic, no LLM):
   - Griffe scans the simpleaudit/ source tree and renders a complete,
     always-accurate API reference (classes, functions, signatures,
-    docstrings) into docs/site_src/reference/*.md
+    docstrings) into site_src/reference/*.md
   - mkdocs.yml, nav, and the index page are generated from the plan
 
 Layer 2 (LLM, Open WebUI backend):
@@ -13,15 +17,21 @@ Layer 2 (LLM, Open WebUI backend):
     are generated/updated by the LLM with source code + KB context
   - Incremental: pages are only regenerated when their source files change
 
-Output: docs/site_src/  (MkDocs source tree)
-Build:  mkdocs build  ->  docs/site/  (static site, deployable to GitHub Pages)
+Output: site_src/  (MkDocs source tree)
+Build:  mkdocs build  ->  site/  (static site, deployed to GitHub Pages)
 
 Usage:
-  python3 docs/generate_docs.py              # incremental generate
-  python3 docs/generate_docs.py --force      # full re-plan + regenerate
-  python3 docs/generate_docs.py --no-llm     # deterministic layer only (offline)
-  python3 docs/generate_docs.py --build      # also run `mkdocs build`
-  python3 docs/generate_docs.py --push-wiki  # legacy: sync to GitHub wiki
+  python3 generate_docs.py              # incremental generate
+  python3 generate_docs.py --force      # full re-plan + regenerate
+  python3 generate_docs.py --no-llm     # deterministic layer only (offline)
+  python3 generate_docs.py --build      # also run `mkdocs build`
+
+Environment:
+  SIMPLEAUDIT_ROOT  Path to the simpleaudit repo checkout (default: ../)
+  OWUI_BASE         Open WebUI base URL
+  OWUI_API_KEY      Open WebUI API key
+  OWUI_KB_ID        Open WebUI knowledge base ID
+  OWUI_MODEL        Model name
 """
 
 import argparse
@@ -45,8 +55,14 @@ KEY = os.environ.get("OWUI_API_KEY", "")
 KB_ID = os.environ.get("OWUI_KB_ID", "a43e450c-a197-4d53-95ca-555a6e6a2edb")
 MODEL = os.environ.get("OWUI_MODEL", "default")
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root
-DOCS = os.path.dirname(os.path.abspath(__file__))                   # docs/
+# This repo is the docs repo (simpleaudit-docs). The simpleaudit package
+# source lives in a sibling checkout (set SIMPLEAUDIT_ROOT, or place the
+# simpleaudit repo next to this one).
+ROOT = os.environ.get(
+    "SIMPLEAUDIT_ROOT",
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+)
+DOCS = os.path.dirname(os.path.abspath(__file__))                   # repo root
 SITE_SRC = os.path.join(DOCS, "site_src")
 OUT = os.path.join(SITE_SRC, "guides")          # LLM narrative pages
 REF = os.path.join(SITE_SRC, "reference")      # Griffe API reference
@@ -227,7 +243,7 @@ MODULE_DESCRIPTIONS = {
     "simpleaudit.judges.harm": "Harm judge: scores harmfulness of model outputs.",
     "simpleaudit.judges.helpfulness": "Helpfulness judge: scores how helpful the model was.",
     "simpleaudit.judges.safety": "Safety judge: scores safety of model outputs.",
-    "simpleaudit.judges.judge_conviction": "Judge conviction: measures how strongly a judge commits to its verdict.",
+    "simpleaudit.judges.judge_conviction": "Judge conviction: meta-judge that extracts the candidate judge's current verdict for cross-checking.",
     "simpleaudit.judges.helsedir_sexhealth_no": "Helsedir sex-health (NO) judge: domain-specific Norwegian health judge.",
     "simpleaudit.judges.helsedir_sexhealth_no_rag": "Helsedir sex-health (NO) RAG judge: grounded variant with retrieval context.",
     "simpleaudit.scenarios": "Scenario packs: curated test suites (health, safety, government, benchmarks).",
@@ -235,7 +251,7 @@ MODULE_DESCRIPTIONS = {
     "simpleaudit.scenarios.safety": "Safety scenarios: refusal and harmful-request tests.",
     "simpleaudit.scenarios.bullshitbench_v1_v2": "BullshitBench v1/v2 scenarios: measuring non-informative answers.",
     "simpleaudit.scenarios.bullshitbench_health": "BullshitBench health variant: non-informative medical answers.",
-    "simpleaudit.scenarios.hei_refusal": "HEI refusal scenarios: higher-education institutional refusal tests.",
+    "simpleaudit.scenarios.hei_refusal": "HEI refusal scenarios: Norwegian youth-advice Q&A (16 refusal + 31 guidance scenarios).",
     "simpleaudit.scenarios.helfo": "Helfo scenarios: Norwegian health insurance authority tests.",
     "simpleaudit.scenarios.helpmed": "HelpMed scenarios: medical help-seeking tests.",
     "simpleaudit.scenarios.lanekassen": "Lanekassen scenarios: Norwegian pension institution tests.",
@@ -285,7 +301,50 @@ def _is_public_member(obj):
     return isinstance(obj, (griffe.Class, griffe.Function, griffe.Attribute))
 
 
-def _render_member_md(name, obj, depth=3):
+def _resolve_alias(obj):
+    """Resolve a Griffe Alias to its target object, or None on failure.
+
+    Re-exported names (e.g. ``from .model_auditor import ModelAuditor``)
+    are Alias objects. Resolving gives the real Class/Function/Attribute so
+    the package index page can document the public API.
+    """
+    import griffe
+    if not isinstance(obj, griffe.Alias):
+        return obj
+    try:
+        return obj.target
+    except Exception:  # noqa: BLE001  (unresolvable, e.g. stdlib imports)
+        return None
+
+
+def _main_guard_line(mod):
+    """Return the 1-indexed line of the ``if __name__ == "__main__":`` guard.
+
+    Members defined at or after this line are script-local (e.g. ``sev =
+    Counter(...)`` in a demo block) and must not be documented as API.
+    Returns None when the module has no ``__main__`` block.
+    """
+    try:
+        src = mod.source
+    except Exception:  # noqa: BLE001
+        return None
+    if not src:
+        return None
+    for i, line in enumerate(src.splitlines(), 1):
+        if "__name__" in line and "__main__" in line:
+            return i
+    return None
+
+
+def _member_lineno(obj):
+    """Best-effort 1-indexed source line for a member (None on failure)."""
+    try:
+        return obj.lineno
+    except Exception:  # noqa: BLE001  (alias resolution can fail)
+        return None
+
+
+def _render_member_md(name, obj, depth=3, module_members=None):
     """Render one class/function/attribute as markdown."""
     import griffe
     Class, Function = griffe.Class, griffe.Function
@@ -299,7 +358,7 @@ def _render_member_md(name, obj, depth=3):
         lines.append(f"{header} `{name}`")
         if doc_lines:
             lines.append("")
-            lines.extend(doc_lines)
+            lines.extend(_format_docstring(doc))
             lines.append("")
         # init signature
         init = None
@@ -330,6 +389,11 @@ def _render_member_md(name, obj, depth=3):
                 first = mdoc.splitlines()[0].strip() if mdoc else ""
                 msig = _griffe_signature(m)
                 label = msig if msig else f"{m.name}()"
+                try:
+                    if m.source and m.source.lstrip().startswith("async def"):
+                        label = f"async {label}"
+                except Exception:  # noqa: BLE001
+                    pass
                 lines.append(f"- `{label}` — {first}" if first else f"- `{label}`")
             lines.append("")
         # attributes
@@ -347,10 +411,21 @@ def _render_member_md(name, obj, depth=3):
             lines.append("")
     elif isinstance(obj, Function):
         sig = _griffe_signature(obj)
-        lines.append(f"{header} `{sig if sig else name + '()'}`")
+        # Mark async functions (griffe 1.x has no is_async flag; the
+        # signature omits the `async` keyword, so detect it from source).
+        is_async = False
+        try:
+            if obj.source and obj.source.lstrip().startswith("async def"):
+                is_async = True
+        except Exception:  # noqa: BLE001
+            pass
+        label = sig if sig else f"{name}()"
+        if is_async:
+            label = f"async {label}"
+        lines.append(f"{header} `{label}`")
         if doc_lines:
             lines.append("")
-            lines.extend(doc_lines)
+            lines.extend(_format_docstring(doc))
             lines.append("")
     else:
         # module-level constant / variable
@@ -359,7 +434,494 @@ def _render_member_md(name, obj, depth=3):
             lines.append("")
             lines.extend(doc_lines)
             lines.append("")
+        # Try rich rendering for structured data constants
+        try:
+            val = obj.value
+        except Exception:  # noqa: BLE001
+            val = None
+        vtype = type(val).__name__ if val is not None else ""
+        rendered_rich = False
+        # Scenario list: list of dicts with name/description
+        if "list" in vtype.lower() and val is not None:
+            elements = getattr(val, "elements", None)
+            if elements and len(elements) > 0:
+                # Check if first element is a dict with name/description
+                el0 = elements[0]
+                k0 = getattr(el0, "keys", None)
+                if k0 is not None:
+                    k0_stripped = [_strip_token(k) for k in k0]
+                    if "name" in k0_stripped and "description" in k0_stripped:
+                        table = _render_scenario_list_md(val)
+                        if table:
+                            lines.append("")
+                            lines.extend(table)
+                            lines.append("")
+                            rendered_rich = True
+        # Judge config: dict with description/judge_prompt
+        if not rendered_rich and "dict" in vtype.lower() and val is not None:
+            judge_md = _render_judge_config_md(val)
+            if judge_md:
+                lines.append("")
+                lines.extend(judge_md)
+                lines.append("")
+                rendered_rich = True
+        if not rendered_rich and not doc_lines:
+            # No docstring and no rich render — add a size/value annotation
+            size_note = _describe_constant_value(obj, module_members)
+            if size_note:
+                lines.append("")
+                lines.append(f"_{size_note}_")
+                lines.append("")
     return lines
+
+
+def _format_docstring(doc):
+    """Format a docstring for markdown, handling numpydoc sections.
+
+    - De-indents the block.
+    - Renders ``**kwargs**`` parameter lines as ``*kwargs*`` (avoids a stray
+      bold line).
+    - Inserts a blank line before known section headers (Args, Returns,
+      Examples, etc.) so they don't glue to the preceding text.
+    """
+    import textwrap
+    if not doc:
+        return []
+    text = textwrap.dedent(doc)
+    lines = text.splitlines()
+    section_headers = {
+        "args", "arguments", "parameters", "returns", "yields", "raises",
+        "examples", "example", "attributes", "note", "notes", "see also",
+        "references", "todo", "warning", "warnings",
+    }
+    out = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        # numpydoc section header: "Examples:" / "Args:" etc.
+        # (also matches the underlined form "Examples\n--------")
+        if stripped.endswith(":") and stripped[:-1].strip().lower() in section_headers:
+            if out and out[-1].strip():
+                out.append("")
+            out.append(stripped)
+            continue
+        if stripped.lower() in section_headers and i + 1 < len(lines) \
+                and set(lines[i + 1].strip()) <= {"-"} and lines[i + 1].strip():
+            if out and out[-1].strip():
+                out.append("")
+            out.append(stripped + ":")
+            continue
+        # "**kwargs**" style parameter line -> italic (with or without colon)
+        if stripped.startswith("**") and stripped.endswith("**"):
+            inner = stripped[2:-2].strip()
+            if ":" in inner:
+                colon = inner.find(":")
+                param = inner[:colon].strip()
+                rest = inner[colon + 1:].strip()
+                line = line.replace(stripped, f"*{param}*: {rest}", 1)
+            else:
+                line = line.replace(stripped, f"*{inner}*", 1)
+        elif stripped.startswith("**") and not stripped.endswith("**"):
+            # numpydoc param name like "**experiment_kwargs" (no closing **)
+            param = stripped[2:].strip()
+            line = line.replace(stripped, f"*{param}*", 1)
+        out.append(line)
+    return out
+
+
+def _describe_constant_value(obj, module_members=None):
+    """Return a short human description of a constant's value, or "".
+
+    - Small lists (<=8 items): render the actual values inline.
+    - Large lists: report the element count (e.g. "List of 1000 items").
+    - ``A + B`` list concatenation: sum the two referenced lists' sizes.
+    - Dicts: report the key count, or the ``description`` field for
+      judge-config dicts.
+    - ``pathlib.Path``: report the path string.
+    Returns "" when the value shape can't be determined.
+    """
+    try:
+        val = obj.value
+    except Exception:  # noqa: BLE001
+        return ""
+    if val is None:
+        return ""
+    vtype = type(val).__name__
+
+    # pathlib.Path (or any object with a .as_posix / str form)
+    if vtype == "Path" or "Path" in vtype:
+        try:
+            return f"Path: `{val.as_posix() if hasattr(val, 'as_posix') else str(val)}`"
+        except Exception:  # noqa: BLE001
+            return ""
+
+    # A + B concatenation of two list constants
+    if vtype == "ExprBinOp":
+        try:
+            left = getattr(val, "left", None)
+            right = getattr(val, "right", None)
+            op = getattr(val, "operator", None) or getattr(val, "op", None)
+            op_name = type(op).__name__ if op is not None else ""
+            is_add = (op == "+" or op_name == "Add")
+            if is_add and left is not None and right is not None:
+                ln = getattr(left, "name", None)
+                rn = getattr(right, "name", None)
+                if ln and rn and module_members is not None:
+                    lsize = _list_size(module_members.get(ln))
+                    rsize = _list_size(module_members.get(rn))
+                    if lsize is not None and rsize is not None:
+                        return (f"List of {lsize + rsize} items "
+                                f"({ln} + {rn}).")
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+
+    # Griffe ExprDict: uses .keys/.values (no .elements)
+    if "dict" in vtype.lower():
+        keys = getattr(val, "keys", None)
+        if keys is not None:
+            try:
+                n = len(keys)
+            except Exception:  # noqa: BLE001
+                n = 0
+            desc = _dict_description(val)
+            if desc:
+                return desc
+            return f"Dict with {n} keys."
+        return ""
+
+    # Griffe ExprList (and other collections) carry an .elements collection
+    elements = getattr(val, "elements", None)
+    if elements is not None:
+        try:
+            n = len(elements)
+        except Exception:  # noqa: BLE001
+            return ""
+        kind = vtype.lower()
+        if "list" in kind:
+            if n <= 8:
+                vals = _list_inline_values(val)
+                if vals:
+                    return f"Values: `{vals}`."
+            return f"List of {n} items."
+        return f"Collection of {n} items."
+    # Plain Python list/dict (already-resolved value)
+    if isinstance(val, list):
+        if len(val) <= 8:
+            vals = ", ".join(repr(v) for v in val)
+            return f"Values: `{vals}`."
+        return f"List of {len(val)} items."
+    if isinstance(val, dict):
+        return f"Dict with {len(val)} keys."
+    return ""
+
+
+def _strip_token(s):
+    """Strip surrounding quotes from a raw source token string."""
+    if not isinstance(s, str):
+        return ""
+    s = s.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        s = s[1:-1]
+    return s
+
+
+def _render_scenario_list_md(val, depth=4):
+    """Render a list-of-dicts (scenario pack) as a markdown table.
+
+    Returns a list of markdown lines, or [] if the structure doesn't
+    match the expected {name, description} shape.
+    """
+    elements = getattr(val, "elements", None)
+    if elements is None:
+        return []
+    rows = []
+    for el in elements:
+        keys = getattr(el, "keys", None)
+        values = getattr(el, "values", None)
+        if keys is None or values is None:
+            continue
+        d = {}
+        for i in range(len(keys)):
+            k = _strip_token(keys[i])
+            v = _strip_token(values[i])
+            d[k] = v
+        name = d.get("name", "")
+        desc = d.get("description", "")
+        if name:
+            rows.append(f"| {name} | {desc} |")
+    if not rows:
+        return []
+    return ["| Scenario | Description |", "| --- | --- |"] + rows
+
+
+def _render_judge_config_md(val, depth=4):
+    """Render a judge-config dict with its key fields as markdown.
+
+    Returns a list of markdown lines, or [] if not a judge config.
+    """
+    keys = getattr(val, "keys", None)
+    values = getattr(val, "values", None)
+    if keys is None or values is None:
+        return []
+    d = {}
+    for i in range(len(keys)):
+        k = _strip_token(keys[i])
+        v = values[i]
+        # Values can be raw string tokens OR nested ExprDict objects
+        if isinstance(v, str):
+            d[k] = _strip_token(v)
+        else:
+            d[k] = v  # keep the object for nested handling
+    if "description" not in d and "judge_prompt" not in d:
+        return []
+    lines = []
+    if d.get("name"):
+        lines.append(f"**Name:** {d['name']}")
+        lines.append("")
+    if d.get("description"):
+        lines.append(d["description"])
+        lines.append("")
+    # Extract evaluation criteria from judge_prompt (numbered list).
+    # The prompt is a raw source token with literal \n sequences.
+    jp = d.get("judge_prompt", "")
+    if jp and isinstance(jp, str):
+        # Convert literal \n to actual newlines for parsing
+        jp_text = jp.replace("\\n", "\n")
+        criteria = []
+        in_criteria = False
+        for line in jp_text.splitlines():
+            stripped = line.strip()
+            if "EVALUATION CRITERIA" in stripped.upper():
+                in_criteria = True
+                continue
+            if in_criteria:
+                if stripped and (stripped[0].isdigit() or stripped.startswith("-")):
+                    criteria.append(stripped)
+                elif stripped and criteria:
+                    break
+                elif not stripped and criteria:
+                    break
+        if criteria:
+            lines.append("**Evaluation criteria:**")
+            lines.append("")
+            for c in criteria:
+                lines.append(f"- {c}")
+            lines.append("")
+    # Source field may be a nested ExprDict (e.g. {paper, url, authors})
+    src = d.get("source")
+    if src is not None:
+        if isinstance(src, str):
+            lines.append(f"**Source:** {src}")
+            lines.append("")
+        else:
+            # Nested dict — render as key: value pairs
+            src_keys = getattr(src, "keys", None)
+            src_vals = getattr(src, "values", None)
+            if src_keys is not None and src_vals is not None:
+                lines.append("**Source:**")
+                lines.append("")
+                for i in range(len(src_keys)):
+                    sk = _strip_token(src_keys[i])
+                    sv = src_vals[i]
+                    if isinstance(sv, str):
+                        sv = _strip_token(sv)
+                    lines.append(f"- {sk}: {sv}")
+                lines.append("")
+    return lines
+
+
+def _list_size(obj):
+    """Element count of a list-valued member, or None."""
+    if obj is None:
+        return None
+    try:
+        val = obj.value
+    except Exception:  # noqa: BLE001
+        return None
+    elements = getattr(val, "elements", None)
+    if elements is not None:
+        try:
+            return len(elements)
+        except Exception:  # noqa: BLE001
+            return None
+    if isinstance(val, list):
+        return len(val)
+    return None
+
+
+def _list_inline_values(val):
+    """Render a small Griffe ExprList's string elements inline, or ""."""
+    elements = getattr(val, "elements", None)
+    if elements is None:
+        return ""
+    parts = []
+    for el in elements:
+        v = getattr(el, "value", el)
+        if isinstance(v, str):
+            s = v.strip()
+            if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+                s = s[1:-1]
+            parts.append(s)
+    return ", ".join(parts) if parts else ""
+
+
+def _dict_description(val):
+    """Extract a human description from a Griffe ExprDict, or "".
+
+    Judge-config dicts carry a ``description`` key. The keys/values are
+    raw source-token strings (e.g. ``"'description'"``), so we strip the
+    surrounding quotes. Returns the description string if present.
+    """
+    keys = getattr(val, "keys", None)
+    values = getattr(val, "values", None)
+    if keys is None or values is None:
+        return ""
+    try:
+        n = len(keys)
+    except Exception:  # noqa: BLE001
+        return ""
+    for i in range(n):
+        k = keys[i]
+        if not isinstance(k, str):
+            k = getattr(k, "value", k)
+        if not isinstance(k, str):
+            continue
+        if k.strip().strip("'\"") == "description":
+            v = values[i]
+            if not isinstance(v, str):
+                v = getattr(v, "value", v)
+            if isinstance(v, str):
+                s = v.strip()
+                if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+                    s = s[1:-1]
+                return s
+    return ""
+
+
+def _extract_all_names(all_attr):
+    """Extract the list of public names from a module's ``__all__`` attribute.
+
+    Handles three shapes:
+    - a plain list of strings (already-resolved value)
+    - a Griffe ``ExprList`` of AST nodes (string literals carry text in ``.value``)
+    - a Griffe ``ExprList`` of raw source tokens (strings like ``"'name'"``,
+      plus ``'['`` / ``']'`` / ``', '`` separators)
+
+    Returns an empty list if it can't be determined.
+    """
+    try:
+        raw = all_attr.value
+    except Exception:  # noqa: BLE001
+        return []
+    if raw is None:
+        return []
+    names = []
+    for item in raw:
+        # AST node (e.g. ast.Constant) -> its .value is the string
+        val = getattr(item, "value", item)
+        if not isinstance(val, str):
+            continue
+        s = val.strip()
+        # Skip bracket / comma separator tokens from raw source
+        if s in ("[", "]", ","):
+            continue
+        # Strip surrounding quotes from a string-literal token
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+            s = s[1:-1]
+        if s and s.isidentifier():
+            names.append(s)
+    return names
+
+
+def _render_module_via_ast(module_name, py_path):
+    """Render a module page using Python's ast module (fallback).
+
+    Used when griffe.load fails (e.g. packages without __init__.py).
+    Extracts top-level classes, functions, and constants with docstrings.
+    """
+    import ast
+
+    with open(py_path) as f:
+        source = f.read()
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as e:
+        return (f"## {module_name}\n\n"
+                f"> Could not parse this module: `{e}`\n")
+
+    lines = [f"## {module_name}", ""]
+    desc = MODULE_DESCRIPTIONS.get(module_name)
+    mod_doc = ast.get_docstring(tree)
+    if desc:
+        lines += [desc, ""]
+    if mod_doc:
+        doc_body = mod_doc.strip()
+        if not (desc and doc_body.splitlines()[0].strip() == desc):
+            lines += [doc_body, ""]
+
+    classes = []
+    functions = []
+    constants = []
+
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            if not node.name.startswith("_"):
+                doc = ast.get_docstring(node) or ""
+                classes.append((node.name, doc))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not node.name.startswith("_"):
+                doc = ast.get_docstring(node) or ""
+                # Build a simple signature
+                args = []
+                for a in node.args.args:
+                    args.append(a.arg)
+                if node.args.vararg:
+                    args.append("*" + node.args.vararg.arg)
+                for a in node.args.kwonlyargs:
+                    args.append(a.arg)
+                if node.args.kwarg:
+                    args.append("**" + node.args.kwarg.arg)
+                sig = f"({', '.join(args)})"
+                prefix = "async " if isinstance(node, ast.AsyncFunctionDef) else ""
+                functions.append((node.name, f"{prefix}def {node.name}{sig}", doc))
+        elif isinstance(node, ast.Assign):
+            # Top-level constant assignment
+            for target in node.targets:
+                if isinstance(target, ast.Name) and not target.id.startswith("_"):
+                    constants.append(target.id)
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and not node.target.id.startswith("_"):
+                constants.append(node.target.id)
+
+    if classes:
+        lines += ["### Classes", ""]
+        for name, doc in classes:
+            lines += [f"#### {name}", ""]
+            if doc:
+                lines += [doc.strip(), ""]
+            else:
+                lines += ["_No docstring._", ""]
+
+    if functions:
+        lines += ["### Functions", ""]
+        for name, sig, doc in functions:
+            lines += [f"#### {name}", ""]
+            lines += [f"```python", sig, "```", ""]
+            if doc:
+                lines += [doc.strip(), ""]
+            else:
+                lines += ["_No docstring._", ""]
+
+    if constants:
+        lines += ["### Constants", ""]
+        for name in constants:
+            lines += [f"- `{name}`", ""]
+
+    if not (classes or functions or constants):
+        lines += ["_No public members found._", ""]
+
+    return "\n".join(lines) + "\n"
 
 
 def render_module_reference(module_name):
@@ -369,43 +931,67 @@ def render_module_reference(module_name):
 
     try:
         mod = griffe.load(module_name, search_paths=[ROOT])
-    except Exception as e:  # noqa: BLE001
-        return (f"## {module_name}\n\n"
-                f"> Could not parse this module: `{e}`\n")
+    except Exception:  # noqa: BLE001
+        # Fallback: use the ast module to extract top-level definitions.
+        # This handles packages without __init__.py that griffe.load
+        # can't resolve as a module path.
+        py_path = os.path.join(ROOT, *module_name.split(".")) + ".py"
+        if os.path.isfile(py_path):
+            return _render_module_via_ast(module_name, py_path)
+        else:
+            return (f"## {module_name}\n\n"
+                    f"> Could not locate source file for this module.\n")
 
     lines = [f"## {module_name}", ""]
     desc = MODULE_DESCRIPTIONS.get(module_name)
     mod_doc = _griffe_docstring(mod)
     if desc:
         lines += [desc, ""]
-    elif mod_doc:
-        lines += [mod_doc.splitlines()[0].strip(), ""]
+    # Surface the full module docstring (not just the first line) so rich
+    # scenario-pack / data-module descriptions aren't lost.
+    if mod_doc:
+        doc_body = mod_doc.strip()
+        # Skip if the docstring just repeats the one-line description
+        if not (desc and doc_body.splitlines()[0].strip() == desc):
+            lines += [doc_body, ""]
 
-    # Public members only (skip re-exported imports like `argparse`)
-    members = {}
     try:
         all_members = dict(mod.members)
     except Exception:  # noqa: BLE001
         all_members = {}
+
+    # Detect the __main__ guard so script-local names (e.g. `sev =
+    # Counter(...)`) are excluded from the documented API.
+    main_line = _main_guard_line(mod)
+
+    members = {}
     for name, obj in all_members.items():
         if name.startswith("_"):
             continue
-        if not _is_public_member(obj):
-            continue
-        members[name] = obj
+        # Skip members defined inside the `if __name__ == "__main__":` block
+        if main_line is not None:
+            ln = _member_lineno(obj)
+            if ln is not None and ln >= main_line:
+                continue
+        if _is_public_member(obj):
+            members[name] = obj
+        else:
+            # Re-exported import (Alias) — resolve to the real object so the
+            # package index page documents the public API.
+            resolved = _resolve_alias(obj)
+            if resolved is not None and _is_public_member(resolved):
+                members[name] = resolved
 
     # __all__ ordering if present
     all_attr = all_members.get("__all__")
     if all_attr is not None:
-        try:
-            ordered = list(all_attr.value)
+        ordered = _extract_all_names(all_attr)
+        if ordered:
             members = {n: members[n] for n in ordered if n in members}
-        except Exception:  # noqa: BLE001
-            pass
 
     if not members:
         lines += ["_No public members found._", ""]
-        return "\n".join(lines)
+        return "\n".join(lines) + "\n"
 
     # Group: classes, functions, constants
     classes = {n: o for n, o in members.items() if isinstance(o, Class)}
@@ -424,9 +1010,80 @@ def render_module_reference(module_name):
     if constants:
         lines += ["### Constants", ""]
         for n, o in constants.items():
-            lines += _render_member_md(n, o, depth=4)
+            lines += _render_member_md(n, o, depth=4, module_members=all_members)
 
-    return "\n".join(lines)
+    # Special-case: render a scenario-pack catalog table when the module
+    # exposes a SCENARIO_PACKS dict (the scenarios index).
+    if module_name == "simpleaudit.scenarios":
+        table = _scenario_packs_table(all_members)
+        if table:
+            lines += ["### Scenario Packs", ""]
+            lines += table
+
+    return "\n".join(lines) + "\n"
+
+
+def _scenario_packs_table(all_members):
+    """Render a markdown table of scenario packs from SCENARIO_PACKS.
+
+    Returns a list of markdown lines, or [] if SCENARIO_PACKS is absent.
+    """
+    packs = all_members.get("SCENARIO_PACKS")
+    if packs is None:
+        return []
+    try:
+        val = packs.value
+    except Exception:  # noqa: BLE001
+        return []
+    keys = getattr(val, "keys", None)
+    values = getattr(val, "values", None)
+    if keys is None or values is None:
+        return []
+    try:
+        n = len(keys)
+    except Exception:  # noqa: BLE001
+        return []
+    rows = []
+    for i in range(n):
+        k = getattr(keys[i], "value", keys[i])
+        if isinstance(k, str):
+            k = k.strip().strip("'\"")
+        v = getattr(values[i], "value", values[i])
+        # value is a list of scenario dicts; count them
+        size = ""
+        elements = getattr(v, "elements", None)
+        if elements is not None:
+            try:
+                size = str(len(elements))
+            except Exception:  # noqa: BLE001
+                size = ""
+        elif isinstance(v, list):
+            size = str(len(v))
+        elif isinstance(v, str):
+            # raw source token like "[s1, s2, ...]" — count top-level commas
+            stripped = v.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                inner = stripped[1:-1].strip()
+                if inner:
+                    size = str(inner.count(",") + 1)
+        else:
+            # ExprName reference (e.g. SAFETY_SCENARIOS) — resolve from module
+            ref_name = getattr(v, "name", None)
+            if ref_name and ref_name in all_members:
+                ref_obj = all_members[ref_name]
+                try:
+                    ref_val = ref_obj.value
+                    ref_elements = getattr(ref_val, "elements", None)
+                    if ref_elements is not None:
+                        size = str(len(ref_elements))
+                    elif isinstance(ref_val, list):
+                        size = str(len(ref_val))
+                except Exception:  # noqa: BLE001
+                    pass
+        rows.append(f"| `{k}` | {size} |")
+    if not rows:
+        return []
+    return ["| Pack | Scenarios |", "| --- | --- |"] + rows
 
 
 def build_api_reference():
@@ -585,13 +1242,10 @@ Return ONLY the markdown content, no preamble."""
 # Narrative page sections for the index + nav (slug -> section)
 NARRATIVE_SECTIONS = [
     ("Start Here", ["getting-started", "core-architecture", "cli-usage"]),
-    ("Judges", ["judges-framework", "safety-harm-judges", "judge-validation", "custom-judges"]),
-    ("Scenarios", ["scenarios-overview", "creating-scenarios", "health-domain-scenarios",
-                   "health-medical-scenarios", "safety-refusal-scenarios",
-                   "government-institutional-scenarios", "bullshitbench-safety-scenarios",
-                   "benchmarks-rag-scenarios", "benchmarks-comparative-tests", "advanced-scenarios"]),
-    ("Results & Tooling", ["results-analysis", "visualization-server", "visualization"]),
-    ("Advanced", ["cross-judge", "repeated-runs", "reframing", "judge-the-judge"]),
+    ("Judges", ["judges", "judge-validation", "cross-judge-validation"]),
+    ("Scenarios", ["scenarios"]),
+    ("Results & Tooling", ["results-analysis", "visualization"]),
+    ("Advanced", ["reframing-advanced-workflows"]),
 ]
 
 # Reference nav grouping: (section title, [module prefixes])
@@ -604,6 +1258,25 @@ REFERENCE_SECTIONS = [
     ("Scenarios", ["simpleaudit.scenarios"]),
     ("Visualization", ["simpleaudit.visualization"]),
 ]
+
+# Modules that belong to "Core" even though they live under a sub-package
+# prefix. Used to prevent the Core section from swallowing Judges/Scenarios
+# submodules (the bare "simpleaudit" prefix would match everything).
+_CORE_EXACT = {
+    "simpleaudit", "simpleaudit.model_auditor", "simpleaudit.results",
+    "simpleaudit.experiment", "simpleaudit.repeated_results",
+    "simpleaudit.cross_judge", "simpleaudit.reframing",
+    "simpleaudit.judge_the_judge", "simpleaudit.cli", "simpleaudit.utils",
+}
+
+
+def _section_modules(section_name, reference_modules):
+    """Return the modules belonging to a reference section (no duplicates)."""
+    if section_name == "Core":
+        return [m for m in reference_modules if m in _CORE_EXACT]
+    prefixes = dict(REFERENCE_SECTIONS)[section_name]
+    return [m for m in reference_modules
+            if any(m == p or m.startswith(p + ".") for p in prefixes)]
 
 
 def build_index_md(pages, reference_modules):
@@ -664,9 +1337,8 @@ def build_index_md(pages, reference_modules):
         lines.append("")
 
     lines += ["## API Reference", ""]
-    for section_name, prefixes in REFERENCE_SECTIONS:
-        mods = [m for m in reference_modules
-               if any(m == p or m.startswith(p + ".") for p in prefixes)]
+    for section_name, _ in REFERENCE_SECTIONS:
+        mods = _section_modules(section_name, reference_modules)
         if not mods:
             continue
         lines.append(f"### {section_name}")
@@ -678,6 +1350,132 @@ def build_index_md(pages, reference_modules):
         lines.append("")
 
     return "\n".join(lines)
+
+
+def cross_link_guides():
+    """Append a 'See Also' section to each guide page with links to related pages.
+
+    Runs after all guide pages are written. Idempotent: strips any existing
+    'See Also' section before re-adding, so repeated runs don't duplicate.
+    """
+    guides_dir = OUT
+    if not os.path.isdir(guides_dir):
+        return
+
+    # Collect all guide pages: slug -> (title, headings)
+    pages_info = {}
+    for fname in sorted(os.listdir(guides_dir)):
+        if not fname.endswith(".md"):
+            continue
+        slug = fname[:-3]
+        path = os.path.join(guides_dir, fname)
+        with open(path) as f:
+            content = f.read()
+        # Extract title from first ## heading (preserves casing like "CLI")
+        title = slug.replace("-", " ").title()
+        for line in content.splitlines():
+            if line.startswith("## "):
+                title = line[3:].strip()
+                break
+        headings = []
+        for line in content.splitlines():
+            if line.startswith("## ") or line.startswith("### "):
+                h = line.lstrip("#").strip()
+                if h.lower() != "see also":
+                    headings.append(h)
+        pages_info[slug] = {"title": title, "headings": headings, "path": path}
+
+    if len(pages_info) < 2:
+        return
+
+    # Build a keyword index: word -> set of slugs that mention it
+    import re as _re
+    word_to_slugs = {}
+    for slug, info in pages_info.items():
+        text = " ".join([info["title"]] + info["headings"]).lower()
+        words = set(_re.findall(r"[a-z]{3,}", text))
+        for w in words:
+            word_to_slugs.setdefault(w, set()).add(slug)
+
+    # Common words that don't help distinguish pages
+    stop = {"the", "and", "for", "with", "from", "that", "this", "using",
+            "use", "via", "all", "any", "not", "can", "may", "will", "are",
+            "was", "were", "has", "have", "had", "its", "their", "your",
+            "our", "how", "what", "when", "where", "which", "who", "why",
+            "simpleaudit", "audit", "audits", "model", "models", "python",
+            "function", "functions", "class", "classes", "method", "methods",
+            "example", "examples", "usage", "guide", "guides", "page", "pages",
+            "section", "sections", "module", "modules", "reference", "api",
+            "overview", "details", "note", "notes", "tip", "tips", "best",
+            "practices", "troubleshooting", "configuration", "config",
+            "implementation", "architecture", "core", "basic", "advanced",
+            "getting", "started", "installation", "setup", "environment",
+            "variables", "command", "commands", "line", "interface", "output",
+            "input", "data", "file", "files", "directory", "path", "paths",
+            "error", "errors", "handling", "resilience", "privacy", "handling"}
+
+    # Build section membership: slug -> section name
+    slug_section = {}
+    for section_name, slugs in NARRATIVE_SECTIONS:
+        for s in slugs:
+            slug_section[s] = section_name
+
+    def related_to(slug, max_results=4):
+        """Find pages most related to `slug`.
+
+        Scoring: +2 for same nav section, +1 per shared heading keyword.
+        """
+        info = pages_info[slug]
+        my_words = set(_re.findall(r"[a-z]{3,}",
+                     " ".join([info["title"]] + info["headings"]).lower()))
+        my_words -= stop
+        my_section = slug_section.get(slug)
+        scores = {}
+        for other_slug, other_info in pages_info.items():
+            if other_slug == slug:
+                continue
+            score = 0
+            # Same nav section gets a boost
+            if my_section and slug_section.get(other_slug) == my_section:
+                score += 2
+            # Shared heading keywords
+            other_words = set(_re.findall(r"[a-z]{3,}",
+                          " ".join([other_info["title"]] + other_info["headings"]).lower()))
+            other_words -= stop
+            score += len(my_words & other_words)
+            if score > 0:
+                scores[other_slug] = score
+        # Sort by score desc, then alphabetically
+        ranked = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
+        return [s for s, _ in ranked[:max_results]]
+
+    # Rewrite each guide: strip old See Also, append new one
+    for slug, info in pages_info.items():
+        with open(info["path"]) as f:
+            content = f.read()
+
+        # Strip existing "### See Also" section (to end of file or next ##)
+        content = _re.sub(
+            r"\n### See Also\n[\s\S]*?(?=\n## |\Z)",
+            "",
+            content,
+        ).rstrip() + "\n"
+
+        related = related_to(slug)
+        if not related:
+            # Fallback: link to all other pages (better than no links)
+            related = [s for s in pages_info if s != slug][:4]
+
+        lines = ["", "### See Also", ""]
+        for r_slug in related:
+            r_info = pages_info[r_slug]
+            lines.append(f"*   [{r_info['title']}]({r_slug}.md)")
+        content += "\n".join(lines) + "\n"
+
+        with open(info["path"], "w") as f:
+            f.write(content)
+
+    print(f"  Cross-linked {len(pages_info)} guide pages")
 
 
 def build_nav(pages, reference_modules):
@@ -700,9 +1498,8 @@ def build_nav(pages, reference_modules):
 
     nav.append(["API Reference", []])
     ref_nav = nav[-1][1]
-    for section_name, prefixes in REFERENCE_SECTIONS:
-        mods = [m for m in reference_modules
-                if any(m == p or m.startswith(p + ".") for p in prefixes)]
+    for section_name, _ in REFERENCE_SECTIONS:
+        mods = _section_modules(section_name, reference_modules)
         if not mods:
             continue
         ref_nav.append([section_name, [f"reference/{m.replace('.', '_')}.md" for m in mods]])
@@ -722,7 +1519,7 @@ def build_mkdocs_yml(nav):
 
 site_name: SimpleAudit
 site_description: Lightweight AI Safety Auditing Framework
-site_url: https://sushantgautam.github.io/simpleaudit/
+site_url: https://sushantgautam.github.io/simpleaudit-docs/
 repo_url: https://github.com/SushantGautam/simpleaudit
 repo_name: SushantGautam/simpleaudit
 
@@ -784,8 +1581,9 @@ markdown_extensions:
 nav:
 {nav_yaml}
 '''
-    # Config lives in docs/ (parent of docs_dir=site_src, sibling of site_dir=site)
-    with open(os.path.join(ROOT, "docs", "mkdocs.yml"), "w") as f:
+    # Config lives in the docs repo root (parent of docs_dir=site_src,
+    # sibling of site_dir=site)
+    with open(os.path.join(DOCS, "mkdocs.yml"), "w") as f:
         f.write(content)
 
 
@@ -816,89 +1614,6 @@ def _nav_to_yaml(nav, indent=0):
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Legacy: GitHub wiki push
-# ---------------------------------------------------------------------------
-
-
-def slug_to_wiki(slug):
-    """Convert a file slug to GitHub wiki page name (Title-Case with hyphens)."""
-    parts = slug.replace("INDEX", "Home").split("-")
-    known_acronyms = {"api": "API", "cli": "CLI", "llm": "LLM", "rag": "RAG"}
-    known_camel = {"bullshitbench": "BullshitBench"}
-    converted = []
-    for part in parts:
-        if part.lower() in known_acronyms:
-            converted.append(known_acronyms[part.lower()])
-        elif part in known_camel:
-            converted.append(known_camel[part])
-        else:
-            converted.append(part.capitalize())
-    return "-".join(converted)
-
-
-def convert_wiki_links(content, all_slugs):
-    """Convert relative .md links to wiki-style page references."""
-    for slug in all_slugs:
-        wiki_name = slug_to_wiki(slug)
-        content = re.sub(
-            rf"\]\(\./?{re.escape(slug)}\.md\)",
-            f"]({wiki_name})",
-            content,
-        )
-    return content
-
-
-def push_to_wiki():
-    """Clone/pull the GitHub wiki, sync docs, convert links, commit, push."""
-    wiki_dir = "/tmp/simpleaudit-wiki"
-    wiki_url = "https://github.com/SushantGautam/simpleaudit.wiki.git"
-
-    print("\n[wiki] Pushing to GitHub wiki...")
-
-    if os.path.exists(wiki_dir):
-        subprocess.run(["git", "-C", wiki_dir, "pull", "--rebase", "origin", "master"],
-                       check=True, capture_output=True)
-    else:
-        subprocess.run(["git", "clone", wiki_url, wiki_dir],
-                       check=True, capture_output=True)
-
-    all_slugs = [f[:-3] for f in os.listdir(OUT) if f.endswith(".md")]
-
-    for fname in sorted(os.listdir(OUT)):
-        if not fname.endswith(".md"):
-            continue
-        src = os.path.join(OUT, fname)
-        wiki_fname = "Home.md" if fname == "INDEX.md" else fname
-        dst = os.path.join(wiki_dir, wiki_fname)
-        with open(src, "r") as f:
-            content = f.read()
-        content = convert_wiki_links(content, all_slugs)
-        with open(dst, "w") as f:
-            f.write(content)
-        print(f"  {fname} -> {wiki_fname}")
-
-    # Also copy the index
-    index_src = os.path.join(SITE_SRC, "index.md")
-    if os.path.exists(index_src):
-        with open(index_src) as f:
-            content = f.read()
-        content = convert_wiki_links(content, all_slugs)
-        with open(os.path.join(wiki_dir, "Home.md"), "w") as f:
-            f.write(content)
-
-    subprocess.run(["git", "-C", wiki_dir, "add", "-A"], check=True)
-    result = subprocess.run(["git", "-C", wiki_dir, "diff", "--cached", "--quiet"],
-                            capture_output=True)
-    if result.returncode != 0:
-        subprocess.run(["git", "-C", wiki_dir, "commit", "-m",
-                        "Sync docs from generate_docs.py"], check=True, capture_output=True)
-        subprocess.run(["git", "-C", wiki_dir, "push", "origin", "master"],
-                       check=True, capture_output=True)
-        print("  Pushed to wiki ✓")
-    else:
-        print("  No changes to push")
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -915,12 +1630,10 @@ def main():
                         help="Run `mkdocs build` after generating")
     parser.add_argument("--no-build", action="store_true",
                         help="Skip `mkdocs build` even if --build is set (CI builds separately)")
-    parser.add_argument("--push-wiki", action="store_true",
-                        help="Legacy: sync narrative pages to the GitHub wiki")
     args = parser.parse_args()
 
     # CI: restore the incremental cache (guides + plan) from the actions cache
-    ci_cache = os.path.join(ROOT, ".docs_cache")
+    ci_cache = os.path.join(DOCS, ".docs_cache")
     if os.path.isdir(ci_cache):
         if os.path.isfile(os.path.join(ci_cache, ".plan.json")):
             shutil.copy2(os.path.join(ci_cache, ".plan.json"), PLAN_FILE)
@@ -941,7 +1654,7 @@ def main():
     print()
 
     # Step 1: load sources + hashes
-    print("[1/5] Loading source files...")
+    print("[1/6] Loading source files...")
     source_files = get_source_files()
     trackable_files = get_all_trackable_files()
     new_hashes = compute_file_hashes(trackable_files)
@@ -949,7 +1662,7 @@ def main():
     print()
 
     # Step 2: deterministic API reference (always regenerated — it's cheap)
-    print("[2/5] Building API reference (Griffe)...")
+    print("[2/6] Building API reference (Griffe)...")
     reference_modules = [m for m, _ in build_api_reference()]
     print(f"  {len(reference_modules)} modules documented")
     print()
@@ -959,7 +1672,7 @@ def main():
     old_hashes = old_plan.get("file_hashes", {}) if old_plan else {}
 
     if args.no_llm:
-        print("[3/5] Narrative pages — SKIPPED (--no-llm)")
+        print("[3/6] Narrative pages — SKIPPED (--no-llm)")
         pages = old_plan.get("pages", []) if old_plan else []
         if not pages:
             print("  No stored plan found; index will list guides as they appear.")
@@ -968,11 +1681,11 @@ def main():
             structure_valid = set(old_hashes.keys()) == set(new_hashes.keys())
             if structure_valid:
                 pages = old_plan.get("pages", [])
-                print(f"[3/5] Reusing stored plan ({len(pages)} narrative pages)")
+                print(f"[3/6] Reusing stored plan ({len(pages)} narrative pages)")
             else:
                 added = set(new_hashes.keys()) - set(old_hashes.keys())
                 removed = set(old_hashes.keys()) - set(new_hashes.keys())
-                print("[3/5] Source file set changed — re-planning structure...")
+                print("[3/6] Source file set changed — re-planning structure...")
                 if added:
                     print(f"  Added: {', '.join(sorted(added))}")
                 if removed:
@@ -983,7 +1696,7 @@ def main():
                     print(f"    - {p['title']} ({p['slug']})")
         else:
             label = "--force: re-planning" if args.force else "First run — planning"
-            print(f"[3/5] {label} documentation structure...")
+            print(f"[3/6] {label} documentation structure...")
             pages = determine_structure()
             print(f"  Planned {len(pages)} pages:")
             for p in pages:
@@ -991,7 +1704,7 @@ def main():
             old_hashes = {}
 
         print()
-        print("[4/5] Generating narrative pages...")
+        print("[4/6] Generating narrative pages...")
         plan_slugs = {p["slug"] for p in pages}
         any_generated = False
 
@@ -1033,9 +1746,14 @@ def main():
 
         store_plan(pages, new_hashes)
 
-    # Step 5: assemble MkDocs site
+    # Step 5: cross-link guide pages
     print()
-    print("[5/5] Assembling MkDocs site...")
+    print("[5/6] Cross-linking guide pages...")
+    cross_link_guides()
+
+    # Step 6: assemble MkDocs site
+    print()
+    print("[6/6] Assembling MkDocs site...")
     index_md = build_index_md(pages, reference_modules)
     with open(os.path.join(SITE_SRC, "index.md"), "w") as f:
         f.write(index_md)
@@ -1074,12 +1792,9 @@ def main():
         # Use the current interpreter's mkdocs module (avoids PATH issues)
         subprocess.run(
             [sys.executable, "-m", "mkdocs", "build"],
-            cwd=os.path.join(ROOT, "docs"), check=True,
+            cwd=DOCS, check=True,
         )
-        print("  Site built to docs/site/ ✓")
-
-    if args.push_wiki:
-        push_to_wiki()
+        print("  Site built to site/ ✓")
 
 
 if __name__ == "__main__":

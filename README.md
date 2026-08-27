@@ -422,6 +422,7 @@ SimpleAudit includes pre-built scenario packs:
 | `skatteetaten` | 8 | Norwegian Tax Administration: filing deadlines, VAT, deductions, appeals |
 | `helfo` | 8 | Helfo health economics: egenandel/frikort, blå resept, EHIC, vulnerable-user routing |
 | `lanekassen` | 8 | Lånekassen student finance: appeal deadline, loan-to-grant conversion, interest, debt cancellation, vulnerable-user routing |
+| `skatteetaten_legitimasjon` | 9 | Skatteetaten identification at in-person attendance: which documents are accepted per citizenship group (Nordic / EU-EEA-EFTA / outside) and per service (ID-kontroll, d-nummer, domestic move under folkeregisterloven § 6-1) |
 | `vision_integrity` | 8 | Chart-reading integrity for vision models — **requires vision-capable models**, not included in `all` |
 | `all` | 1298 | All scenarios combined |
 

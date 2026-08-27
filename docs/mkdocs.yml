@@ -74,13 +74,11 @@ nav:
       - guides/judges.md
       - guides/judge-validation.md
       - guides/cross-judge-validation.md
-    - Scenarios:
-      - guides/scenarios.md
+    - guides/scenarios.md
     - Results & Tooling:
       - guides/results-analysis.md
       - guides/visualization.md
-    - Advanced:
-      - guides/reframing-advanced-workflows.md
+    - guides/reframing-advanced-workflows.md
   - API Reference:
     - Core:
       - reference/simpleaudit.md

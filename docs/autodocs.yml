@@ -150,6 +150,25 @@ site:
   url: https://sushantgautam.github.io/simpleaudit-docs/
   repo_url: https://github.com/SushantGautam/simpleaudit
   repo_name: SushantGautam/simpleaudit
+  # edit_uri: "blob/main/docs/"   # Path from repo_url to docs dir (auto-derived for GitHub)
+  # author: "Sushant Gautam"      # Meta tag in HTML head
+  # copyright: "© 2026 Sushant Gautam"  # Footer copyright line
+
+# --- Build directories ---
+build:
+  docs_dir: site_src
+  site_dir: site
+  # use_directory_urls: true     # Default: true (clean URLs like /page/ not /page.html)
+  # strict: false                # Halt on warnings (CI uses --strict flag instead)
+  # dev_addr: "127.0.0.1:8000"  # mkdocs serve address
+
+# --- Extra assets (relative to docs_dir) ---
+# extra_css:
+#   - css/extra.css
+# extra_javascript:
+#   - js/extra.js
+# extra:
+#   version: "1.0"               # Passed to theme templates
 
 # --- Theme ---
 theme:

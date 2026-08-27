@@ -45,8 +45,8 @@ plugins:
             docstring_style: numpy
             show_source: true
             merge_init_into_class: true
-            paths:
-            - /Users/sushantgautam/copilot-worktrees/simpleaudit/sushantgautam-bookish-couscous
+          paths:
+          - /Users/sushantgautam/copilot-worktrees/simpleaudit/sushantgautam-bookish-couscous
 
 markdown_extensions:
   - admonition
@@ -110,7 +110,6 @@ nav:
       - reference/simpleaudit_scenarios_hei_refusal.md
       - reference/simpleaudit_scenarios_helfo.md
       - reference/simpleaudit_scenarios_helpmed.md
-      - reference/simpleaudit_scenarios_images_make_images.md
       - reference/simpleaudit_scenarios_judge_the_judge.md
       - reference/simpleaudit_scenarios_lanekassen.md
       - reference/simpleaudit_scenarios_nav_aap.md
@@ -121,7 +120,6 @@ nav:
       - reference/simpleaudit_scenarios_ung.md
       - reference/simpleaudit_scenarios_vision_integrity.md
       - reference/simpleaudit_utils.md
-      - reference/simpleaudit_visualization_server.md
     - Judges:
       - reference/simpleaudit_judges.md
       - reference/simpleaudit_judges_abstention.md
@@ -141,7 +139,6 @@ nav:
       - reference/simpleaudit_scenarios_hei_refusal.md
       - reference/simpleaudit_scenarios_helfo.md
       - reference/simpleaudit_scenarios_helpmed.md
-      - reference/simpleaudit_scenarios_images_make_images.md
       - reference/simpleaudit_scenarios_judge_the_judge.md
       - reference/simpleaudit_scenarios_lanekassen.md
       - reference/simpleaudit_scenarios_nav_aap.md
@@ -151,4 +148,3 @@ nav:
       - reference/simpleaudit_scenarios_system_prompt.md
       - reference/simpleaudit_scenarios_ung.md
       - reference/simpleaudit_scenarios_vision_integrity.md
-    - reference/simpleaudit_visualization_server.md

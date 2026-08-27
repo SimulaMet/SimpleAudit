@@ -1314,7 +1314,11 @@ def build_nav(pages, reference_modules):
         section_pages = [page_map[s] for s in slugs if s in page_map]
         if not section_pages:
             continue
-        guides_nav.append([section_name, [f"guides/{p['slug']}.md" for p in section_pages]])
+        if len(section_pages) == 1:
+            # Single page — flatten to a direct link instead of a nested group
+            guides_nav.append(f"guides/{section_pages[0]['slug']}.md")
+        else:
+            guides_nav.append([section_name, [f"guides/{p['slug']}.md" for p in section_pages]])
     unassigned = [p for p in pages
                   if p["slug"] not in {s for _, slugs in NARRATIVE_SECTIONS for s in slugs}]
     if unassigned:

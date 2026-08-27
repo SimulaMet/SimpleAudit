@@ -1456,7 +1456,7 @@ def cross_link_guides():
 def build_nav(pages, reference_modules):
     """Build the mkdocs nav structure."""
     page_map = {p["slug"]: p for p in pages}
-    nav = ["index.md", "llms.txt"]
+    nav = ["index.md"]
 
     nav.append(["Guides", []])
     guides_nav = nav[-1][1]

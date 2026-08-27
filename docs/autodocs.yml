@@ -1,0 +1,146 @@
+# AutoDocs configuration
+# This file drives generate_docs.py and upload_to_kb.py.
+# The script is generic — all project-specific values live here.
+
+# --- Project identity ---
+project_name: SimpleAudit
+site_description: "Lightweight AI Safety Auditing Framework"
+site_url: https://sushantgautam.github.io/simpleaudit-docs/
+repo_url: https://github.com/SushantGautam/simpleaudit
+repo_name: SushantGautam/simpleaudit
+
+# --- Package discovery ---
+# Name of the top-level Python package to document.
+# The script walks <root>/<package_dir>/ for .py files.
+package_dir: simpleaudit
+
+# Root of the source repo. Default: parent of docs/ (i.e. the repo root).
+# Override with the SOURCE_ROOT env var if needed.
+# root: /absolute/path/to/repo
+
+# --- LLM backend (Open WebUI) ---
+llm:
+  base_url: https://simulachat.sushant.info.np
+  # API key is read from the OWUI_API_KEY env var (never commit it).
+  kb_id: a43e450c-a197-4d53-95ca-555a6e6a2edb
+  model: default
+
+# --- Index page (deterministic, no LLM) ---
+index:
+  tagline: >
+    Lightweight AI safety auditing: LLM judges score model outputs for
+    safety, harm, factuality, and helpfulness across curated scenario packs.
+    Results are aggregated, compared across models and judges, and
+    visualized in the browser.
+  quick_start:
+    install: "pip install simpleaudit"
+    example: |
+      from simpleaudit import ModelAuditor, get_scenarios
+
+      auditor = ModelAuditor(
+          model="gpt-4o-mini",
+          provider="openai",
+          judge_model="gpt-4o",
+          judge_provider="openai",
+      )
+      results = auditor.run(get_scenarios("safety"))
+      results.summary()
+    cli: |
+      # Browse results in the browser
+      simpleaudit serve --results_dir ./results
+
+# --- Narrative guide sections (Layer 2, LLM-generated) ---
+# Each entry: section title -> list of page slugs.
+# Slugs must match the .md filenames in site_src/guides/.
+narrative_sections:
+  - title: Start Here
+    slugs: [getting-started, core-architecture, cli-usage]
+  - title: Judges
+    slugs: [judges, judge-validation, cross-judge-validation]
+  - title: Scenarios
+    slugs: [scenarios]
+  - title: Results & Tooling
+    slugs: [results-analysis, visualization]
+  - title: Advanced
+    slugs: [reframing-advanced-workflows]
+
+# --- API reference nav sections (Layer 1, Griffe-generated) ---
+# Each entry: section title -> list of module prefixes.
+# A module belongs to a section if it equals or starts with a prefix + ".".
+reference_sections:
+  - title: Core
+    modules:
+      - simpleaudit
+      - simpleaudit.model_auditor
+      - simpleaudit.results
+      - simpleaudit.experiment
+      - simpleaudit.repeated_results
+      - simpleaudit.cross_judge
+      - simpleaudit.reframing
+      - simpleaudit.judge_the_judge
+      - simpleaudit.cli
+      - simpleaudit.utils
+  - title: Judges
+    modules:
+      - simpleaudit.judges
+  - title: Scenarios
+    modules:
+      - simpleaudit.scenarios
+  - title: Visualization
+    modules:
+      - simpleaudit.visualization
+
+# --- Module descriptions (optional, shown on index page) ---
+module_descriptions:
+  simpleaudit: "Top-level package: the public API of SimpleAudit."
+  simpleaudit.model_auditor: "The core audit engine: drives target model, auditor, and judge across scenarios."
+  simpleaudit.results: "Result containers: per-scenario results and aggregated audit results with summaries."
+  simpleaudit.experiment: "Batch experiments: run audits across multiple models and compare them."
+  simpleaudit.repeated_results: "Stability analysis: repeated runs, fragility thresholds, and model stability reports."
+  simpleaudit.cross_judge: "Cross-judge experiments: score the same outputs with different judges and compare."
+  simpleaudit.reframing: "Reframing checks: rephrase a prompt and verify the model's answer stays consistent."
+  simpleaudit.judge_the_judge: "Judge validation: 'wiggle' the judge's inputs to measure judge robustness."
+  simpleaudit.cli: "Command-line interface (`simpleaudit` entry point)."
+  simpleaudit.utils: "Shared helpers: LLM client wrappers, JSON parsing, and misc utilities."
+  simpleaudit.judges: "Built-in judge configurations: safety, harm, factuality, helpfulness, abstention, and more."
+  simpleaudit.judges.abstention: "Abstention judge: detects when the model should have refused/abstained."
+  simpleaudit.judges.binary_abstention: "Binary abstention judge: yes/no abstention classification."
+  simpleaudit.judges.factuality: "Factuality judge: scores factual accuracy of model outputs."
+  simpleaudit.judges.harm: "Harm judge: scores harmfulness of model outputs."
+  simpleaudit.judges.helpfulness: "Helpfulness judge: scores how helpful the model was."
+  simpleaudit.judges.safety: "Safety judge: scores safety of model outputs."
+  simpleaudit.judges.judge_conviction: "Judge conviction: meta-judge that extracts the candidate judge's current verdict for cross-checking."
+  simpleaudit.judges.helsedir_sexhealth_no: "Helsedir sex-health (NO) judge: domain-specific Norwegian health judge."
+  simpleaudit.judges.helsedir_sexhealth_no_rag: "Helsedir sex-health (NO) RAG judge: grounded variant with retrieval context."
+  simpleaudit.scenarios: "Scenario packs: curated test suites (health, safety, government, benchmarks)."
+  simpleaudit.scenarios.health: "Health domain scenarios: medical Q&A and advice tests."
+  simpleaudit.scenarios.safety: "Safety scenarios: refusal and harmful-request tests."
+  simpleaudit.scenarios.bullshitbench_v1_v2: "BullshitBench v1/v2 scenarios: measuring non-informative answers."
+  simpleaudit.scenarios.bullshitbench_health: "BullshitBench health variant: non-informative medical answers."
+  simpleaudit.scenarios.hei_refusal: "HEI refusal scenarios: Norwegian youth-advice Q&A (16 refusal + 31 guidance scenarios)."
+  simpleaudit.scenarios.helfo: "Helfo scenarios: Norwegian health insurance authority tests."
+  simpleaudit.scenarios.helpmed: "HelpMed scenarios: medical help-seeking tests."
+  simpleaudit.scenarios.lanekassen: "Lanekassen scenarios: Norwegian pension institution tests."
+  simpleaudit.scenarios.nav_aap: "NAV AAP scenarios: Norwegian disability benefit tests."
+  simpleaudit.scenarios.skatteetaten: "Skatteetaten scenarios: Norwegian tax authority tests."
+  simpleaudit.scenarios.ung: "UNG scenarios: youth health service tests."
+  simpleaudit.scenarios.rag: "RAG scenarios: retrieval-augmented generation tests."
+  simpleaudit.scenarios.system_prompt: "System-prompt scenarios: tests of system prompt adherence."
+  simpleaudit.scenarios.vision_integrity: "Vision integrity scenarios: image-based integrity tests."
+  simpleaudit.scenarios.judge_the_judge: "Judge-the-judge scenarios: probes used to validate judges."
+  simpleaudit.visualization.server: "FastAPI visualization server: browse audit results in a browser."
+
+# --- Knowledge base upload (upload_to_kb.py) ---
+kb:
+  # Extra top-level files to upload alongside the package source.
+  extra_files:
+    - README.md
+    - pyproject.toml
+    - FAQ.md
+    - DPG.md
+
+# --- MkDocs theme (optional overrides) ---
+theme:
+  name: material
+  primary: indigo
+  accent: indigo

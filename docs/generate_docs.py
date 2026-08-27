@@ -1550,6 +1550,10 @@ def build_mkdocs_yml(nav):
         ],
         "features": THEME_FEATURES,
     }
+    # Pass through optional theme fields from autodocs.yml
+    for key in ("favicon", "logo", "font", "icon", "sticky_navigation", "sticky_header"):
+        if key in THEME_CFG:
+            theme_block[key] = THEME_CFG[key]
 
     # Build plugins block (inject paths into mkdocstrings if present)
     plugins = []

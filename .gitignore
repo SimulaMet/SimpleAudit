@@ -21,3 +21,8 @@ coverage.xml
 .env
 .env.local
 .env.*.local
+
+# Generated docs output (docs-only repo handles generation via RepoQuill)
+docs/site/
+docs/generated/
+docs/site_src/

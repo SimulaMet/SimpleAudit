@@ -214,7 +214,7 @@ Report changed / missing / questionable docs
 - Generator: `cd docs && .venv/bin/python generate_docs.py`
 - Build: `cd docs && .venv/bin/mkdocs build --strict`
 - LLM backend: Open WebUI (requires `OWUI_API_KEY` env var)
-- Repo: https://github.com/SushantGautam/simpleaudit
+- Repo: https://github.com/kelkalot/simpleaudit
 - Site: https://sushantgautam.github.io/simpleaudit-docs/
 
 ## Verification Checklist

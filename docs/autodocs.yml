@@ -148,8 +148,8 @@ site:
   name: SimpleAudit
   description: "Lightweight AI Safety Auditing Framework"
   url: https://sushantgautam.github.io/simpleaudit-docs/
-  repo_url: https://github.com/SushantGautam/simpleaudit
-  repo_name: SushantGautam/simpleaudit
+  repo_url: https://github.com/kelkalot/simpleaudit
+  repo_name: kelkalot/simpleaudit
   # --- Optional site fields (uncomment to enable) ---
   # edit_uri: "blob/main/docs/"   # "Edit this page" link → GitHub (auto-derived for GitHub)
   # author: "Sushant Gautam"      # Meta tag in HTML head
@@ -230,8 +230,8 @@ plugins:
             docstring_style: numpy
             show_source: true
             merge_init_into_class: true
-            # Per-symbol GitHub source links are auto-derived from the theme's
-            # repo_url (site.repo_url in this file). No explicit github_url needed.
+            extra:
+              github_url: https://github.com/kelkalot/simpleaudit/blob/main/
             # filters: ["!_*"]    # Hide private members (default: public only)
             # heading_level: 2    # Starting heading level for members
             # show_if_no_docstring: false  # Hide members without docstrings

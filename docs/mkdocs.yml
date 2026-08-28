@@ -5,8 +5,8 @@
 site_name: SimpleAudit
 site_description: Lightweight AI Safety Auditing Framework
 site_url: https://sushantgautam.github.io/simpleaudit-docs/
-repo_url: https://github.com/SushantGautam/simpleaudit
-repo_name: SushantGautam/simpleaudit
+repo_url: https://github.com/kelkalot/simpleaudit
+repo_name: kelkalot/simpleaudit
 
 docs_dir: site_src
 site_dir: site
@@ -51,8 +51,10 @@ plugins:
             docstring_style: numpy
             show_source: true
             merge_init_into_class: true
+            extra:
+              github_url: https://github.com/kelkalot/simpleaudit/blob/main/
           paths:
-          - /Users/sushantgautam/copilot-worktrees/simpleaudit/sushantgautam-bookish-couscous
+          - /tmp/simpleaudit-main-src
 
 markdown_extensions:
   - admonition
@@ -93,7 +95,6 @@ nav:
       - reference/simpleaudit_cli.md
       - reference/simpleaudit_cross_judge.md
       - reference/simpleaudit_experiment.md
-      - reference/simpleaudit_judge_the_judge.md
       - reference/simpleaudit_judges.md
       - reference/simpleaudit_judges_abstention.md
       - reference/simpleaudit_judges_binary_abstention.md
@@ -102,7 +103,6 @@ nav:
       - reference/simpleaudit_judges_helpfulness.md
       - reference/simpleaudit_judges_helsedir_sexhealth_no.md
       - reference/simpleaudit_judges_helsedir_sexhealth_no_rag.md
-      - reference/simpleaudit_judges_judge_conviction.md
       - reference/simpleaudit_judges_safety.md
       - reference/simpleaudit_model_auditor.md
       - reference/simpleaudit_reframing.md
@@ -115,7 +115,6 @@ nav:
       - reference/simpleaudit_scenarios_hei_refusal.md
       - reference/simpleaudit_scenarios_helfo.md
       - reference/simpleaudit_scenarios_helpmed.md
-      - reference/simpleaudit_scenarios_judge_the_judge.md
       - reference/simpleaudit_scenarios_lanekassen.md
       - reference/simpleaudit_scenarios_nav_aap.md
       - reference/simpleaudit_scenarios_rag.md
@@ -134,7 +133,6 @@ nav:
       - reference/simpleaudit_judges_helpfulness.md
       - reference/simpleaudit_judges_helsedir_sexhealth_no.md
       - reference/simpleaudit_judges_helsedir_sexhealth_no_rag.md
-      - reference/simpleaudit_judges_judge_conviction.md
       - reference/simpleaudit_judges_safety.md
     - Scenarios:
       - reference/simpleaudit_scenarios.md
@@ -144,7 +142,6 @@ nav:
       - reference/simpleaudit_scenarios_hei_refusal.md
       - reference/simpleaudit_scenarios_helfo.md
       - reference/simpleaudit_scenarios_helpmed.md
-      - reference/simpleaudit_scenarios_judge_the_judge.md
       - reference/simpleaudit_scenarios_lanekassen.md
       - reference/simpleaudit_scenarios_nav_aap.md
       - reference/simpleaudit_scenarios_rag.md

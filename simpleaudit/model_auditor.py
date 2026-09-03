@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Union
 from tqdm.auto import tqdm
 from any_llm import AnyLLM
 
+from .context_marks import render_documents
 from .results import AuditResults, AuditResult
 from .scenarios import SCENARIO_PACKS
 from .judges import get_judge
@@ -149,9 +150,37 @@ def _expand_files(message: Dict[str, Any]) -> Dict[str, Any]:
     if not uris:
         return message
     expanded = {k: v for k, v in message.items() if k != "file_uri"}
+    # A message may carry both markers. When `documents` was expanded first,
+    # `content` is already a block list; appending to it keeps the prompt and
+    # the documents intact instead of nesting a list inside a text block.
+    content = message["content"]
+    blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+    expanded["content"] = [
+        *blocks,
+        *(image_content_block(uri) for uri in uris),
+    ]
+    return expanded
+
+
+def _expand_documents(message: Dict[str, Any]) -> Dict[str, Any]:
+    """Turn a conversation entry's `documents` marker into a text content block.
+
+    Mirrors `_expand_files`: the marker sits beside `content`, is expanded only
+    on the way to a provider, and the key is dropped there because provider
+    APIs reject unknown message fields. Only each document's `text` is
+    rendered. The marks (relevance, truth, validity window, authority, source)
+    are the author's ground truth for the judge; a target that could read them
+    would be told which document to trust instead of having to work it out,
+    which is the very behaviour the scenario is trying to measure. Returns a
+    new dict; the conversation is never mutated.
+    """
+    documents = message.get("documents")
+    if not documents:
+        return message
+    expanded = {k: v for k, v in message.items() if k != "documents"}
     expanded["content"] = [
         {"type": "text", "text": message["content"]},
-        *(image_content_block(uri) for uri in uris),
+        {"type": "text", "text": render_documents(documents)},
     ]
     return expanded
 
@@ -238,9 +267,16 @@ class ModelAuditor:
                 else config.get("response_schema")
             )
         else:
+            config = {}
             self.probe_prompt = probe_prompt
             self.judge_prompt = judge_prompt
             self.judge_response_schema = judge_response_schema
+
+        # Kept so a subclass can reach declarations the flattened attributes
+        # above cannot carry — a judge whose prompt and schema depend on the
+        # scenario has to be handed the scenario, and only the config knows how.
+        # Nothing in the multi-turn path reads it.
+        self.judge_config = config
 
         # If judge_fields is set, override the schema to only include those fields.
         # This takes precedence over both the config schema and explicit schema
@@ -354,6 +390,7 @@ class ModelAuditor:
         response_format: Optional[Dict[str, Any]] = None,
         history: Optional[List[Dict]] = None,
         file_uri: Optional[Union[str, List[str]]] = None,
+        documents: Optional[List[Union[str, Dict[str, Any]]]] = None,
         max_retries: int = 0,
         retry_backoff: float = 0.5,
     ) -> tuple[str, int, int]:
@@ -367,12 +404,16 @@ class ModelAuditor:
         if system:
             messages.append({"role": "system", "content": system})
         if history:
-            messages.extend(_expand_files(m) for m in history)
+            messages.extend(_expand_files(_expand_documents(m)) for m in history)
         else:
             user_message: Dict[str, Any] = {"role": "user", "content": user}
+            if documents:
+                user_message["documents"] = documents
             if file_uri:
                 user_message["file_uri"] = file_uri
-            messages.append(_expand_files(user_message))
+            # Documents first: the prompt keeps the leading text block, the
+            # documents follow it, and any images come last.
+            messages.append(_expand_files(_expand_documents(user_message)))
         kwargs: Dict[str, Any] = {
             "model": model,
             "messages": messages,

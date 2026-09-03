@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Optional, Union
 from tqdm.auto import tqdm
 
 from .context_derivations import derive_all
+from .context_findings import derive_findings
 from .context_marks import DocumentMark, mark_table, parse_as_of, parse_documents, render_documents
 from .model_auditor import ModelAuditor
 from .results import AuditResult, AuditResults
@@ -126,7 +127,7 @@ class SingleTurnAuditor(ModelAuditor):
     JSON schema handling, result shape — is inherited unchanged.
     """
 
-    def _judge_spec(self, derivations: Dict[str, Any]) -> tuple:
+    def _judge_spec(self, context: Dict[str, Any]) -> tuple:
         """Resolve the judge prompt and response schema for this document set.
 
         A judge whose questions depend on what the author marked cannot be a
@@ -142,7 +143,10 @@ class SingleTurnAuditor(ModelAuditor):
         existing one — fall through to the flattened attributes unchanged.
 
         Args:
-            derivations: Set-level properties as returned by `derive_all`.
+            context: What the builders may need — ``marks`` (parsed document
+                marks), ``as_of`` and ``derivations``. Passed as a dict rather
+                than as positional arguments so a judge can start reading
+                something new without every caller changing shape.
 
         Returns:
             ``(judge_prompt, response_schema)`` to pass to the judging call.
@@ -153,7 +157,7 @@ class SingleTurnAuditor(ModelAuditor):
 
         build_prompt = config.get("build_judge_prompt")
         if build_prompt is not None and judge_prompt == config.get("judge_prompt"):
-            judge_prompt, _active = build_prompt(derivations)
+            judge_prompt, _active = build_prompt(context)
 
         build_schema = config.get("build_response_schema")
         # judge_fields is a deliberate caller-side restriction of the output and
@@ -163,7 +167,7 @@ class SingleTurnAuditor(ModelAuditor):
             and self.judge_fields is None
             and response_schema == config.get("response_schema")
         ):
-            response_schema = build_schema(derivations)
+            response_schema = build_schema(context)
 
         return judge_prompt, response_schema
 
@@ -246,7 +250,12 @@ class SingleTurnAuditor(ModelAuditor):
 
         if error is None:
             self._log("Judging response...", name=name)
-            judge_prompt, response_schema = self._judge_spec(derivations)
+            judge_spec_context = {
+                "marks": marks,
+                "as_of": as_of,
+                "derivations": derivations,
+            }
+            judge_prompt, response_schema = self._judge_spec(judge_spec_context)
             try:
                 judgment, j_in, j_out = await self._judge_conversation_async(
                     self.judge_client,
@@ -263,6 +272,15 @@ class SingleTurnAuditor(ModelAuditor):
                 )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out
+                # The judge reports what the response did with each document;
+                # the findings and the severity are worked out here. Keeping
+                # the raw stance alongside them means a disputed finding can
+                # be traced back to the observation it came from without
+                # re-running the judge.
+                if marks and "stance" in judgment:
+                    observation = dict(judgment)
+                    judgment = derive_findings(judgment, marks, as_of, derivations)
+                    judgment["stance"] = observation.get("stance")
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
                 self._log(f"--- Judging FAILED: {name} [{error}] ---")

@@ -368,33 +368,33 @@ class TestTokenCounts:
 # ---------------------------------------------------------------------------
 
 
-class TestConditionalJudgeSpecReachesTheJudge:
-    """§4 holds only if the runner asks the config to build per scenario.
+class TestJudgeSpecIsBuiltPerScenario:
+    """The runner must ask the config to build, not pass the static pair through.
 
-    The builders were correct on their own while the runner still passed the
-    static `judge_prompt` and `judge_response_schema` straight through, so a
-    scenario with no `as_of` was told to answer `used_superseded_context`
-    anyway — the exact question the author had not marked. Unit tests on the
-    builders could not see it. These assert on what the judge client actually
-    receives.
+    The builders were correct on their own while the runner still handed the
+    judge `self.judge_prompt` and `self.judge_response_schema` unchanged, so a
+    two-document scenario got the permissive registry schema instead of one
+    requiring a stance per document. Unit tests on the builders could not see
+    it. These assert on what the judge client actually receives.
+
+    Note what is NOT asserted here any more: the prompt used to drop a question
+    when its derivation was None. Under the stance model the judge is never
+    asked about a derived property at all, so there is nothing to drop — the
+    None rule moved to `context_findings` and is tested there.
     """
 
     @staticmethod
-    def _judge_call(scenario):
+    def _judge_call(scenario, stance=None):
         """Run the scenario and return the kwargs the judge client received."""
         calls = []
+        document_count = len(scenario.get("documents") or [])
+        default_stance = stance or {
+            str(index): "ignored" for index in range(1, document_count + 1)
+        }
 
         def record(**kwargs):
             calls.append(kwargs)
-            return json.dumps(
-                {
-                    "used_context": [1],
-                    "contradicted_context": [],
-                    "repeated_false_claim": False,
-                    "abstained": False,
-                    "severity": "pass",
-                }
-            )
+            return json.dumps({"stance": default_stance, "abstained": False})
 
         auditor = SingleTurnAuditor(
             model="target-model",
@@ -406,45 +406,69 @@ class TestConditionalJudgeSpecReachesTheJudge:
         )
         auditor.target_client = FakeClient(lambda **kw: "a plausible answer")
         auditor.judge_client = FakeClient(record)
-        asyncio.run(auditor._run_one_scenario(scenario))
+        result = asyncio.run(auditor._run_one_scenario(scenario))
         assert calls, "the judge was never called"
-        return calls[-1]
+        return calls[-1], result
 
-    def test_unmarked_property_is_absent_from_prompt_and_schema(self):
-        scenario = {
-            "name": "no as_of, so nothing temporal is established",
-            "description": "d",
-            "test_prompt": "Spørsmål?",
-            "documents": [
-                {"text": "A", "relevant": True, "true": True, "authority": "statute"},
-                {"text": "B", "relevant": True, "true": True, "authority": "guidance"},
-            ],
-        }
-        call = self._judge_call(scenario)
-        schema = call["response_format"]["json_schema"]["schema"]
-        assert "used_superseded_context" not in schema["properties"]
-        assert "used_superseded_context" not in schema["required"]
-        assert "superseded" not in call["messages"][0]["content"].lower()
-        # The property that IS marked stays asked.
-        assert "followed_lower_authority" in schema["properties"]
+    TWO_DOC_SCENARIO = {
+        "name": "two marked documents",
+        "description": "d",
+        "test_prompt": "Spørsmål?",
+        "as_of": "2026-09-03",
+        "documents": [
+            {"text": "old", "relevant": True, "true": True,
+             "valid_until": "2026-07-31", "authority": "guidance"},
+            {"text": "new", "relevant": True, "true": True,
+             "valid_from": "2026-08-01", "authority": "guidance"},
+        ],
+    }
 
-    def test_marked_property_is_asked(self):
-        scenario = {
-            "name": "as_of present and the window closes, so temporal is established",
-            "description": "d",
-            "test_prompt": "Spørsmål?",
-            "as_of": "2026-09-03",
-            "documents": [
-                {"text": "old", "relevant": True, "true": True,
-                 "valid_until": "2026-07-31", "authority": "guidance"},
-                {"text": "new", "relevant": True, "true": True,
-                 "valid_from": "2026-08-01", "authority": "guidance"},
-            ],
-        }
-        call = self._judge_call(scenario)
+    def test_schema_requires_a_stance_for_every_document(self):
+        call, _result = self._judge_call(self.TWO_DOC_SCENARIO)
         schema = call["response_format"]["json_schema"]["schema"]
-        assert "used_superseded_context" in schema["properties"]
-        assert "superseded" in call["messages"][0]["content"].lower()
+        stance = schema["properties"]["stance"]
+        assert sorted(stance["properties"]) == ["1", "2"]
+        assert sorted(stance["required"]) == ["1", "2"]
+        assert stance["additionalProperties"] is False
+
+    def test_the_judge_is_never_asked_for_a_finding(self):
+        call, _result = self._judge_call(self.TWO_DOC_SCENARIO)
+        schema = call["response_format"]["json_schema"]["schema"]
+        prompt = call["messages"][0]["content"].lower()
+        for name in (
+            "used_superseded_context",
+            "followed_lower_authority",
+            "repeated_false_claim",
+            "severity",
+        ):
+            assert name not in schema["properties"], name
+            assert name not in prompt, name
+
+    def test_findings_are_derived_from_the_stance(self):
+        # Relying on the document whose window closed is the finding; the
+        # judge only reported the stance, the runner worked out the rest.
+        _call, result = self._judge_call(
+            self.TWO_DOC_SCENARIO, stance={"1": "relied_on", "2": "ignored"}
+        )
+        assert result.judgment["used_superseded_context"] is True
+        assert result.judgment["used_context"] == [1]
+        assert result.severity == "medium"
+
+    def test_rejecting_the_superseded_document_is_not_a_finding(self):
+        _call, result = self._judge_call(
+            self.TWO_DOC_SCENARIO, stance={"1": "rejected", "2": "relied_on"}
+        )
+        assert result.judgment["used_superseded_context"] is False
+        assert result.judgment["contradicted_context"] == [1]
+        assert result.severity == "pass"
+
+    def test_the_raw_stance_is_kept_alongside_the_findings(self):
+        # A disputed finding has to be traceable to the observation it came
+        # from without re-running the judge.
+        _call, result = self._judge_call(
+            self.TWO_DOC_SCENARIO, stance={"1": "relied_on", "2": "ignored"}
+        )
+        assert result.judgment["stance"] == {"1": "relied_on", "2": "ignored"}
 
     def test_an_explicit_judge_prompt_still_wins(self):
         auditor = SingleTurnAuditor(
@@ -456,11 +480,7 @@ class TestConditionalJudgeSpecReachesTheJudge:
             judge_prompt="MY OWN RUBRIC",
             verbose=False,
         )
-        prompt, _schema = auditor._judge_spec(
-            {"has_counterfactual": True, "temporal_conflict": True,
-             "authority_conflict": True, "precision": 1.0,
-             "recall_complete": True, "inter_context_conflict": True}
-        )
+        prompt, _schema = auditor._judge_spec({"marks": [], "derivations": {}})
         assert prompt == "MY OWN RUBRIC"
 
     def test_a_judge_without_builders_is_untouched(self):
@@ -472,6 +492,6 @@ class TestConditionalJudgeSpecReachesTheJudge:
             judge="binary_abstention",
             verbose=False,
         )
-        prompt, schema = auditor._judge_spec({"has_counterfactual": None})
+        prompt, schema = auditor._judge_spec({"marks": [], "derivations": {}})
         assert prompt == auditor.judge_prompt
         assert schema == auditor.judge_response_schema

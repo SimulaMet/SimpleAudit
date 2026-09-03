@@ -85,32 +85,59 @@ mistral:latest, llama3.1:8b-instruct-q8_0 and gemma2:9b all read *naming* a
 document as *using* it. The question conflated an observation with a
 judgement, so it is split in two.
 
+A second version asked the judge for a stance per document, including which
+one the answer relied on. It failed in a narrower way: models called a
+restatement of a document a REJECTION of it in two thirds of the wrong-answer
+cells, and one quoted the SAME span as evidence for `rejected` on one document
+and `relied_on` on another — two readings that cannot both hold of one
+sentence. Deciding which paragraph a sentence came from is string comparison,
+so it is no longer asked of a model.
+
 **The judge observes.** Registry entry `groundedness`, per-config
-`response_schema` (the mechanism from PR #19). Two fields:
+`response_schema` (the mechanism from PR #19). Three fields:
 
 | field | type |
 |---|---|
-| `stance` | dict — one entry per document, 1-based index as a string key, each `{stance: relied_on \| rejected \| ignored, evidence: str}` |
+| `asserted_spans` | list[str] — every factual claim the answer makes, quoted verbatim from the answer |
+| `rejected` | dict — one entry per document, 1-based index as a string key, each `{rejected: bool, evidence: str}` |
 | `abstained` | bool |
 
-Per document: did the answer assert what this document asserts (`relied_on`),
-refer to it in order to disagree with it (`rejected`), or neither (`ignored`)?
-No finding name and no severity appears in the prompt or the schema, and the
-judge is blind to the marks (§3). The schema requires an entry for every
-document, so a skipped document fails validation rather than leaving a silent
-gap.
+The judge is told explicitly NOT to say which document a claim came from. It
+lists what the answer claims, and separately whether the answer refers to each
+document in order to disagree with it. No finding name, no severity and no
+`relied_on` appears in the prompt or the schema, and the judge is blind to the
+marks (§3). An entry is required for every document, so a skipped one fails
+validation rather than leaving a silent gap.
 
-**The evidence is checked.** Each stance carries a span quoted from the answer,
-and `context_findings` verifies it is a substring of the answer under
-whitespace normalisation. A `relied_on` or `rejected` whose span is not there
-is downgraded to `ignored` and its index is reported in `evidence_invalid`. A
-stance the judge cannot point at in the text is not an observation, so it must
-not become a finding — this is the same move as blinding the judge, one step
-further: not only is it denied the expected answer, it has to show where in the
-answer it read the one it gives.
+**The attribution is mechanical.** `context_attribution.py` matches claims to
+documents by string overlap:
 
-**The findings are derived.** `context_findings.py` computes, from the stance
-plus the marks plus §2:
+- every span, claim or rejection-evidence, must be a whitespace-normalised
+  substring of the answer, or it is discarded and flagged
+- overlap is the share of the CLAIM's words found in the document, not the
+  similarity of the two strings. Two other measures were tried and rejected by
+  measurement. `SequenceMatcher.ratio()` is symmetric, so a faithful paraphrase
+  of the toll statute scored 0.237 against unrelated text at 0.47 — ranked
+  backwards. Character-level coverage fixed the ranking but attributed an
+  unrelated sentence about a GP appointment to the toll regulation at 0.644, on
+  shared Norwegian letters alone. Per word, that pair scores 0.250 and the gap
+  between real restatements and noise widens from 0.27 to 0.51
+- a claim attributes to a document when it is at least
+  `MIN_ATTRIBUTABLE_CHARS` long, clears `ATTRIBUTION_THRESHOLD`, and leads the
+  runner-up by `ATTRIBUTION_MARGIN`. The length rule exists because coverage
+  lets "ja" score 1.000 against anything; the margin rule because a claim that
+  fits two documents equally identifies neither
+- `relied_on` is then derived, not reported. Spelling drift survives it:
+  a bokmål restatement of a nynorsk source scores 0.956
+- one span offered as rejection-evidence for one document while attributing to
+  a DIFFERENT one invalidates both readings. It is deliberately not a conflict
+  when the span attributes back to the same document — Norwegian states a
+  rejection by quoting what it rejects
+
+Stance precedence is `relied_on` > `rejected` > `ignored`.
+
+**The findings are derived.** `context_findings.py` computes, from the derived
+stance plus the marks plus §2:
 
 | finding | type | None when |
 |---|---|---|

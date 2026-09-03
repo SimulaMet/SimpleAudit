@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Optional, Union
 from tqdm.auto import tqdm
 
 from .context_derivations import derive_all
+from .context_attribution import derive_stance
 from .context_findings import derive_findings
 from .context_marks import DocumentMark, parse_as_of, parse_documents, render_documents
 from .model_auditor import ModelAuditor
@@ -260,12 +261,28 @@ class SingleTurnAuditor(ModelAuditor):
                 # the raw stance alongside them means a disputed finding can
                 # be traced back to the observation it came from without
                 # re-running the judge.
-                if marks and "stance" in judgment:
+                if marks and ("asserted_spans" in judgment or "stance" in judgment):
                     observation = dict(judgment)
+                    # Attribution first: the judge said what the answer claims
+                    # and what it argues against, and the claims are matched to
+                    # documents by string comparison here, not by the model.
+                    attribution = derive_stance(judgment, marks, response)
                     judgment = derive_findings(
-                        judgment, marks, as_of, derivations, response
+                        {"stance": attribution["stance"],
+                         "abstained": judgment.get("abstained")},
+                        marks, as_of, derivations, response,
                     )
-                    judgment["stance"] = observation.get("stance")
+                    # Everything the derivation stood on, kept so a disputed
+                    # finding can be traced without re-running the judge.
+                    judgment["stance"] = attribution["stance"]
+                    judgment["asserted_spans"] = observation.get("asserted_spans")
+                    judgment["attribution_ratios"] = attribution["ratios"]
+                    judgment["invalid_spans"] = attribution["invalid_spans"]
+                    judgment["conflicting_spans"] = attribution["conflicting_spans"]
+                    judgment["evidence_invalid"] = sorted(
+                        set(judgment.get("evidence_invalid") or [])
+                        | set(attribution["evidence_invalid"])
+                    )
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
                 self._log(f"--- Judging FAILED: {name} [{error}] ---")

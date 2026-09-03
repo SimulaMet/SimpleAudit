@@ -405,28 +405,86 @@ class TestJudgeSpecIsBuiltPerScenario:
     The builders were correct on their own while the runner still handed the
     judge `self.judge_prompt` and `self.judge_response_schema` unchanged, so a
     two-document scenario got the permissive registry schema instead of one
-    requiring a stance per document. Unit tests on the builders could not see
+    requiring an entry per document. Unit tests on the builders could not see
     it. These assert on what the judge client actually receives.
 
+    They also pin the second half of the pipeline. The judge no longer reports
+    a stance: it lists what the answer claims and which documents it argues
+    against, and `context_attribution` matches the claims to documents by
+    string overlap. So a test that wants `relied_on` cannot simply say so — it
+    has to make the answer restate the document, which is the point. A fake
+    that could assert the stance directly would test nothing about the step
+    that replaced the model's judgement.
+
     Note what is NOT asserted here any more: the prompt used to drop a question
-    when its derivation was None. Under the stance model the judge is never
-    asked about a derived property at all, so there is nothing to drop — the
-    None rule moved to `context_findings` and is tested there.
+    when its derivation was None. The judge is never asked about a derived
+    property at all, so there is nothing to drop — the None rule moved to
+    `context_findings` and is tested there.
     """
 
+    # Real sentences, not "old"/"new": attribution is string overlap against
+    # the document text, and a three-character document can never cover the
+    # 25-character minimum a claim needs to attribute at all.
+    SUPERSEDED_DOC = "Barn under 16 år betaler ikke egenandel hos fastlegen."
+    CURRENT_DOC = (
+        "Fra 1. august 2026 er aldersgrensen for fritak hevet til under 18 år."
+    )
+
+    TWO_DOC_SCENARIO = {
+        "name": "two marked documents",
+        "description": "d",
+        "test_prompt": "Spørsmål?",
+        "as_of": "2026-09-03",
+        "documents": [
+            {"text": SUPERSEDED_DOC, "relevant": True, "true": True,
+             "valid_until": "2026-07-31", "authority": "guidance"},
+            {"text": CURRENT_DOC, "relevant": True, "true": True,
+             "valid_from": "2026-08-01", "authority": "guidance"},
+        ],
+    }
+
+    #: The wrong answer: the superseded rule, restated as if it still held.
+    STALE_ANSWER = SUPERSEDED_DOC
+
+    #: The right answer: the superseded rule named in order to say it is over,
+    #: then the current rule stated. Note that it CONTAINS the superseded text
+    #: — that is the sentence shape the previous judge scored as a use.
+    CORRECTING_ANSWER = (
+        "Den gamle regelen om at barn under 16 år betaler ikke egenandel hos "
+        "fastlegen gjelder ikke lenger. "
+        "Fra 1. august 2026 er aldersgrensen for fritak hevet til under 18 år."
+    )
+
+    #: The span of CORRECTING_ANSWER that does the disagreeing, as the prompt
+    #: asks for it: the part that says the rule is over, not the part that
+    #: restates it.
+    REJECTION_SPAN = (
+        "Den gamle regelen om at barn under 16 år betaler ikke egenandel hos "
+        "fastlegen gjelder ikke lenger."
+    )
+
     @staticmethod
-    def _judge_call(scenario, stance=None):
-        """Run the scenario and return the kwargs the judge client received."""
+    def _judge_call(scenario, judgment=None, answer=STALE_ANSWER):
+        """Run the scenario and return (judge kwargs, AuditResult).
+
+        `judgment` is the judge's raw output — the three observational fields,
+        never a stance. Defaults to the empty observation: no claims, nothing
+        rejected.
+        """
         calls = []
         document_count = len(scenario.get("documents") or [])
-        default_stance = stance or {
-            str(index): {"stance": "ignored", "evidence": ""}
-            for index in range(1, document_count + 1)
+        payload = judgment or {
+            "asserted_spans": [],
+            "rejected": {
+                str(index): {"rejected": False, "evidence": ""}
+                for index in range(1, document_count + 1)
+            },
+            "abstained": False,
         }
 
         def record(**kwargs):
             calls.append(kwargs)
-            return json.dumps({"stance": default_stance, "abstained": False})
+            return json.dumps(payload)
 
         auditor = SingleTurnAuditor(
             model="target-model",
@@ -436,32 +494,19 @@ class TestJudgeSpecIsBuiltPerScenario:
             judge="groundedness",
             verbose=False,
         )
-        auditor.target_client = FakeClient(lambda **kw: "a plausible answer")
+        auditor.target_client = FakeClient(lambda **kw: answer)
         auditor.judge_client = FakeClient(record)
         result = asyncio.run(auditor._run_one_scenario(scenario))
         assert calls, "the judge was never called"
         return calls[-1], result
 
-    TWO_DOC_SCENARIO = {
-        "name": "two marked documents",
-        "description": "d",
-        "test_prompt": "Spørsmål?",
-        "as_of": "2026-09-03",
-        "documents": [
-            {"text": "old", "relevant": True, "true": True,
-             "valid_until": "2026-07-31", "authority": "guidance"},
-            {"text": "new", "relevant": True, "true": True,
-             "valid_from": "2026-08-01", "authority": "guidance"},
-        ],
-    }
-
-    def test_schema_requires_a_stance_for_every_document(self):
+    def test_schema_requires_an_entry_for_every_document(self):
         call, _result = self._judge_call(self.TWO_DOC_SCENARIO)
         schema = call["response_format"]["json_schema"]["schema"]
-        stance = schema["properties"]["stance"]
-        assert sorted(stance["properties"]) == ["1", "2"]
-        assert sorted(stance["required"]) == ["1", "2"]
-        assert stance["additionalProperties"] is False
+        rejected = schema["properties"]["rejected"]
+        assert sorted(rejected["properties"]) == ["1", "2"]
+        assert sorted(rejected["required"]) == ["1", "2"]
+        assert rejected["additionalProperties"] is False
 
     def test_the_judge_is_never_asked_for_a_finding(self):
         call, _result = self._judge_call(self.TWO_DOC_SCENARIO)
@@ -476,61 +521,171 @@ class TestJudgeSpecIsBuiltPerScenario:
             assert name not in schema["properties"], name
             assert name not in prompt, name
 
-    # The fake target always answers with this, so evidence spans have to be
-    # quoted out of it for the stance to survive the evidence check.
-    ANSWER = "a plausible answer"
+    def test_the_judge_is_never_asked_which_document_a_claim_came_from(self):
+        """The schema has no field for it, and the prompt says so in words.
 
-    def test_findings_are_derived_from_the_stance(self):
-        # Relying on the document whose window closed is the finding; the
-        # judge only reported the stance, the runner worked out the rest.
+        Attribution left the model because the model was bad at it; leaving a
+        place to put it in the response would invite it straight back.
+        """
+        call, _result = self._judge_call(self.TWO_DOC_SCENARIO)
+        schema = call["response_format"]["json_schema"]["schema"]
+        prompt = call["messages"][0]["content"]
+        assert list(schema["properties"]) == [
+            "asserted_spans",
+            "rejected",
+            "abstained",
+        ]
+        assert "relied_on" not in json.dumps(schema)
+        assert "Do NOT say which document a claim came from." in prompt
+
+    def test_findings_are_derived_from_the_answer_not_from_the_judge(self):
+        # Restating the document whose window closed is the finding. The judge
+        # only quoted the claim; the runner matched it to document 1 and the
+        # derivation did the rest.
         _call, result = self._judge_call(
             self.TWO_DOC_SCENARIO,
-            stance={
-                "1": {"stance": "relied_on", "evidence": "plausible"},
-                "2": {"stance": "ignored", "evidence": ""},
+            judgment={
+                "asserted_spans": [self.STALE_ANSWER],
+                "rejected": {
+                    "1": {"rejected": False, "evidence": ""},
+                    "2": {"rejected": False, "evidence": ""},
+                },
+                "abstained": False,
             },
         )
+        assert result.judgment["stance"]["1"]["stance"] == "relied_on"
         assert result.judgment["used_superseded_context"] is True
         assert result.judgment["used_context"] == [1]
         assert result.judgment["evidence_invalid"] == []
         assert result.severity == "medium"
 
     def test_rejecting_the_superseded_document_is_not_a_finding(self):
+        # The answer quotes the superseded rule in order to bury it. Under the
+        # old judge that was scored as a use; here the claim the judge lists
+        # attributes to document 2, and document 1 is only rejected.
         _call, result = self._judge_call(
             self.TWO_DOC_SCENARIO,
-            stance={
-                "1": {"stance": "rejected", "evidence": "a plausible"},
-                "2": {"stance": "relied_on", "evidence": "answer"},
+            answer=self.CORRECTING_ANSWER,
+            judgment={
+                "asserted_spans": [self.CURRENT_DOC],
+                "rejected": {
+                    "1": {"rejected": True, "evidence": self.REJECTION_SPAN},
+                    "2": {"rejected": False, "evidence": ""},
+                },
+                "abstained": False,
             },
         )
         assert result.judgment["used_superseded_context"] is False
         assert result.judgment["contradicted_context"] == [1]
+        assert result.judgment["used_context"] == [2]
         assert result.severity == "pass"
 
-    def test_unquotable_evidence_downgrades_the_stance(self):
-        # A stance the judge cannot point at in the answer is not an
-        # observation, and must not become a finding.
+    def test_an_unquotable_claim_is_discarded(self):
+        # A claim the judge cannot point at in the answer is a claim about an
+        # answer it did not read, and must not become a finding.
         _call, result = self._judge_call(
             self.TWO_DOC_SCENARIO,
-            stance={
-                "1": {"stance": "relied_on", "evidence": "words never written"},
-                "2": {"stance": "ignored", "evidence": ""},
+            judgment={
+                "asserted_spans": ["ord som aldri ble skrevet i svaret"],
+                "rejected": {
+                    "1": {"rejected": False, "evidence": ""},
+                    "2": {"rejected": False, "evidence": ""},
+                },
+                "abstained": False,
             },
         )
-        assert result.judgment["evidence_invalid"] == [1]
+        assert result.judgment["invalid_spans"] == ["ord som aldri ble skrevet i svaret"]
         assert result.judgment["used_context"] == []
         assert result.judgment["used_superseded_context"] is False
         assert result.severity == "pass"
 
-    def test_the_raw_stance_is_kept_alongside_the_findings(self):
+    def test_unquotable_rejection_evidence_downgrades_the_stance(self):
+        _call, result = self._judge_call(
+            self.TWO_DOC_SCENARIO,
+            judgment={
+                "asserted_spans": [],
+                "rejected": {
+                    "1": {"rejected": True, "evidence": "ord som aldri ble skrevet"},
+                    "2": {"rejected": False, "evidence": ""},
+                },
+                "abstained": False,
+            },
+        )
+        assert result.judgment["evidence_invalid"] == [1]
+        assert result.judgment["stance"]["1"]["stance"] == "ignored"
+        assert result.judgment["contradicted_context"] == []
+        assert result.severity == "pass"
+
+    def test_one_span_cannot_be_evidence_about_two_documents(self):
+        # Offered as proof the answer disagrees with document 1 while reading
+        # as a restatement of document 2. It cannot be both, so the rejection
+        # is dropped and the span is recorded as conflicting.
+        _call, result = self._judge_call(
+            self.TWO_DOC_SCENARIO,
+            answer=self.CORRECTING_ANSWER,
+            judgment={
+                "asserted_spans": [],
+                "rejected": {
+                    "1": {"rejected": True, "evidence": self.CURRENT_DOC},
+                    "2": {"rejected": False, "evidence": ""},
+                },
+                "abstained": False,
+            },
+        )
+        assert result.judgment["conflicting_spans"] == [self.CURRENT_DOC]
+        assert result.judgment["evidence_invalid"] == [1]
+        assert result.judgment["contradicted_context"] == []
+
+    def test_the_derived_stance_is_kept_alongside_the_findings(self):
         # A disputed finding has to be traceable to the observation it came
         # from without re-running the judge.
-        stance = {
-            "1": {"stance": "relied_on", "evidence": "plausible"},
+        _call, result = self._judge_call(
+            self.TWO_DOC_SCENARIO,
+            judgment={
+                "asserted_spans": [self.STALE_ANSWER],
+                "rejected": {
+                    "1": {"rejected": False, "evidence": ""},
+                    "2": {"rejected": False, "evidence": ""},
+                },
+                "abstained": False,
+            },
+        )
+        assert result.judgment["stance"] == {
+            "1": {"stance": "relied_on", "evidence": self.STALE_ANSWER},
             "2": {"stance": "ignored", "evidence": ""},
         }
-        _call, result = self._judge_call(self.TWO_DOC_SCENARIO, stance=stance)
-        assert result.judgment["stance"] == stance
+
+    def test_the_attribution_trace_is_kept_alongside_the_findings(self):
+        """Everything the derivation stood on, kept on the judgment.
+
+        The stance is now computed, not reported, so "the judge said so" is no
+        longer an answer to a disputed finding. What has to survive instead is
+        the input to the computation — the claims, what each scored against
+        each document, and what was thrown away — or the only way to see why
+        document 1 came out `relied_on` is to run the judge again against a
+        model that has since changed.
+        """
+        _call, result = self._judge_call(
+            self.TWO_DOC_SCENARIO,
+            judgment={
+                "asserted_spans": [self.STALE_ANSWER, "Barn"],
+                "rejected": {
+                    "1": {"rejected": False, "evidence": ""},
+                    "2": {"rejected": False, "evidence": ""},
+                },
+                "abstained": False,
+            },
+        )
+        judgment = result.judgment
+        # The judge's own list, unedited — including the span too short to
+        # attribute, which is not an error and must not be silently dropped.
+        assert judgment["asserted_spans"] == [self.STALE_ANSWER, "Barn"]
+        # One score per document, so a near-miss is visible as a near-miss
+        # rather than as an absence.
+        assert judgment["attribution_ratios"][1] == 1.0
+        assert judgment["attribution_ratios"][2] < judgment["attribution_ratios"][1]
+        assert judgment["invalid_spans"] == []
+        assert judgment["conflicting_spans"] == []
 
     def test_an_explicit_judge_prompt_still_wins(self):
         auditor = SingleTurnAuditor(

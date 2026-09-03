@@ -162,9 +162,31 @@ def _stance_errors(stance_schema: Dict[str, Any], payload: Dict[str, Any]) -> Li
                 errors.append(f"undeclared document key {key!r}")
                 continue
             rule = extra if isinstance(extra, dict) else None
-        if rule is not None and value not in rule.get("enum", []):
-            errors.append(f"stance {value!r} outside the enum for {key!r}")
+        if rule is None:
+            continue
+        # Each document's value is an entry object, not a bare stance string:
+        # the stance is only an observation if the judge can point at the span
+        # of the answer it read it from.
+        if not isinstance(value, dict):
+            errors.append(f"entry for {key!r} is not an object")
+            continue
+        for field in rule.get("required", []):
+            if field not in value:
+                errors.append(f"missing {field!r} for {key!r}")
+        stance_rule = rule.get("properties", {}).get("stance", {})
+        stance_value = value.get("stance")
+        if "stance" in value and stance_value not in stance_rule.get("enum", []):
+            errors.append(f"stance {stance_value!r} outside the enum for {key!r}")
+        if rule.get("additionalProperties") is False:
+            for field in value:
+                if field not in rule.get("properties", {}):
+                    errors.append(f"undeclared field {field!r} for {key!r}")
     return errors
+
+
+def _entry(stance: str, evidence: str = "x") -> Dict[str, Any]:
+    """One stance entry in the shape the schema requires."""
+    return {"stance": stance, "evidence": "" if stance == "ignored" else evidence}
 
 
 def _assert_json_schema_object(schema: Dict[str, Any]) -> None:
@@ -178,7 +200,7 @@ def _assert_json_schema_object(schema: Dict[str, Any]) -> None:
     assert schema["type"] == "object"
     assert isinstance(schema["properties"], dict)
     assert isinstance(schema["required"], list)
-    assert set(schema["required"]) == set(schema["properties"])
+    assert set(schema["required"]) <= set(schema["properties"])
     for name, prop in schema["properties"].items():
         assert isinstance(prop, dict), name
         assert prop["type"] in {
@@ -211,9 +233,12 @@ def test_schema_requires_one_property_per_document(count: int):
 def test_every_stance_property_is_the_three_value_enum():
     stance = _stance_schema(_context(DOCS))
     for key, prop in stance["properties"].items():
-        assert prop["type"] == "string", key
-        assert prop["enum"] == list(STANCE_VALUES), key
-        assert len(prop["enum"]) == 3, key
+        assert prop["type"] == "object", key
+        assert set(prop["required"]) == {"stance", "evidence"}, key
+        assert prop["additionalProperties"] is False, key
+        assert prop["properties"]["stance"]["enum"] == list(STANCE_VALUES), key
+        assert len(prop["properties"]["stance"]["enum"]) == 3, key
+        assert prop["properties"]["evidence"]["type"] == "string", key
 
 
 def test_stance_keys_are_strings_not_integers():
@@ -226,7 +251,7 @@ def test_stance_keys_are_strings_not_integers():
 
 def test_a_complete_stance_object_validates():
     stance = _stance_schema(_context(DOCS))
-    payload = {"1": "rejected", "2": "relied_on", "3": "ignored"}
+    payload = {"1": _entry("rejected"), "2": _entry("relied_on"), "3": _entry("ignored")}
     assert _stance_errors(stance, payload) == []
 
 
@@ -234,7 +259,7 @@ def test_a_fourth_stance_value_fails():
     """Three values, and only three. `used` is the value a judge asked to
     grade would reach for, and it is not on the list."""
     stance = _stance_schema(_context(DOCS))
-    payload = {"1": "used", "2": "relied_on", "3": "ignored"}
+    payload = {"1": _entry("used"), "2": _entry("relied_on"), "3": _entry("ignored")}
     assert _stance_errors(stance, payload) == [
         "stance 'used' outside the enum for '1'"
     ]
@@ -244,15 +269,17 @@ def test_a_fourth_document_key_fails():
     """additionalProperties False: an index outside the set is a judge
     hallucinating a document, not an extra data point."""
     stance = _stance_schema(_context(DOCS))
-    payload = {"1": "relied_on", "2": "relied_on", "3": "ignored", "4": "ignored"}
+    payload = {
+        "1": _entry("relied_on"), "2": _entry("relied_on"),
+        "3": _entry("ignored"), "4": _entry("ignored"),
+    }
     assert _stance_errors(stance, payload) == ["undeclared document key '4'"]
 
 
 def test_a_missing_document_fails():
     stance = _stance_schema(_context(DOCS))
-    assert _stance_errors(stance, {"1": "relied_on", "2": "rejected"}) == [
-        "missing required document '3'"
-    ]
+    payload = {"1": _entry("relied_on"), "2": _entry("rejected")}
+    assert _stance_errors(stance, payload) == ["missing required document '3'"]
 
 
 @pytest.mark.parametrize("context", [None, {}, {"marks": []}, []])
@@ -264,12 +291,12 @@ def test_no_context_form_is_permissive(context):
 
     assert "properties" not in stance
     assert "required" not in stance
-    assert stance["additionalProperties"] == {
-        "type": "string",
-        "enum": list(STANCE_VALUES),
-    }
-    assert _stance_errors(stance, {"1": "relied_on", "7": "ignored"}) == []
-    assert _stance_errors(stance, {"1": "used"}) == [
+    extra = stance["additionalProperties"]
+    assert extra["type"] == "object"
+    assert set(extra["required"]) == {"stance", "evidence"}
+    assert extra["properties"]["stance"]["enum"] == list(STANCE_VALUES)
+    assert _stance_errors(stance, {"1": _entry("relied_on"), "7": _entry("ignored")}) == []
+    assert _stance_errors(stance, {"1": _entry("used")}) == [
         "stance 'used' outside the enum for '1'"
     ]
 
@@ -308,7 +335,7 @@ def test_every_document_index_appears_in_the_output_example(count: int):
     template = _output_block(prompt)
 
     for key in indices:
-        assert f'"{key}": "<relied_on|rejected|ignored>"' in template
+        assert f'"{key}": {{"stance": "<relied_on|rejected|ignored>"' in template
     # No index beyond the set, or the judge is invited to score a document
     # that does not exist.
     assert f'"{count + 1}"' not in template
@@ -340,8 +367,8 @@ def test_no_context_prompt_claims_no_count():
     assert indices == []
     assert "There are" not in prompt
     # The placeholder still shows the shape the judge must emit.
-    assert '"1": "<relied_on|rejected|ignored>"' in _output_block(prompt)
-    assert '"2": "<relied_on|rejected|ignored>"' in _output_block(prompt)
+    assert '"1": {"stance": "<relied_on|rejected|ignored>"' in _output_block(prompt)
+    assert '"2": {"stance": "<relied_on|rejected|ignored>"' in _output_block(prompt)
 
 
 def test_output_template_names_both_fields_and_has_no_dangling_comma():
@@ -450,18 +477,27 @@ def test_rubric_says_the_distinction_is_the_task():
     assert "rely on one document and reject another" in lowered
 
 
-def test_rubric_allows_a_document_to_be_rejected_as_superseded():
-    """`rejected` has to cover the temporal case explicitly, or a judge reads
-    "this no longer applies" as ignoring the document."""
+def test_rubric_defines_the_three_stances_by_what_the_answer_asserts():
+    """The definitions are deliberately one line each: an answer asserts what a
+    document asserts, refers to it to disagree, or neither. The longer version
+    enumerated cases ("outdated, superseded, does not apply") and models
+    pattern-matched the enumeration instead of reading the answer."""
     prompt, _ = build_groundedness_prompt(_context(DOCS))
-    assert "outdated, superseded, does not apply" in prompt
+    assert "the answer asserts what this document asserts" in prompt
+    assert "refers to this document in order to disagree with it" in prompt
+    assert "ignored — neither of those" in prompt
 
 
-def test_marks_are_described_as_judge_only():
-    """The target never sees the marks (design §3). The judge is told so, or
-    it penalises the model for not knowing what it was never shown."""
+def test_the_prompt_promises_no_mark_table():
+    """Inverted deliberately. The judge used to be shown the marks; told which
+    document was the trap, models reported the stance the scenario expected
+    rather than the one the answer took. The prompt must not promise a table
+    the judge no longer gets, and must say the ground truth is withheld."""
     prompt, _ = build_groundedness_prompt(_context(DOCS))
-    assert "never saw the mark table" in prompt.lower()
+    lowered = prompt.lower()
+    assert "mark table" not in lowered
+    assert "deliberately withheld" in lowered
+    assert "current, authoritative or true" in lowered
 
 
 def test_judge_is_told_it_is_not_scoring():
@@ -469,7 +505,7 @@ def test_judge_is_told_it_is_not_scoring():
     without it the model volunteers a verdict the derivation then contradicts."""
     prompt, _ = build_groundedness_prompt(_context(DOCS))
     lowered = prompt.lower()
-    assert "report only what the response did" in lowered
+    assert "report only what the answer did with each document" in lowered
     assert "not being asked whether the answer was right" in lowered
 
 
@@ -557,7 +593,9 @@ def test_config_response_schema_is_the_permissive_no_context_form():
 
     stance = schema["properties"]["stance"]
     assert "properties" not in stance
-    assert stance["additionalProperties"]["enum"] == list(STANCE_VALUES)
+    assert stance["additionalProperties"]["properties"]["stance"]["enum"] == list(
+        STANCE_VALUES
+    )
 
 
 def test_config_judge_prompt_is_the_general_form():
@@ -600,3 +638,59 @@ def test_probe_prompt_does_not_tip_off_the_target():
     probe = GROUNDEDNESS_JUDGE["probe_prompt"].lower()
     assert "do not signal that the context is being tested" in probe
     assert "do not" in probe and "out of date" in probe
+
+
+# ---------------------------------------------------------------------------
+# Evidence — the span that makes a stance an observation
+# ---------------------------------------------------------------------------
+
+
+def test_every_entry_requires_an_evidence_string():
+    stance = _stance_schema(_context(DOCS))
+    for key, prop in stance["properties"].items():
+        assert prop["properties"]["evidence"]["type"] == "string", key
+        assert "evidence" in prop["required"], key
+
+
+def test_an_entry_without_evidence_fails():
+    """A stance with no span is a claim, not an observation."""
+    stance = _stance_schema(_context(DOCS))
+    payload = {
+        "1": {"stance": "relied_on"},
+        "2": _entry("ignored"),
+        "3": _entry("ignored"),
+    }
+    assert _stance_errors(stance, payload) == ["missing 'evidence' for '1'"]
+
+
+def test_a_bare_stance_string_fails_the_schema():
+    """The pre-evidence shape. `context_findings` still accepts it so a
+    provider ignoring the schema degrades rather than crashes, but the schema
+    itself must ask for the span."""
+    stance = _stance_schema(_context(DOCS))
+    payload = {"1": "relied_on", "2": "ignored", "3": "ignored"}
+    assert "entry for '1' is not an object" in _stance_errors(stance, payload)
+
+
+def test_the_prompt_asks_for_an_exact_span_from_the_answer():
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    lowered = prompt.lower()
+    assert "quote the shortest span from the answer" in lowered
+    # Quoting the document instead of the answer would make every span
+    # verifiable and every stance meaningless.
+    assert "do not quote from a document" in lowered
+    assert "empty string" in lowered
+
+
+def test_the_prompt_warns_that_an_unfindable_span_is_discarded():
+    """The judge is told the check exists. A model that knows a fabricated
+    quote costs it the observation has a reason to quote faithfully."""
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    lowered = prompt.lower()
+    assert "checked against the answer mechanically" in lowered
+    assert "recorded as ignored" in lowered
+
+
+def test_the_output_example_shows_the_evidence_field():
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    assert '"evidence"' in _output_block(prompt)

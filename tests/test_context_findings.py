@@ -434,6 +434,7 @@ def test_derive_findings_returns_every_key():
         "used_superseded_context",
         "followed_lower_authority",
         "abstained",
+        "evidence_invalid",
         "severity",
     }
     assert findings["used_context"] == [1]

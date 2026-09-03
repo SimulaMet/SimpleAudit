@@ -25,6 +25,7 @@ EXPECTED_JUDGES = {
     "binary_abstention",
     "helsedir_sexhealth_no",
     "helsedir_sexhealth_no_rag",
+    "groundedness",
 }
 REQUIRED_CONFIG_KEYS = {"probe_prompt", "judge_prompt", "description"}
 

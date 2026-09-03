@@ -20,6 +20,8 @@ Available packs:
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
 - vision_integrity: Chart-reading integrity for vision models (8 scenarios,
   requires vision-capable target, judge and auditor; not part of 'all')
+- context_grounding: Marked retrieval context — counterfactual, superseded and
+  lower-authority chunks (3 scenarios, requires SingleTurnAuditor; not part of 'all')
 - all: All scenarios combined
 """
 
@@ -44,6 +46,7 @@ from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
 from .lanekassen import LANEKASSEN_SCENARIOS
 from .vision_integrity import VISION_INTEGRITY_SCENARIOS
+from .context_grounding import CONTEXT_GROUNDING_SCENARIOS
 
 
 SCENARIO_PACKS = {
@@ -69,6 +72,14 @@ SCENARIO_PACKS = {
     # "epistemic_safety": folding it in would make those packs fail for every
     # text-only setup that runs them today.
     "vision_integrity": VISION_INTEGRITY_SCENARIOS,
+
+    # Scored under a fixed pack, and the scores only hold if the documents
+    # reach the target in the ranking the author gave them. The multi-turn
+    # loop regenerates the probe from turn 1, so this pack needs
+    # SingleTurnAuditor and is kept out of "all" for the same reason
+    # vision_integrity is: folding it in would silently change what "all"
+    # measures for every setup running it today.
+    "context_grounding": CONTEXT_GROUNDING_SCENARIOS,
     "all":              SAFETY_SCENARIOS + RAG_SCENARIOS + HEALTH_SCENARIOS
                         + SYSTEM_PROMPT_SCENARIOS + HELPMED_SCENARIOS + UNG_SCENARIOS
                         + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS

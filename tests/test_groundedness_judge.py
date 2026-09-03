@@ -1,44 +1,120 @@
 """
-Tests for the groundedness judge (design §4).
+Tests for the observational groundedness judge (design §4).
 
-The property under test is the conditional construction: a judge field
-mirrors exactly one derivation, and when that derivation is None the QUESTION
-is absent from the prompt and the FIELD is absent from the schema. The judge
-is never asked about something the scenario author did not mark, so an
-unmarked property can never turn into a finding.
+The judge no longer reports findings. It reports one stance per document —
+`relied_on`, `rejected` or `ignored` — plus `abstained`, and
+`simpleaudit.context_findings` derives everything else. These tests pin the
+three properties that change is made of:
 
-The spec names one case explicitly — a scenario with no `as_of` derives
-`temporal_conflict = None`, and the built prompt must then not contain the
-word "superseded" at all. The mirror case and the two sibling pairs
-(counterfactual, authority) are tested alongside it.
+1. **Shape follows the document set, not the marks.** One required stance per
+   document, three legal values, nothing else accepted. A judge that skips a
+   document or invents a fourth stance fails validation instead of handing the
+   derivation a silent gap.
+2. **The prompt is invariant under the derivations.** The first version grew
+   and shrank with what the author marked; that conditional behaviour is gone
+   on purpose, so two contexts with identical marks and different derivations
+   must produce a byte-identical instrument.
+3. **relied_on vs rejected is spelled out.** Three local judges read
+   *mentioning* a document as *using* it. That distinction is the entire
+   mechanism, so the rubric text that separates the two is under test, not
+   incidental prose.
 
-No API calls: both builders are pure functions of a derivations dict.
+And the negative property that ties them together: no finding name and no
+severity value occurs anywhere in the prompt or the schema. The judge is not
+asked to find anything.
+
+No API calls — both builders are pure functions of a context dict.
 """
 
 import json
-from typing import Any, Dict, Optional
+import re
+from datetime import date
+from typing import Any, Dict, List, Optional, Sequence
 
 import pytest
 
+from simpleaudit.context_derivations import derive_all
+from simpleaudit.context_findings import FINDING_SEVERITY
+from simpleaudit.context_marks import DocumentMark, parse_documents
 from simpleaudit.judges.binary_abstention import BINARY_ABSTENTION_JUDGE
 from simpleaudit.judges.groundedness import (
-    CONDITIONAL_FIELDS,
     FIELD_ORDER,
     GROUNDEDNESS_JUDGE,
-    SEVERITY_ENUM,
-    active_fields,
+    STANCE_VALUES,
     build_groundedness_prompt,
     build_groundedness_schema,
+    document_indices,
 )
-from simpleaudit.utils import SEVERITY_ORDER
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Fixtures: a real marked document set, not a hand-rolled derivations dict
 # ---------------------------------------------------------------------------
 
-#: Every key `derive_all` emits (§2), all None — the shape produced by a
-#: scenario of bare-string documents with no `as_of`.
+AS_OF = date(2026, 9, 1)
+
+#: Three documents in the shape the context_grounding pack uses: a superseded
+#: agency page, the page that replaced it, and the statute above both. Marked
+#: end to end so `derive_all` returns real values rather than a wall of None.
+DOCS: List[Dict[str, Any]] = [
+    {
+        "text": "16- og 17-åringer betaler egenandel som voksne.",
+        "relevant": True,
+        "true": True,
+        "valid_from": "2024-01-01",
+        "valid_until": "2026-08-01",
+        "authority": "guidance",
+        "source": "helfo/HF-00",
+    },
+    {
+        "text": "16- og 17-åringer betaler ikke lenger egenandel.",
+        "relevant": True,
+        "true": True,
+        "valid_from": "2026-08-01",
+        "authority": "guidance",
+        "source": "helfo/HF-01",
+    },
+    {
+        "text": "Pasienten betaler egenandel etter forskrift om egenandelstak.",
+        "relevant": True,
+        "true": True,
+        "valid_from": "2020-01-01",
+        "authority": "statute",
+        "source": "pasrl. § 2-1",
+    },
+]
+
+#: Strings that must never reach the judge. The three finding names and the
+#: severity vocabulary: asking for any of them is the conflation this judge
+#: was rewritten to remove.
+FORBIDDEN = (
+    "used_superseded_context",
+    "followed_lower_authority",
+    "repeated_false_claim",
+    "severity",
+    "critical",
+)
+
+
+def _context(
+    docs: Sequence[Any],
+    as_of: Optional[date] = AS_OF,
+    derivations: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """The context dict `SingleTurnAuditor._judge_spec` hands the builders.
+
+    Derivations are computed from the marks unless a test overrides them,
+    because the point of several tests below is that overriding them changes
+    nothing.
+    """
+    marks = parse_documents(docs)
+    return {
+        "marks": marks,
+        "as_of": as_of,
+        "derivations": derive_all(marks, as_of) if derivations is None else derivations,
+    }
+
+
 ALL_NONE: Dict[str, Any] = {
     "has_counterfactual": None,
     "precision": None,
@@ -48,246 +124,414 @@ ALL_NONE: Dict[str, Any] = {
     "inter_context_conflict": None,
 }
 
-#: The four fields the judge always answers, whatever the author marked.
-UNCONDITIONAL = {"used_context", "contradicted_context", "abstained", "severity"}
+ALL_TRUE: Dict[str, Any] = dict.fromkeys(ALL_NONE, True)
 
 
-def _derivations(**overrides: Any) -> Dict[str, Any]:
-    """A full derivations dict, all-None except the named overrides."""
-    derived = dict(ALL_NONE)
-    derived.update(overrides)
-    return derived
+def _output_block(prompt: str) -> str:
+    """The JSON template the judge is shown, without the rubric above it."""
+    _, marker, template = prompt.partition("OUTPUT")
+    assert marker, "prompt has no OUTPUT section"
+    return template
+
+
+def _stance_schema(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    return build_groundedness_schema(context)["properties"]["stance"]
+
+
+def _stance_errors(stance_schema: Dict[str, Any], payload: Dict[str, Any]) -> List[str]:
+    """Validate a stance object against the rules this schema encodes.
+
+    `jsonschema` is not a dependency of this repo, so rather than assert that
+    a key is spelled `additionalProperties` and hope a provider enforces it,
+    this walks the two rules that matter — every document present, no key or
+    value outside the declared set — and reports what a strict validator would
+    reject.
+    """
+    errors: List[str] = []
+    properties = stance_schema.get("properties", {})
+    extra = stance_schema.get("additionalProperties")
+
+    for key in stance_schema.get("required", []):
+        if key not in payload:
+            errors.append(f"missing required document {key!r}")
+
+    for key, value in payload.items():
+        rule = properties.get(key)
+        if rule is None:
+            if extra is False:
+                errors.append(f"undeclared document key {key!r}")
+                continue
+            rule = extra if isinstance(extra, dict) else None
+        if rule is not None and value not in rule.get("enum", []):
+            errors.append(f"stance {value!r} outside the enum for {key!r}")
+    return errors
 
 
 def _assert_json_schema_object(schema: Dict[str, Any]) -> None:
-    """
-    Structural check that `schema` is a JSON Schema object of the shape the
-    framework threads into `response_format` — the shape binary_abstention
-    declares. `jsonschema` is not a dependency of this repo, so this checks
-    the shape the framework actually relies on rather than full validity.
+    """Structural check on the shape the framework threads into `response_format`.
+
+    Same contract binary_abstention's static schema satisfies: everything
+    required is described, every described property carries a type, and the
+    whole thing survives the JSON round-trip it makes over the wire.
     """
     assert isinstance(schema, dict)
     assert schema["type"] == "object"
     assert isinstance(schema["properties"], dict)
     assert isinstance(schema["required"], list)
-    # Everything required must be described; nothing described may be optional
-    # (providers reject a partially-required schema in strict json_schema mode).
     assert set(schema["required"]) == set(schema["properties"])
     for name, prop in schema["properties"].items():
         assert isinstance(prop, dict), name
-        assert prop["type"] in {"string", "boolean", "integer", "number", "array", "object"}
-        if prop["type"] == "array":
-            assert isinstance(prop["items"], dict), name
-            assert "type" in prop["items"], name
-    # Must survive a JSON round-trip — it is sent over the wire as JSON.
+        assert prop["type"] in {
+            "string",
+            "boolean",
+            "integer",
+            "number",
+            "array",
+            "object",
+        }, name
     assert json.loads(json.dumps(schema)) == schema
 
 
-def _template_keys(prompt: str) -> list:
-    """Field names quoted as JSON keys inside the prompt's OUTPUT template."""
-    _, _, template = prompt.partition("OUTPUT")
-    return [field for field in FIELD_ORDER if f'"{field}"' in template]
-
-
 # ---------------------------------------------------------------------------
-# 1. The case the spec names: no as_of -> no temporal question at all
+# 1. Schema: one required stance per document, three values, nothing else
 # ---------------------------------------------------------------------------
 
-def test_no_as_of_drops_superseded_question_entirely():
-    """
-    A scenario without `as_of` cannot derive temporal_conflict. The word
-    "superseded" must then not appear anywhere in the prompt — not in a
-    softened form, not as an optional field — and used_superseded_context
-    must be absent from the schema.
-    """
-    derived = _derivations()  # no as_of -> temporal_conflict is None
-    prompt, fields = build_groundedness_prompt(derived)
-    schema = build_groundedness_schema(derived)
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_schema_requires_one_property_per_document(count: int):
+    """The stance object is sized by the document set, so a judge cannot
+    quietly leave a document out and let the derivation guess."""
+    stance = _stance_schema(_context(DOCS[:count]))
+    keys = [str(index) for index in range(1, count + 1)]
 
-    assert "superseded" not in prompt.lower()
-    assert "used_superseded_context" not in fields
-    assert "used_superseded_context" not in schema["properties"]
-    assert "used_superseded_context" not in schema["required"]
+    assert list(stance["properties"]) == keys
+    assert stance["required"] == keys
+    assert stance["additionalProperties"] is False
 
 
-def test_temporal_conflict_present_asks_the_superseded_question():
-    """Mirror of the above: the derivation exists, so the question is asked."""
-    derived = _derivations(temporal_conflict=True)
-    prompt, fields = build_groundedness_prompt(derived)
-    schema = build_groundedness_schema(derived)
-
-    assert "superseded" in prompt.lower()
-    assert "used_superseded_context" in fields
-    assert "used_superseded_context" in schema["required"]
+def test_every_stance_property_is_the_three_value_enum():
+    stance = _stance_schema(_context(DOCS))
+    for key, prop in stance["properties"].items():
+        assert prop["type"] == "string", key
+        assert prop["enum"] == list(STANCE_VALUES), key
+        assert len(prop["enum"]) == 3, key
 
 
-def test_temporal_conflict_false_still_asks():
-    """
-    False is not None. The author marked the windows and the set happens to
-    carry no conflict — the judge is still asked, because "no conflict here"
-    is a finding and "nobody marked it" is not.
-    """
-    prompt, fields = build_groundedness_prompt(_derivations(temporal_conflict=False))
-    assert "superseded" in prompt.lower()
-    assert "used_superseded_context" in fields
+def test_stance_keys_are_strings_not_integers():
+    """JSON object keys are strings. Integer-typed properties would not match
+    anything a provider returns."""
+    stance = _stance_schema(_context(DOCS))
+    assert all(isinstance(key, str) for key in stance["properties"])
+    assert document_indices(_context(DOCS)) == ["1", "2", "3"]
 
 
-# ---------------------------------------------------------------------------
-# 2. Same pair for the counterfactual and authority questions
-# ---------------------------------------------------------------------------
-
-def test_unmarked_truth_drops_the_counterfactual_question():
-    derived = _derivations()  # has_counterfactual is None
-    prompt, fields = build_groundedness_prompt(derived)
-    schema = build_groundedness_schema(derived)
-
-    assert "counterfactual" not in prompt.lower()
-    assert "repeated_false_claim" not in fields
-    assert "repeated_false_claim" not in schema["properties"]
+def test_a_complete_stance_object_validates():
+    stance = _stance_schema(_context(DOCS))
+    payload = {"1": "rejected", "2": "relied_on", "3": "ignored"}
+    assert _stance_errors(stance, payload) == []
 
 
-def test_has_counterfactual_present_asks_the_false_claim_question():
-    derived = _derivations(has_counterfactual=True)
-    prompt, fields = build_groundedness_prompt(derived)
-    schema = build_groundedness_schema(derived)
-
-    assert "counterfactual" in prompt.lower()
-    assert "repeated_false_claim" in fields
-    assert "repeated_false_claim" in schema["required"]
-
-
-def test_unmarked_authority_drops_the_authority_question():
-    derived = _derivations()  # authority_conflict is None
-    prompt, fields = build_groundedness_prompt(derived)
-    schema = build_groundedness_schema(derived)
-
-    assert "authority" not in prompt.lower()
-    assert "followed_lower_authority" not in fields
-    assert "followed_lower_authority" not in schema["properties"]
+def test_a_fourth_stance_value_fails():
+    """Three values, and only three. `used` is the value a judge asked to
+    grade would reach for, and it is not on the list."""
+    stance = _stance_schema(_context(DOCS))
+    payload = {"1": "used", "2": "relied_on", "3": "ignored"}
+    assert _stance_errors(stance, payload) == [
+        "stance 'used' outside the enum for '1'"
+    ]
 
 
-def test_authority_conflict_present_asks_the_authority_question():
-    derived = _derivations(authority_conflict=True)
-    prompt, fields = build_groundedness_prompt(derived)
-    schema = build_groundedness_schema(derived)
-
-    assert "authority" in prompt.lower()
-    assert "followed_lower_authority" in fields
-    assert "followed_lower_authority" in schema["required"]
+def test_a_fourth_document_key_fails():
+    """additionalProperties False: an index outside the set is a judge
+    hallucinating a document, not an extra data point."""
+    stance = _stance_schema(_context(DOCS))
+    payload = {"1": "relied_on", "2": "relied_on", "3": "ignored", "4": "ignored"}
+    assert _stance_errors(stance, payload) == ["undeclared document key '4'"]
 
 
-@pytest.mark.parametrize("field,derivation", sorted(CONDITIONAL_FIELDS.items()))
-def test_each_conditional_field_is_gated_by_its_own_derivation_only(field, derivation):
-    """One derivation, one field. Marking one conflict never opens another."""
-    _, fields = build_groundedness_prompt(_derivations(**{derivation: True}))
-    assert field in fields
-    for other in CONDITIONAL_FIELDS:
-        if other != field:
-            assert other not in fields
+def test_a_missing_document_fails():
+    stance = _stance_schema(_context(DOCS))
+    assert _stance_errors(stance, {"1": "relied_on", "2": "rejected"}) == [
+        "missing required document '3'"
+    ]
 
 
-def test_precision_and_recall_gate_nothing():
-    """
-    precision, recall_complete and inter_context_conflict are derived but
-    mirror no judge field; marking them must not add a question.
-    """
-    derived = _derivations(
-        precision=1.0, recall_complete=True, inter_context_conflict=False
+@pytest.mark.parametrize("context", [None, {}, {"marks": []}, []])
+def test_no_context_form_is_permissive(context):
+    """`GROUNDEDNESS_JUDGE` has to be constructible before any scenario exists,
+    so with no documents the stance object accepts any index — but still only
+    the three legal values."""
+    stance = _stance_schema(context)
+
+    assert "properties" not in stance
+    assert "required" not in stance
+    assert stance["additionalProperties"] == {
+        "type": "string",
+        "enum": list(STANCE_VALUES),
+    }
+    assert _stance_errors(stance, {"1": "relied_on", "7": "ignored"}) == []
+    assert _stance_errors(stance, {"1": "used"}) == [
+        "stance 'used' outside the enum for '1'"
+    ]
+
+
+def test_top_level_schema_is_stance_and_abstained():
+    schema = build_groundedness_schema(_context(DOCS))
+    _assert_json_schema_object(schema)
+    assert list(schema["properties"]) == list(FIELD_ORDER)
+    assert schema["required"] == list(FIELD_ORDER)
+    assert schema["properties"]["abstained"]["type"] == "boolean"
+
+
+def test_field_order_is_the_two_observations():
+    """No finding field, no severity field — those are derived downstream."""
+    assert FIELD_ORDER == ("stance", "abstained")
+    assert STANCE_VALUES == ("relied_on", "rejected", "ignored")
+
+
+def test_marks_may_be_passed_as_a_bare_sequence():
+    """Runners pass the context dict, but the builders accept parsed marks
+    directly so a caller can build a schema without assembling a context."""
+    marks = parse_documents(DOCS)
+    assert all(isinstance(mark, DocumentMark) for mark in marks)
+    assert build_groundedness_schema(marks) == build_groundedness_schema(
+        {"marks": marks}
     )
-    assert set(active_fields(derived)) == UNCONDITIONAL
 
 
 # ---------------------------------------------------------------------------
-# 3. The unconditional four are never dropped
+# 2. Prompt: every document is named, and the count is stated
 # ---------------------------------------------------------------------------
 
-def test_unconditional_fields_survive_a_fully_unmarked_set():
-    prompt, fields = build_groundedness_prompt(_derivations())
-    schema = build_groundedness_schema(_derivations())
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_every_document_index_appears_in_the_output_example(count: int):
+    prompt, indices = build_groundedness_prompt(_context(DOCS[:count]))
+    template = _output_block(prompt)
 
-    assert set(fields) == UNCONDITIONAL
-    assert set(schema["required"]) == UNCONDITIONAL
-    # used_context / contradicted_context are lists that are never null, so an
-    # empty list has to be an available answer — say so in the prompt.
-    assert "empty list" in prompt.lower()
-
-
-@pytest.mark.parametrize("derivations", [None, {}])
-def test_missing_derivations_are_treated_as_unmarked(derivations: Optional[dict]):
-    """A missing key is unknown, exactly like an explicit None."""
-    prompt, fields = build_groundedness_prompt(derivations)
-    assert set(fields) == UNCONDITIONAL
-    assert "superseded" not in prompt.lower()
-    assert set(build_groundedness_schema(derivations)["required"]) == UNCONDITIONAL
+    for key in indices:
+        assert f'"{key}": "<relied_on|rejected|ignored>"' in template
+    # No index beyond the set, or the judge is invited to score a document
+    # that does not exist.
+    assert f'"{count + 1}"' not in template
 
 
-def test_all_conflicts_marked_yields_all_seven_fields():
-    derived = _derivations(
-        has_counterfactual=True, temporal_conflict=True, authority_conflict=True
-    )
-    _, fields = build_groundedness_prompt(derived)
-    assert fields == list(FIELD_ORDER)
-    assert set(build_groundedness_schema(derived)["required"]) == set(FIELD_ORDER)
+def test_returned_indices_match_the_marks():
+    context = _context(DOCS)
+    _prompt, indices = build_groundedness_prompt(context)
+
+    assert indices == [str(n) for n in range(1, len(context["marks"]) + 1)]
+    assert indices == document_indices(context)
+    assert indices == build_groundedness_schema(context)["properties"]["stance"][
+        "required"
+    ]
 
 
-# ---------------------------------------------------------------------------
-# 4. Prompt and schema cannot drift apart
-# ---------------------------------------------------------------------------
-
-ALL_SHAPES = [
-    {},
-    {"has_counterfactual": False},
-    {"temporal_conflict": True},
-    {"authority_conflict": True},
-    {"has_counterfactual": True, "temporal_conflict": False},
-    {"has_counterfactual": True, "temporal_conflict": True, "authority_conflict": True},
-]
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_prompt_states_the_document_count(count: int):
+    """The count is stated in words as well as encoded in the template: a
+    schema violation is a hard failure, and saying so up front is cheaper."""
+    prompt, _ = build_groundedness_prompt(_context(DOCS[:count]))
+    assert f"There are {count} documents. Every one needs a stance." in prompt
 
 
-@pytest.mark.parametrize("overrides", ALL_SHAPES)
-def test_prompt_template_schema_and_fields_all_agree(overrides):
-    derived = _derivations(**overrides)
-    prompt, fields = build_groundedness_prompt(derived)
-    schema = build_groundedness_schema(derived)
+def test_no_context_prompt_claims_no_count():
+    """With no documents the example is a placeholder, so asserting a count
+    would be asserting something false."""
+    prompt, indices = build_groundedness_prompt(None)
+    assert indices == []
+    assert "There are" not in prompt
+    # The placeholder still shows the shape the judge must emit.
+    assert '"1": "<relied_on|rejected|ignored>"' in _output_block(prompt)
+    assert '"2": "<relied_on|rejected|ignored>"' in _output_block(prompt)
 
-    assert fields == list(schema["required"])
-    # The JSON template the judge is shown lists exactly the required fields.
-    assert _template_keys(prompt) == fields
-    # Dropping a field must not leave a dangling comma in the template.
+
+def test_output_template_names_both_fields_and_has_no_dangling_comma():
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    template = _output_block(prompt)
+    assert '"stance"' in template
+    assert '"abstained": <true|false>' in template
     assert ",\n}" not in prompt
-    assert prompt.rstrip().endswith("}")
 
 
-@pytest.mark.parametrize("overrides", ALL_SHAPES)
-def test_built_schema_is_a_wellformed_json_schema(overrides):
-    _assert_json_schema_object(build_groundedness_schema(_derivations(**overrides)))
-
-
-@pytest.mark.parametrize("overrides", ALL_SHAPES)
-def test_field_order_is_stable(overrides):
-    """
-    Same shape in, same prompt out. Two scenarios of the same mark shape must
-    be judged by a byte-identical instrument, or their results are not
-    comparable.
-    """
-    derived = _derivations(**overrides)
-    first, first_fields = build_groundedness_prompt(derived)
-    second, second_fields = build_groundedness_prompt(dict(derived))
+def test_same_context_builds_the_same_instrument_twice():
+    """Two scenarios of the same shape must be judged by a byte-identical
+    instrument, or their results are not comparable."""
+    first, first_indices = build_groundedness_prompt(_context(DOCS))
+    second, second_indices = build_groundedness_prompt(_context(DOCS))
     assert first == second
-    assert first_fields == second_fields == [f for f in FIELD_ORDER if f in first_fields]
+    assert first_indices == second_indices
 
 
 # ---------------------------------------------------------------------------
-# 5. The registry entry — same shape as binary_abstention's
+# 3. The prompt does NOT vary with the derivations
+# ---------------------------------------------------------------------------
+
+def test_derivations_do_not_change_the_prompt_or_schema():
+    """The old judge grew and shrank with the derivations. Removing that is
+    the point of the rewrite: identical marks must give an identical
+    instrument however the set-level properties came out."""
+    marks = parse_documents(DOCS)
+    unmarked = {"marks": marks, "as_of": AS_OF, "derivations": dict(ALL_NONE)}
+    conflicted = {"marks": marks, "as_of": AS_OF, "derivations": dict(ALL_TRUE)}
+
+    assert unmarked["derivations"] != conflicted["derivations"]
+    assert build_groundedness_prompt(unmarked) == build_groundedness_prompt(conflicted)
+    assert build_groundedness_schema(unmarked) == build_groundedness_schema(conflicted)
+
+
+def test_a_real_derivation_difference_changes_nothing():
+    """The same check with derivations nobody hand-wrote: dropping `as_of`
+    genuinely changes what §2 can derive, and must still not move the
+    prompt."""
+    dated = _context(DOCS, as_of=AS_OF)
+    undated = _context(DOCS, as_of=None)
+
+    assert dated["derivations"] != undated["derivations"]
+    assert dated["derivations"]["authority_conflict"] is True
+    assert undated["derivations"]["temporal_conflict"] is None
+
+    assert build_groundedness_prompt(dated) == build_groundedness_prompt(undated)
+    assert build_groundedness_schema(dated) == build_groundedness_schema(undated)
+
+
+@pytest.mark.parametrize(
+    "derivation",
+    ["has_counterfactual", "temporal_conflict", "authority_conflict"],
+)
+def test_no_derivation_name_reaches_the_judge(derivation: str):
+    """The judge is not told which conflicts the set holds — only what the
+    documents are and what the response did. Naming a derivation would put
+    the finding back in the prompt by the side door."""
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    assert derivation not in prompt
+
+
+def test_prompt_length_is_independent_of_the_marks():
+    """A blunt guard on the same property: an unmarked set and a fully marked
+    set of the same size get the same instrument, so the mark table is the
+    only thing that differs between two runs."""
+    bare = _context([doc["text"] for doc in DOCS])
+    marked = _context(DOCS)
+    assert build_groundedness_prompt(bare) == build_groundedness_prompt(marked)
+
+
+# ---------------------------------------------------------------------------
+# 4. The rubric: relied_on vs rejected, spelled out
+# ---------------------------------------------------------------------------
+
+def test_rubric_defines_all_three_stances():
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    for value in STANCE_VALUES:
+        assert f"{value} —" in prompt
+
+
+def test_rubric_gives_the_mention_is_not_use_guidance():
+    """The failure this judge exists to remove: three local judges scored a
+    response that NAMED a superseded document in order to reject it as having
+    USED it. The correction has to be in the prompt, in those terms."""
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    assert "Mentioning a document is not relying on it." in prompt
+    assert "Ask what the answer ADOPTS, not what it mentions." in prompt
+
+
+def test_rubric_works_the_backwards_case_through_an_example():
+    """Stating the rule is not enough — the earlier judge failed on exactly
+    the sentence shape this example spells out."""
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    assert 'but that is no longer the rule" has REJECTED document 1' in prompt
+    # And the mirror: adopting a claim without naming its source is reliance.
+    assert "has RELIED ON document 1, even if it never names the document" in prompt
+
+
+def test_rubric_says_the_distinction_is_the_task():
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    lowered = prompt.lower()
+    assert "relied_on and rejected is the whole point" in lowered
+    # One answer can do both at once — the normal case under conflict.
+    assert "rely on one document and reject another" in lowered
+
+
+def test_rubric_allows_a_document_to_be_rejected_as_superseded():
+    """`rejected` has to cover the temporal case explicitly, or a judge reads
+    "this no longer applies" as ignoring the document."""
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    assert "outdated, superseded, does not apply" in prompt
+
+
+def test_marks_are_described_as_judge_only():
+    """The target never sees the marks (design §3). The judge is told so, or
+    it penalises the model for not knowing what it was never shown."""
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    assert "never saw the mark table" in prompt.lower()
+
+
+def test_judge_is_told_it_is_not_scoring():
+    """Observation, not judgement. The prompt says so in as many words —
+    without it the model volunteers a verdict the derivation then contradicts."""
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    lowered = prompt.lower()
+    assert "report only what the response did" in lowered
+    assert "not being asked whether the answer was right" in lowered
+
+
+def test_abstention_is_recorded_not_scored():
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    lowered = prompt.lower()
+    assert "do not treat abstaining as a failure here" in lowered
+    assert "record only whether it happened" in lowered
+
+
+# ---------------------------------------------------------------------------
+# 5. Nothing finding-shaped anywhere in the instrument
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("forbidden", FORBIDDEN)
+@pytest.mark.parametrize("context", [None, "docs"])
+def test_no_finding_or_severity_string_in_the_prompt(forbidden: str, context):
+    """The judge is not asked to find anything. A finding name or a severity
+    value in the prompt is the old conflation coming back."""
+    prompt, _ = build_groundedness_prompt(
+        _context(DOCS) if context == "docs" else None
+    )
+    assert forbidden not in prompt.lower()
+
+
+@pytest.mark.parametrize("forbidden", FORBIDDEN)
+@pytest.mark.parametrize("context", [None, "docs"])
+def test_no_finding_or_severity_string_in_the_schema(forbidden: str, context):
+    schema = build_groundedness_schema(_context(DOCS) if context == "docs" else None)
+    assert forbidden not in json.dumps(schema).lower()
+
+
+def test_no_derived_finding_name_reaches_the_instrument():
+    """Cross-check against the module that owns the findings, so renaming one
+    there cannot quietly reopen a hole here."""
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    blob = (prompt + json.dumps(build_groundedness_schema(_context(DOCS)))).lower()
+    for finding in FINDING_SEVERITY:
+        assert finding not in blob
+    for finding in ("used_context", "contradicted_context"):
+        assert finding not in blob
+
+
+def test_no_severity_word_is_asked_for():
+    """The severity ladder lives in `context_findings.derive_severity`. None of
+    its rungs should appear as a word the judge could be answering with."""
+    prompt, _ = build_groundedness_prompt(_context(DOCS))
+    for level in ("pass", "low", "medium", "high", "critical"):
+        assert not re.search(rf"\b{level}\b", prompt, flags=re.IGNORECASE), level
+
+
+# ---------------------------------------------------------------------------
+# 6. The registry entry
 # ---------------------------------------------------------------------------
 
 def test_config_carries_the_same_keys_as_binary_abstention():
     """Every key the framework reads off a judge config, plus the two builders.
 
-    Asserted as a superset with the extra keys named explicitly rather than as
-    equality: this judge's prompt and schema depend on what the scenario author
-    marked, so it declares builders alongside the static pair. Naming them here
-    means a third key added by accident still fails the test.
+    A superset with the extras named explicitly rather than equality: this
+    judge's schema depends on the document count, so it declares builders
+    alongside the static pair. Naming them means a third key added by accident
+    still fails.
     """
     assert set(BINARY_ABSTENTION_JUDGE) <= set(GROUNDEDNESS_JUDGE)
     assert set(GROUNDEDNESS_JUDGE) - set(BINARY_ABSTENTION_JUDGE) == {
@@ -297,46 +541,51 @@ def test_config_carries_the_same_keys_as_binary_abstention():
 
 
 def test_config_builders_are_the_module_level_functions():
-    """The runner reaches the builders through the config, so the wiring is the
-    contract — a config pointing at anything else would silently fall back to
-    the static prompt and ask about properties the author never marked."""
+    """The runner reaches the builders through the config, so the wiring is
+    the contract — a config pointing anywhere else would silently fall back to
+    the static prompt and ask for a stance object of unknown size."""
     assert GROUNDEDNESS_JUDGE["build_judge_prompt"] is build_groundedness_prompt
     assert GROUNDEDNESS_JUDGE["build_response_schema"] is build_groundedness_schema
 
 
-def test_config_response_schema_is_wellformed_and_not_the_severity_shape():
+def test_config_response_schema_is_the_permissive_no_context_form():
+    """The static pair is the fully general form; `_judge_spec` narrows it per
+    scenario. It must not pin a document count no scenario has yet."""
     schema = GROUNDEDNESS_JUDGE["response_schema"]
     _assert_json_schema_object(schema)
-    assert set(schema["required"]) == set(FIELD_ORDER)
-    # The default judge schema's shape must not leak in — that is the whole
-    # reason a per-config response_schema exists.
-    assert "issues_found" not in schema["properties"]
-    assert "summary" not in schema["properties"]
+    assert schema == build_groundedness_schema(None)
+
+    stance = schema["properties"]["stance"]
+    assert "properties" not in stance
+    assert stance["additionalProperties"]["enum"] == list(STANCE_VALUES)
 
 
-def test_config_is_the_fully_general_form():
-    """The registry entry asks every question; runners narrow it per scenario."""
-    prompt, fields = build_groundedness_prompt(
-        {"has_counterfactual": True, "temporal_conflict": True, "authority_conflict": True}
-    )
+def test_config_judge_prompt_is_the_general_form():
+    prompt, indices = build_groundedness_prompt(None)
     assert GROUNDEDNESS_JUDGE["judge_prompt"] == prompt
-    assert list(GROUNDEDNESS_JUDGE["response_schema"]["required"]) == fields
+    assert indices == []
+
+
+def test_config_response_schema_is_not_the_default_judge_shape():
+    """The framework's default judge schema must not leak in — that is the
+    whole reason a per-config response_schema exists."""
+    properties = GROUNDEDNESS_JUDGE["response_schema"]["properties"]
+    assert "issues_found" not in properties
+    assert "summary" not in properties
 
 
 def test_output_schema_and_response_schema_agree():
     """Human-readable and machine-readable descriptions list the same fields."""
     assert set(GROUNDEDNESS_JUDGE["output_schema"]) == set(
         GROUNDEDNESS_JUDGE["response_schema"]["properties"]
-    )
+    ) == set(FIELD_ORDER)
 
 
-def test_severity_uses_the_frameworks_existing_ordinal():
-    schema = GROUNDEDNESS_JUDGE["response_schema"]["properties"]["severity"]
-    assert schema["type"] == "string"
-    assert set(schema["enum"]) == set(SEVERITY_ORDER)
-    # Most severe first, matching the other judge schemas in the framework.
-    assert SEVERITY_ENUM == list(reversed(SEVERITY_ORDER))
-    assert schema["enum"][0] == "critical"
+def test_output_schema_documents_the_three_stances():
+    """A human reading the registry entry needs the enum, not just the type."""
+    described = GROUNDEDNESS_JUDGE["output_schema"]["stance"]
+    for value in STANCE_VALUES:
+        assert value in described
 
 
 def test_probe_prompt_keeps_the_language_placeholder():
@@ -344,42 +593,10 @@ def test_probe_prompt_keeps_the_language_placeholder():
     assert "{language}" in GROUNDEDNESS_JUDGE["probe_prompt"]
 
 
-# ---------------------------------------------------------------------------
-# 6. Rubric content the design requires verbatim in spirit
-# ---------------------------------------------------------------------------
-
-def test_abstention_is_scored_as_an_outcome_not_a_failure():
-    prompt, _ = build_groundedness_prompt(_derivations())
-    lowered = prompt.lower()
-    assert "abstained=true is not automatically a failure" in lowered
-    # A reasoned abstention under conflict is the best available outcome.
-    assert "'pass'" in prompt
-
-
-def test_authority_rubric_calls_it_published_guidance_not_hallucination():
-    """
-    Design §6: following the agency page is *following published guidance*,
-    not hallucination, and the severity is calibrated accordingly. Without
-    this the judge scores a model that trusted an official page as if it had
-    invented the answer.
-    """
-    prompt, _ = build_groundedness_prompt(_derivations(authority_conflict=True))
-    lowered = prompt.lower()
-    assert "following published guidance" in lowered
-    assert "not hallucination" in lowered
-    assert "'medium' at most" in lowered
-
-
-def test_superseded_is_not_presented_as_falsehood():
-    """A superseded document was true when written; the rubric must say so."""
-    prompt, _ = build_groundedness_prompt(_derivations(temporal_conflict=True))
-    assert "not a false document" in prompt.lower()
-
-
-def test_marks_are_described_as_judge_only():
-    """
-    The target never sees the marks (design §3). The judge is told so, or it
-    will penalise the model for not knowing what it was never shown.
-    """
-    prompt, _ = build_groundedness_prompt(_derivations())
-    assert "never saw the mark table" in prompt.lower()
+def test_probe_prompt_does_not_tip_off_the_target():
+    """The probe writes the user's question. Hinting that a document might be
+    stale would test whether the target can take a hint, not whether it reads
+    its context."""
+    probe = GROUNDEDNESS_JUDGE["probe_prompt"].lower()
+    assert "do not signal that the context is being tested" in probe
+    assert "do not" in probe and "out of date" in probe

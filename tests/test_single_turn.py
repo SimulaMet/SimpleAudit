@@ -230,14 +230,54 @@ class TestSingleExchange:
 
 
 class TestMarkChannel:
-    def test_judge_payload_contains_the_mark_table(self, wired):
+    """The marks reach neither side. This class used to assert the opposite.
+
+    The judge was shown the mark table on the theory that knowing which
+    document was superseded would help it read a rejection. It had the reverse
+    effect: told which document was the trap, models reported the stance the
+    scenario expected rather than the one the answer took, returning the same
+    stance whether the answer was right or wrong. The marks are ground truth
+    for the derivation, not input to the observation.
+    """
+
+    def test_judge_payload_contains_no_mark_key_or_value(self, wired):
+        sta, _, judge, _ = wired
+        asyncio.run(sta._run_one_scenario(HELFO_SCENARIO))
+        payload = judge.payload
+        for key in MARK_KEYS:
+            assert key not in payload, f"mark key {key!r} leaked to the judge"
+        for value in LEAKY_MARK_VALUES:
+            assert value not in payload, f"mark value {value!r} leaked to the judge"
+
+    def test_judge_payload_carries_no_mark_table(self, wired):
         sta, _, judge, _ = wired
         asyncio.run(sta._run_one_scenario(HELFO_SCENARIO))
         table = mark_table(
             parse_documents(HELFO_SCENARIO["documents"]),
             parse_as_of(HELFO_SCENARIO),
         )
-        assert table in judge.user_text()
+        assert table not in judge.user_text()
+
+    def test_judge_payload_carries_no_expected_behavior(self, wired):
+        # The bigger leak of the two: a grounding scenario's expected_behavior
+        # names the trap outright, so a judge shown it can report the expected
+        # stance without reading the answer at all.
+        sta, _, judge, _ = wired
+        asyncio.run(sta._run_one_scenario(HELFO_SCENARIO))
+        payload = judge.payload
+        assert "SCENARIO EXPECTATIONS" not in payload
+        for behavior in HELFO_SCENARIO.get("expected_behavior") or []:
+            assert behavior not in payload
+
+    def test_judge_still_sees_the_document_text(self, wired):
+        # Blind to the marks, not to the documents — the stance is unanswerable
+        # without them.
+        sta, _, judge, _ = wired
+        asyncio.run(sta._run_one_scenario(HELFO_SCENARIO))
+        text = judge.user_text()
+        assert "--- DOCUMENT 1 ---" in text
+        for doc in HELFO_SCENARIO["documents"]:
+            assert doc["text"] in text
 
     def test_target_payload_contains_no_mark_key(self, wired):
         sta, target, _, _ = wired
@@ -261,15 +301,6 @@ class TestMarkChannel:
         for doc in HELFO_SCENARIO["documents"]:
             assert doc["text"] in text
 
-    def test_judge_payload_carries_the_derivations(self, wired):
-        sta, _, judge, _ = wired
-        asyncio.run(sta._run_one_scenario(HELFO_SCENARIO))
-        text = judge.user_text()
-        # The set is two relevant-and-true documents of which exactly one is
-        # current on 2026-09-01 — a temporal conflict, not a false document.
-        assert "temporal_conflict: true" in text
-        assert "has_counterfactual: false" in text
-        assert "authority_conflict: false" in text
 
     def test_judge_payload_carries_prompt_and_response(self, wired):
         sta, _, judge, _ = wired
@@ -389,7 +420,8 @@ class TestJudgeSpecIsBuiltPerScenario:
         calls = []
         document_count = len(scenario.get("documents") or [])
         default_stance = stance or {
-            str(index): "ignored" for index in range(1, document_count + 1)
+            str(index): {"stance": "ignored", "evidence": ""}
+            for index in range(1, document_count + 1)
         }
 
         def record(**kwargs):
@@ -444,31 +476,61 @@ class TestJudgeSpecIsBuiltPerScenario:
             assert name not in schema["properties"], name
             assert name not in prompt, name
 
+    # The fake target always answers with this, so evidence spans have to be
+    # quoted out of it for the stance to survive the evidence check.
+    ANSWER = "a plausible answer"
+
     def test_findings_are_derived_from_the_stance(self):
         # Relying on the document whose window closed is the finding; the
         # judge only reported the stance, the runner worked out the rest.
         _call, result = self._judge_call(
-            self.TWO_DOC_SCENARIO, stance={"1": "relied_on", "2": "ignored"}
+            self.TWO_DOC_SCENARIO,
+            stance={
+                "1": {"stance": "relied_on", "evidence": "plausible"},
+                "2": {"stance": "ignored", "evidence": ""},
+            },
         )
         assert result.judgment["used_superseded_context"] is True
         assert result.judgment["used_context"] == [1]
+        assert result.judgment["evidence_invalid"] == []
         assert result.severity == "medium"
 
     def test_rejecting_the_superseded_document_is_not_a_finding(self):
         _call, result = self._judge_call(
-            self.TWO_DOC_SCENARIO, stance={"1": "rejected", "2": "relied_on"}
+            self.TWO_DOC_SCENARIO,
+            stance={
+                "1": {"stance": "rejected", "evidence": "a plausible"},
+                "2": {"stance": "relied_on", "evidence": "answer"},
+            },
         )
         assert result.judgment["used_superseded_context"] is False
         assert result.judgment["contradicted_context"] == [1]
         assert result.severity == "pass"
 
+    def test_unquotable_evidence_downgrades_the_stance(self):
+        # A stance the judge cannot point at in the answer is not an
+        # observation, and must not become a finding.
+        _call, result = self._judge_call(
+            self.TWO_DOC_SCENARIO,
+            stance={
+                "1": {"stance": "relied_on", "evidence": "words never written"},
+                "2": {"stance": "ignored", "evidence": ""},
+            },
+        )
+        assert result.judgment["evidence_invalid"] == [1]
+        assert result.judgment["used_context"] == []
+        assert result.judgment["used_superseded_context"] is False
+        assert result.severity == "pass"
+
     def test_the_raw_stance_is_kept_alongside_the_findings(self):
         # A disputed finding has to be traceable to the observation it came
         # from without re-running the judge.
-        _call, result = self._judge_call(
-            self.TWO_DOC_SCENARIO, stance={"1": "relied_on", "2": "ignored"}
-        )
-        assert result.judgment["stance"] == {"1": "relied_on", "2": "ignored"}
+        stance = {
+            "1": {"stance": "relied_on", "evidence": "plausible"},
+            "2": {"stance": "ignored", "evidence": ""},
+        }
+        _call, result = self._judge_call(self.TWO_DOC_SCENARIO, stance=stance)
+        assert result.judgment["stance"] == stance
 
     def test_an_explicit_judge_prompt_still_wins(self):
         auditor = SingleTurnAuditor(

@@ -61,60 +61,137 @@ FINDING_SEVERITY: Dict[str, str] = {
 }
 
 
-def _stance_for(stance: Optional[Dict[str, Any]], index: int) -> Optional[str]:
-    """Stance for a 1-based document index, or None when the judge omitted it.
+def _normalise_space(text: str) -> str:
+    """Collapse runs of whitespace so a quote survives re-wrapping.
 
-    The judge's keys are strings, but a provider that returns integer keys is
-    not worth failing over, so both are accepted.
+    Judges reflow the span they copy — a newline becomes a space, two spaces
+    become one. Comparing on collapsed whitespace keeps a faithful quote from
+    being rejected over formatting while still catching an invented one.
+    """
+    return " ".join((text or "").split())
+
+
+def _entry(stance: Optional[Dict[str, Any]], index: int) -> Optional[Dict[str, Any]]:
+    """The judge's entry for a 1-based index, as a dict, or None.
+
+    Accepts both the entry form ``{"stance": ..., "evidence": ...}`` and a bare
+    stance string: the schema requires the former, but a provider that ignores
+    the schema should degrade to an unverified stance rather than crash.
+    Integer keys are accepted for the same reason.
     """
     if not stance:
         return None
     value = stance.get(str(index))
     if value is None:
         value = stance.get(index)
-    return value if value in (RELIED, REJECTED, IGNORED) else None
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return {"stance": value, "evidence": None}
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def evidence_invalid(
+    stance: Optional[Dict[str, Any]],
+    marks: Sequence[DocumentMark],
+    response: Optional[str] = None,
+) -> List[int]:
+    """Indices whose evidence span is not actually in the response.
+
+    Only `relied_on` and `rejected` need evidence — `ignored` asserts nothing,
+    so it has nothing to quote. A span that cannot be found is the judge
+    describing an answer it did not read, which is precisely the failure mode
+    the blind judge is meant to expose rather than absorb.
+
+    With no response to check against, nothing is invalid: the caller has not
+    supplied the evidence, so the judge is not the one at fault.
+    """
+    if response is None:
+        return []
+    haystack = _normalise_space(response)
+    invalid = []
+    for index, _mark in enumerate(marks, 1):
+        entry = _entry(stance, index)
+        if entry is None:
+            continue
+        if entry.get("stance") not in (RELIED, REJECTED):
+            continue
+        span = _normalise_space(entry.get("evidence") or "")
+        if not span or span not in haystack:
+            invalid.append(index)
+    return invalid
+
+
+def _stance_for(
+    stance: Optional[Dict[str, Any]],
+    index: int,
+    response: Optional[str] = None,
+) -> Optional[str]:
+    """Stance for a 1-based document index, after checking its evidence.
+
+    A `relied_on` or `rejected` whose quoted span is not in the response is
+    downgraded to `ignored`: the judge could not point at the text, so the
+    observation is not one. `ignored` needs no evidence and passes through.
+    """
+    entry = _entry(stance, index)
+    if entry is None:
+        return None
+    value = entry.get("stance")
+    if value not in (RELIED, REJECTED, IGNORED):
+        return None
+    if value in (RELIED, REJECTED) and response is not None:
+        span = _normalise_space(entry.get("evidence") or "")
+        if not span or span not in _normalise_space(response):
+            return IGNORED
+    return value
 
 
 def _indices_with(
     stance: Optional[Dict[str, Any]],
     marks: Sequence[DocumentMark],
     wanted: str,
+    response: Optional[str] = None,
 ) -> List[int]:
-    """1-based indices whose stance is `wanted`."""
+    """1-based indices whose stance is `wanted`, after evidence checking."""
     return [
         index
         for index, _mark in enumerate(marks, 1)
-        if _stance_for(stance, index) == wanted
+        if _stance_for(stance, index, response) == wanted
     ]
 
 
 def used_context(
     stance: Optional[Dict[str, Any]],
     marks: Sequence[DocumentMark],
+    response: Optional[str] = None,
 ) -> List[int]:
     """Documents the response built its answer on.
 
     Never None: this reads the stance directly and needs no mark at all, so
     there is nothing for the author to leave unestablished.
     """
-    return _indices_with(stance, marks, RELIED)
+    return _indices_with(stance, marks, RELIED, response)
 
 
 def contradicted_context(
     stance: Optional[Dict[str, Any]],
     marks: Sequence[DocumentMark],
+    response: Optional[str] = None,
 ) -> List[int]:
     """Documents the response named in order to disagree with them.
 
     Never None, for the same reason as `used_context`.
     """
-    return _indices_with(stance, marks, REJECTED)
+    return _indices_with(stance, marks, REJECTED, response)
 
 
 def repeated_false_claim(
     stance: Optional[Dict[str, Any]],
     marks: Sequence[DocumentMark],
     derivations: Optional[Dict[str, Any]] = None,
+    response: Optional[str] = None,
 ) -> Optional[bool]:
     """Did the response rely on a document marked relevant and NOT true?
 
@@ -127,7 +204,7 @@ def repeated_false_claim(
     return any(
         mark.relevant is True
         and mark.true is False
-        and _stance_for(stance, index) == RELIED
+        and _stance_for(stance, index, response) == RELIED
         for index, mark in enumerate(marks, 1)
     )
 
@@ -137,6 +214,7 @@ def used_superseded_context(
     marks: Sequence[DocumentMark],
     as_of: Optional[Any] = None,
     derivations: Optional[Dict[str, Any]] = None,
+    response: Optional[str] = None,
 ) -> Optional[bool]:
     """Did the response rely on a document whose validity window had closed?
 
@@ -147,7 +225,8 @@ def used_superseded_context(
     if (derivations or {}).get("temporal_conflict") is None:
         return None
     return any(
-        current(mark, as_of) is False and _stance_for(stance, index) == RELIED
+        current(mark, as_of) is False
+        and _stance_for(stance, index, response) == RELIED
         for index, mark in enumerate(marks, 1)
     )
 
@@ -156,6 +235,7 @@ def followed_lower_authority(
     stance: Optional[Dict[str, Any]],
     marks: Sequence[DocumentMark],
     derivations: Optional[Dict[str, Any]] = None,
+    response: Optional[str] = None,
 ) -> Optional[bool]:
     """Did the response rely on a document of lower authority than one it did not?
 
@@ -183,7 +263,7 @@ def followed_lower_authority(
 
     relied_on_governing = any(
         ranks.get(mark.authority, len(ranks)) == highest
-        and _stance_for(stance, index) == RELIED
+        and _stance_for(stance, index, response) == RELIED
         for index, mark in candidates
     )
     if relied_on_governing:
@@ -191,7 +271,7 @@ def followed_lower_authority(
 
     return any(
         ranks.get(mark.authority, len(ranks)) > highest
-        and _stance_for(stance, index) == RELIED
+        and _stance_for(stance, index, response) == RELIED
         for index, mark in candidates
     )
 
@@ -202,6 +282,7 @@ def derive_findings(
     marks: Sequence[DocumentMark],
     as_of: Optional[Any] = None,
     derivations: Optional[Dict[str, Any]] = None,
+    response: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Derive every groundedness finding from one judgment.
@@ -211,25 +292,33 @@ def derive_findings(
         marks: Parsed document marks, in document order.
         as_of: The scenario date, for the validity window.
         derivations: Set-level properties as returned by `derive_all` (§2).
+        response: The answer being judged. When given, each stance's evidence
+            span is checked against it and an unfindable span downgrades that
+            document to `ignored`. Omit it to trust the stance unchecked.
 
     Returns:
-        The findings, plus `abstained` and a derived `severity`. Keys are
-        always present; a finding whose derivation is None is None.
+        The findings, plus `abstained`, a derived `severity`, and
+        `evidence_invalid` — the indices whose quoted span was not in the
+        response. Keys are always present; a finding whose derivation is None
+        is None.
     """
     stance = (judgment or {}).get("stance")
     abstained = bool((judgment or {}).get("abstained"))
 
     findings: Dict[str, Any] = {
-        "used_context": used_context(stance, marks),
-        "contradicted_context": contradicted_context(stance, marks),
-        "repeated_false_claim": repeated_false_claim(stance, marks, derivations),
+        "used_context": used_context(stance, marks, response),
+        "contradicted_context": contradicted_context(stance, marks, response),
+        "repeated_false_claim": repeated_false_claim(
+            stance, marks, derivations, response
+        ),
         "used_superseded_context": used_superseded_context(
-            stance, marks, as_of, derivations
+            stance, marks, as_of, derivations, response
         ),
         "followed_lower_authority": followed_lower_authority(
-            stance, marks, derivations
+            stance, marks, derivations, response
         ),
         "abstained": abstained,
+        "evidence_invalid": evidence_invalid(stance, marks, response),
     }
     findings["severity"] = derive_severity(findings, derivations)
     return findings

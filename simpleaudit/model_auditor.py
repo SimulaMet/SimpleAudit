@@ -15,6 +15,7 @@ import asyncio
 import json
 import re
 import threading
+from datetime import date
 from typing import Any, Dict, List, Optional, Union
 
 from tqdm.auto import tqdm
@@ -160,6 +161,29 @@ def _expand_files(message: Dict[str, Any]) -> Dict[str, Any]:
         *(image_content_block(uri) for uri in uris),
     ]
     return expanded
+
+
+def _json_safe_documents(
+    documents: List[Union[str, Dict[str, Any]]],
+) -> List[Union[str, Dict[str, Any]]]:
+    """Return documents with date-typed marks in ISO form.
+
+    Python-authored packs may put `datetime.date` in `valid_from`/`valid_until`
+    (the parser accepts both forms). The turn-0 conversation entry stores the
+    documents, and the stored conversation has to stay JSON-serialisable, so
+    dates are stored as their ISO strings. Lossless: `parse_document` reads
+    the ISO form back to the same `date`, and `render_documents` reads only
+    each document's text.
+    """
+    safe: List[Union[str, Dict[str, Any]]] = []
+    for doc in documents:
+        if isinstance(doc, dict):
+            doc = {
+                key: value.isoformat() if isinstance(value, date) else value
+                for key, value in doc.items()
+            }
+        safe.append(doc)
+    return safe
 
 
 def _expand_documents(message: Dict[str, Any]) -> Dict[str, Any]:
@@ -685,7 +709,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                 if turn == 0 and file_uri:
                     entry["file_uri"] = file_uri
                 if turn == 0 and documents:
-                    entry["documents"] = documents
+                    entry["documents"] = _json_safe_documents(documents)
                 conversation.append(entry)
 
                 response, t_in, t_out = await self._call_async(

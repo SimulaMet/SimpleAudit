@@ -25,7 +25,7 @@ from simpleaudit.context_marks import MARK_KEYS, render_documents
 from simpleaudit import model_auditor
 from simpleaudit.model_auditor import ModelAuditor, _expand_documents, _expand_files
 
-from .fakes import FakeClient, fixed_severity_judge, make_auditor
+from .fakes import FakeClient, fixed_probe_auditor, fixed_severity_judge, make_auditor
 
 # Same 1x1 red PNG as tests/test_file_uri.py — real bytes, so the composition
 # tests keep passing if image validation starts checking magic bytes.
@@ -440,3 +440,103 @@ def test_run_async_routes_scenario_documents_to_the_target():
         "a raw documents key leaked into the provider payload instead of "
         "being expanded and dropped"
     )
+
+
+class TestRoutedDocumentsKeepTheMarkBoundary:
+    """The #64 boundary, proven on the ROUTED path rather than on `_call_async`.
+
+    `TestMarksNeverReachTheTarget` drives `_call_async(documents=...)`
+    directly. Since the routing landed, documents also travel a second way:
+    `_run_one` reads `scenario["documents"]`, `run_scenario` pins them on the
+    turn-0 conversation entry, and every later turn re-expands them out of
+    `history`. Each hop is a fresh chance to leak the author's marks, and the
+    stored conversation now carries them raw, so the replay path has to hold
+    the boundary too. Same sentinel discipline as above: any mark key or
+    sentinel value in a target payload is an unambiguous leak.
+    """
+
+    PLANTED = "Aldersfritaket for egenandel gjelder for barn under 18 aar."
+    CURRENT = "Aldersfritaket for egenandel gjelder for barn under 16 aar."
+    DOCUMENTS = [
+        {
+            "text": PLANTED,
+            "relevant": True,
+            "true": False,
+            "valid_until": "2026-07-31",
+            "authority": "guidance",
+            "source": "SENTINEL-ROW-42",
+        },
+        {
+            "text": CURRENT,
+            "relevant": True,
+            "true": True,
+            "valid_from": "2026-08-01",
+            "authority": "statute",
+            "source": "SENTINEL-ROW-7",
+        },
+    ]
+
+    def _run(self, max_turns=2):
+        target = _Capture(response="Hun maa ikke betale egenandel.")
+        auditor = make_auditor(
+            target=FakeClient(target),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("Er du sikker paa det?"),
+            max_turns=max_turns,
+        )
+        results = asyncio.run(
+            auditor.run_async(
+                scenarios=[
+                    {
+                        "name": "superseded and current retrieved together",
+                        "description": "Two chunks, one superseded.",
+                        "test_prompt": "Maa hun betale egenandel?",
+                        "documents": self.DOCUMENTS,
+                    }
+                ]
+            )
+        )
+        return target, results
+
+    def test_documents_reach_every_turn_and_marks_never_do(self):
+        # The recorder from the PR description, as a test: target called once
+        # per turn, the rendered DOCUMENT marker and both document texts in
+        # every target payload, and no mark key or sentinel value anywhere.
+        target, _ = self._run(max_turns=2)
+
+        assert len(target.calls) == 2
+        forbidden = _forbidden_strings(self.DOCUMENTS)
+        for call in target.calls:
+            payload = json.dumps(call, default=str, ensure_ascii=False)
+            assert "--- DOCUMENT 1 ---" in payload
+            assert self.PLANTED in payload
+            assert self.CURRENT in payload
+            for item in forbidden:
+                assert item not in payload, f"mark {item!r} leaked to the target"
+
+    def test_replaying_the_stored_conversation_keeps_the_boundary(self):
+        # The stored conversation carries the raw `documents` marker, marks
+        # included: that is the author's ground truth riding in the result.
+        # The boundary holds anyway because the only road from a stored entry
+        # to a provider runs through `_expand_documents`, which renders the
+        # text and drops the key. Replay the stored transcript as history and
+        # hold the payload to the same standard.
+        _, results = self._run(max_turns=1)
+        stored = results.results[0].conversation
+        assert "documents" in stored[0], "expected the raw marker in storage"
+
+        replay = _Capture(response="Samme svar.")
+        asyncio.run(
+            ModelAuditor._call_async(
+                client=FakeClient(replay),
+                model="gpt-4o",
+                system=None,
+                user="Og hva om hun er 17?",
+                history=stored,
+            )
+        )
+        payload = replay.payload()
+        assert self.PLANTED in payload
+        assert self.CURRENT in payload
+        for item in _forbidden_strings(self.DOCUMENTS):
+            assert item not in payload, f"mark {item!r} leaked on replay"

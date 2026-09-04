@@ -428,3 +428,15 @@ def test_run_async_routes_scenario_documents_to_the_target():
         "the document text never reached the target: scenario['documents'] "
         "was dropped between run_async and _call_async"
     )
+    # Pin the FORM as well as the presence. A raw `documents` key leaking into
+    # the provider payload would also put the planted text into `flattened`,
+    # so presence alone can pass with `_expand_documents` broken; the rendered
+    # marker plus the absence of the raw key close that hole.
+    assert "--- DOCUMENT 1 ---" in flattened, (
+        "the document text reached the wire but not in rendered form: "
+        "_expand_documents did not run on the way to the provider"
+    )
+    assert '"documents"' not in flattened, (
+        "a raw documents key leaked into the provider payload instead of "
+        "being expanded and dropped"
+    )

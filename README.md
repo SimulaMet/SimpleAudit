@@ -380,6 +380,13 @@ results = auditor.run("rag")
 results = auditor.run("all")
 ```
 
+Contributing a pack: follow the
+[scenario guidelines](simpleaudit/scenarios/simpleaudit_scenario_guidelines_v1.0.md)
+(section "Pack Conventions"), start the pack README from
+[the template](simpleaudit/scenarios/PACK_README_TEMPLATE.md), run
+`python scripts/check_scenario_pack.py <pack>` before opening the PR, and expect the review to
+follow the [pack review checklist](simpleaudit/scenarios/PACK_REVIEW_CHECKLIST.md).
+
 ### Vision Integrity
 
 `vision_integrity` is the first pack that attaches images (via `file_uri`). It tests the same

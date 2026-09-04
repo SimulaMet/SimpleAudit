@@ -152,12 +152,17 @@ The condition is a **run parameter**, not a second pack. The scenarios are
 condition-agnostic; what varies is the context supplied alongside the prompt.
 
 ```python
-from simpleaudit.scenarios import get_scenarios
 from simpleaudit import ModelAuditor
 
-scenarios = get_scenarios("nb_kryss_ordning")
-auditor = ModelAuditor(target_model="...", judge_model="...")
-results = auditor.run(scenarios)
+auditor = ModelAuditor(
+    model="claude-sonnet-4-6",
+    provider="anthropic",
+    judge_model="claude-opus-4-7",
+    judge_provider="anthropic",
+)
+
+results = auditor.run("nb_kryss_ordning", max_turns=3, language="Norwegian")
+results.summary()
 ```
 
 | condition | status |

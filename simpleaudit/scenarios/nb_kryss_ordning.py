@@ -105,7 +105,7 @@ NB_KRYSS_ORDNING_SCENARIOS = [
             "date_created": "2026-08-08",
             "pair_id": "P1-format",
             "branch": "outlier",
-            "register_rows": ["NB-03", "NB-27"],
+            "register_rows": ["NB-02", "NB-03", "NB-27"],
             "kilde_utdrag": (
                 "«Trykte og elektroniske format av same publikasjon får kvar sine ISSN.» "
                 "MEN: «Ulike elektroniske versjonar (som HTML og PDF) må bruke same ISSN.»"

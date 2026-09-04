@@ -798,6 +798,71 @@ def _generate_description(data: dict) -> str:
 
 ---
 
+## Pack Conventions
+
+These rules apply to every new pack and are checked by `scripts/check_scenario_pack.py`
+(run it before opening a PR; `tests/test_scenario_pack_conventions.py` runs the ERROR-level
+rules in CI for the packs listed there). Existing packs are not renamed or restructured, because
+scenario names are keys in saved results.
+
+### What reaches the models
+
+Know where each field goes before writing it:
+
+| Field | Sent to |
+|---|---|
+| `test_prompt` | target model, verbatim, turn 1 |
+| `description` | judge ("SCENARIO BEING TESTED") and the probe generator for turns 2+ |
+| `expected_behavior` | judge, verbatim, as a numbered list ("SCENARIO EXPECTATIONS") |
+| `metadata.*` | nobody; documentation and tooling only |
+
+Consequences: `expected_behavior` and `description` must contain only what a judge needs. No
+source-register IDs ("NB-02"), no notes about the authoring process, no hypothesis labels, no
+internal taxonomy codes. Provenance lives in `metadata`.
+
+### Required per pack
+
+- `simpleaudit/scenarios/<pack>.py` with a module docstring stating purpose, status
+  (BASELINE / domain-reviewed), sources, verification date and the scenario count.
+- `simpleaudit/scenarios/<pack>_README.md`, built from `PACK_README_TEMPLATE.md`.
+- Registration in `scenarios/__init__.py` (docstring list, import, `SCENARIO_PACKS`, the `all` sum),
+  a row in the root README table with the `all` count recomputed from
+  `list_scenario_packs()["all"]`, and the `all` sum assertions in `tests/test_basic.py` and
+  `tests/test_model_auditor.py`.
+
+### Field conventions
+
+- `name`: `Topic - Specific Concern`, with a plain hyphen.
+- `metadata.author`: `Name <email> (github_handle)` preferred; a handle alone is accepted.
+- `metadata.source_quote`: the verbatim sentence(s) from the primary source that the scenario
+  rests on, when the scenario encodes a rule or a figure. Rate-bearing facts (amounts, deadlines,
+  thresholds) also need a verification date in the module docstring or README.
+- `metadata.register_rows`: optional list of the author's provenance IDs. Keep them here, not in
+  `expected_behavior`.
+- `metadata.judge_notes`: optional list of strings with scoring instructions for edge cases (for
+  example a documented divergence between an agency page and the statute). Each note must say
+  what severity or verdict the judge should assign. Until the auditor renders this field, a note
+  may be the last `expected_behavior` item, prefixed `MERK FOR DOMMEREN:` / `JUDGE NOTE:`, still
+  naming the severity.
+
+### Paired scenarios
+
+Packs that test scope errors use pairs: the same question with one element changed.
+
+| Field | Values | Meaning |
+|---|---|---|
+| `metadata.pair_id` | string | the group the scenario belongs to |
+| `metadata.pair_type` | `matched` (default) or `branch_set` | `matched`: one dominant rule and one exception, read with the majority/outlier rule below; `branch_set`: several answers and no dominant rule |
+| `metadata.branch` | `matched`: `majority`, `outlier`, optionally `third`; `branch_set`: a short descriptive label such as `under_15` | which branch this scenario is |
+
+Reading rule for `matched` pairs: a scope error is established only when the majority branch is
+answered correctly and the outlier branch is not. Wrong on both is a knowledge gap. Members of a
+`matched` pair share their wording apart from the element under test (the checker prints the
+differing tokens and warns below 0.75 similarity). A `branch_set` is never read with that rule,
+which is why its members must not be labelled `majority` or `outlier`.
+
+---
+
 ## Migration from v1 to v2
 
 To convert existing v1 scenarios:
@@ -839,6 +904,12 @@ def migrate_v1_to_v2(v1_scenario: dict) -> dict:
 
 ## Changelog
 
+- **1.1 (September 2026)** — added "Pack Conventions": what each field is sent to, required
+  files per pack, `source_quote`, `judge_notes`, pair fields (`pair_id`, `pair_type`, `branch`),
+  author format; added `scripts/check_scenario_pack.py`, `PACK_README_TEMPLATE.md` and
+  `PACK_REVIEW_CHECKLIST.md`. File name kept for link stability.
+- **1.0 (January 2026)** — initial version.
+
 ---
 
-*Version 1.0 — January 2026*
+*Version 1.1 — September 2026*

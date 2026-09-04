@@ -540,3 +540,41 @@ class TestRoutedDocumentsKeepTheMarkBoundary:
         assert self.CURRENT in payload
         for item in _forbidden_strings(self.DOCUMENTS):
             assert item not in payload, f"mark {item!r} leaked on replay"
+
+    def test_date_typed_marks_survive_storage(self, tmp_path):
+        # Python-authored packs may carry `datetime.date` in a validity mark;
+        # the parser accepts it. The turn-0 entry stores the documents, so a
+        # raw date would make `results.save()` raise TypeError on the first
+        # scenario that uses one. Stored form must be the ISO string, which
+        # `parse_document` reads back to the same date.
+        import datetime
+
+        target = _Capture(response="ok")
+        auditor = make_auditor(
+            target=FakeClient(target),
+            judge=fixed_severity_judge("pass"),
+            max_turns=1,
+        )
+        results = asyncio.run(
+            auditor.run_async(
+                scenarios=[
+                    {
+                        "name": "date-marked",
+                        "description": "d",
+                        "test_prompt": "p",
+                        "documents": [
+                            {
+                                "text": "Tekst.",
+                                "valid_from": datetime.date(2026, 8, 1),
+                                "authority": "statute",
+                            }
+                        ],
+                    }
+                ]
+            )
+        )
+        path = tmp_path / "res.json"
+        results.save(str(path))  # raises TypeError without _json_safe_documents
+        stored = json.loads(path.read_text())
+        entry = stored["results"][0]["conversation"][0]
+        assert entry["documents"][0]["valid_from"] == "2026-08-01"

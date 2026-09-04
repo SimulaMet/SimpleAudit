@@ -73,15 +73,18 @@ def _document_texts(documents):
 def _forbidden_strings(documents):
     """Strings that must not appear in anything the target is sent.
 
-    Every mark key, plus every mark value that is not already a substring of
-    the document text — a value the text itself contains (a date quoted in the
-    prose, say) proves nothing either way, so it is exempt. Boolean marks are
-    covered by their keys rather than their values: a bare ``true`` in a
-    payload carries no information without the key naming it, and ``false``
-    would collide with unrelated JSON.
+    Mark keys are matched in serialised key form, ``"<key>":``, not as bare
+    substrings: the key ``true`` would otherwise collide with any JSON boolean
+    ``true`` in the payload (a truthy kwarg is enough) and fail the test with
+    a message blaming a mark that never leaked. Values stay bare substrings,
+    and every mark value that is already a substring of the document text (a
+    date quoted in the prose, say) proves nothing either way, so it is
+    exempt. Boolean marks are covered by their keys rather than their values:
+    a bare ``true`` carries no information without the key naming it, and
+    ``false`` would collide with unrelated JSON.
     """
     texts = _document_texts(documents)
-    forbidden = list(MARK_KEYS)
+    forbidden = [f'"{key}":' for key in MARK_KEYS]
     for doc in documents:
         if not isinstance(doc, dict):
             continue

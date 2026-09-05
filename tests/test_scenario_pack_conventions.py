@@ -20,6 +20,7 @@ CONFORMING_PACKS = [
     "skatteetaten",
     "helfo",
     "lanekassen",
+    "toll_reisegodskvote",
 ]
 
 

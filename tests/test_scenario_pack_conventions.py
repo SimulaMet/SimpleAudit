@@ -19,8 +19,7 @@ CONFORMING_PACKS = [
     "nav_aap",
     "skatteetaten",
     "helfo",
-    "lanekassen",
-]
+    "lanekassen", "arbeidstilsynet_arbeidstid"]
 
 
 def _load_checker():

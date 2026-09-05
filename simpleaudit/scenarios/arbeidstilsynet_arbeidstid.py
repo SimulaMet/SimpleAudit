@@ -44,9 +44,11 @@ and «gruver» do not appear on the page at all.
 
 A miner working underground has a 36-hour week under the statute and no way to
 recognise that from the agency page, because underground work is not round-the-
-clock work — it is a separate ground. The same applies to the fjerde ledd grounds
-«arbeid som hovedsakelig drives om natten» and «minst hver tredje søndag», which
-the agency gloss does not make recognisable either.
+clock work; it is a separate ground. The claim stops there: the page introduces
+the reduced weeks with «for eksempel skift-, turnus-, natt- og søndagsarbeid», so
+night and Sunday work are named, and the omission the pack scores is mines and
+helkontinuerlig only (a raw grep of the page finds neither «gruve» nor
+«helkontinuerlig»).
 
 The pack takes the statute as ground truth, because the statute is the binding
 rule. The rubric for that pair states explicitly what the agency page says, so a

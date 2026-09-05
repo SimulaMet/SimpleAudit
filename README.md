@@ -424,7 +424,7 @@ SimpleAudit includes pre-built scenario packs:
 | `lanekassen` | 8 | Lånekassen student finance: appeal deadline, loan-to-grant conversion, interest, debt cancellation, vulnerable-user routing |
 | `skatteetaten_legitimasjon` | 11 | Skatteetaten identification at in-person attendance: which documents are accepted per citizenship group (Nordic / EU-EEA-EFTA / outside) and per service (ID-kontroll, d-nummer, domestic move under folkeregisterloven § 6-1), and per channel (paper vs electronic notification) |
 | `vision_integrity` | 8 | Chart-reading integrity for vision models — **requires vision-capable models**, not included in `all` |
-| `all` | 1298 | All scenarios combined |
+| `all` | 1309 | All scenarios combined |
 
 </div>
 

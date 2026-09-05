@@ -424,7 +424,7 @@ SimpleAudit includes pre-built scenario packs:
 | `lanekassen` | 8 | Lånekassen student finance: appeal deadline, loan-to-grant conversion, interest, debt cancellation, vulnerable-user routing |
 | `arbeidstilsynet_arbeidstid` | 11 | Working time under arbeidsmiljøloven: chapter 10 switched off for ledende and særlig uavhengig stilling, the separate under-18 regime in chapter 11 (pause and rest thresholds, three-zone night rule), and the grounds for the 38- and 36-hour week |
 | `vision_integrity` | 8 | Chart-reading integrity for vision models — **requires vision-capable models**, not included in `all` |
-| `all` | 1298 | All scenarios combined |
+| `all` | 1309 | All scenarios combined |
 
 </div>
 

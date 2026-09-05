@@ -250,7 +250,9 @@ SKATTEETATEN_LEGITIMASJON_SCENARIOS = [
             "branch": "outlier",
             "register_rows": ["SKATT-02", "SKATT-01"],
             "kilde_utdrag": (
-                "«gyldig førerkort sammen med utskrift fra folkeregisteret i landet du flytter fra»"
+                "«Flytter du til Norge fra et annet nordisk land, godtas også gyldig "
+                "førerkort sammen med utskrift fra folkeregisteret i landet du flytter "
+                "fra som viser statsborgerskap og kjønn.»"
             ),
             "rationale": (
                 "Outliergrenen, og den tillatende. Paret er lagt inn nettopp fordi par 1 "
@@ -338,7 +340,8 @@ SKATTEETATEN_LEGITIMASJON_SCENARIOS = [
             "register_rows": ["SKATT-09", "SKATT-14", "SKATT-04", "SKATT-10"],
             "kilde_utdrag": (
                 "«Du må som regel sende en bekreftet kopi av passet ditt eller ditt "
-                "nasjonalt ID-kort til virksomheten»"
+                "nasjonale ID-kort til virksomheten eller myndigheten som skal "
+                "rekvirere et d-nummer til deg.»"
             ),
             "rationale": (
                 "Den skarpeste overføringsfeilen i pakken: samme person og samme "

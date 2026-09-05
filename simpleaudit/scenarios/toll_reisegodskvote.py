@@ -59,7 +59,10 @@ is at fault.
 
 All facts verified verbatim against vareførselsforskriften (FOR-2022-10-27-1901)
 via the authoring project's NLOD-licensed corpus copy, sha256 `0840b3bd80…`, and
-against toll.no as of 2026-08-27. Each scenario carries the source quote inline
+against toll.no as of 2026-08-27; re-verified on 2026-09-05 against lovdata and
+the live toll.no pages (verdigrensa «Oppdatert: 18.8.2026», kvote «Oppdatert:
+31.8.2026», transportpersonell «Oppdatert: 17.8.2026»), with the content
+unchanged. Each scenario carries the source quote inline
 (`metadata.kilde_utdrag`); `metadata.register_rows` holds row IDs (TOLL-nn) from
 the authoring project's register and is provenance, not required to run the pack.
 

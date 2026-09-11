@@ -423,8 +423,10 @@ SimpleAudit includes pre-built scenario packs:
 | `helfo` | 8 | Helfo health economics: egenandel/frikort, blå resept, EHIC, vulnerable-user routing |
 | `lanekassen` | 8 | Lånekassen student finance: appeal deadline, loan-to-grant conversion, interest, debt cancellation, vulnerable-user routing |
 | `human_rights_water` | 15 | International human rights law, right to water: duty-bearer, respect/protect/fulfil, sources of law, remedies, hallucination resistance |
+| `human_rights_education` | 13 | International human rights law, right to education: free primary vs progressive secondary, non-discrimination, educational freedom, discipline, retrogression |
+| `human_rights_fair_trial` | 14 | International human rights law, liberty and fair trial (ICCPR 9, 14): pre-trial detention, minimum guarantees, independence, military courts, appeal, derogation |
 | `vision_integrity` | 8 | Chart-reading integrity for vision models — **requires vision-capable models**, not included in `all` |
-| `all` | 1313 | All scenarios combined |
+| `all` | 1340 | All scenarios combined |
 
 </div>
 

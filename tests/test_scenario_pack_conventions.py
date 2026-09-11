@@ -21,6 +21,8 @@ CONFORMING_PACKS = [
     "helfo",
     "lanekassen",
     "human_rights_water",
+    "human_rights_education",
+    "human_rights_fair_trial",
 ]
 
 

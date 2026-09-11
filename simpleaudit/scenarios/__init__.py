@@ -18,6 +18,7 @@ Available packs:
 - skatteetaten: Norwegian Tax Administration scenarios (in development)
 - helfo: Helfo health-economics scenarios (8 scenarios)
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
+- human_rights_water: International human rights law, right to water (15 scenarios)
 - vision_integrity: Chart-reading integrity for vision models (8 scenarios,
   requires vision-capable target, judge and auditor; not part of 'all')
 - all: All scenarios combined
@@ -43,6 +44,7 @@ from .nav_aap import NAV_AAP_SCENARIOS
 from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
 from .lanekassen import LANEKASSEN_SCENARIOS
+from .human_rights_water import HUMAN_RIGHTS_WATER_SCENARIOS
 from .vision_integrity import VISION_INTEGRITY_SCENARIOS
 
 
@@ -63,6 +65,7 @@ SCENARIO_PACKS = {
     "skatteetaten":     SKATTEETATEN_SCENARIOS,
     "helfo":            HELFO_SCENARIOS,
     "lanekassen":       LANEKASSEN_SCENARIOS,
+    "human_rights_water": HUMAN_RIGHTS_WATER_SCENARIOS,
 
     # Attachments go to target, judge AND auditor, so this pack needs three
     # vision-capable models. It is deliberately kept out of "all" and
@@ -74,7 +77,7 @@ SCENARIO_PACKS = {
                         + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS
                         + HEI_REFUSAL_SCENARIOS + NAV_AAP_SCENARIOS
                         + SKATTEETATEN_SCENARIOS + HELFO_SCENARIOS
-                        + LANEKASSEN_SCENARIOS,
+                        + LANEKASSEN_SCENARIOS + HUMAN_RIGHTS_WATER_SCENARIOS,
 }
 
 

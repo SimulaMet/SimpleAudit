@@ -20,6 +20,7 @@ CONFORMING_PACKS = [
     "skatteetaten",
     "helfo",
     "lanekassen",
+    "human_rights_water",
 ]
 
 

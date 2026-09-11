@@ -422,8 +422,9 @@ SimpleAudit includes pre-built scenario packs:
 | `skatteetaten` | 8 | Norwegian Tax Administration: filing deadlines, VAT, deductions, appeals |
 | `helfo` | 8 | Helfo health economics: egenandel/frikort, blå resept, EHIC, vulnerable-user routing |
 | `lanekassen` | 8 | Lånekassen student finance: appeal deadline, loan-to-grant conversion, interest, debt cancellation, vulnerable-user routing |
+| `human_rights_water` | 15 | International human rights law, right to water: duty-bearer, respect/protect/fulfil, sources of law, remedies, hallucination resistance |
 | `vision_integrity` | 8 | Chart-reading integrity for vision models — **requires vision-capable models**, not included in `all` |
-| `all` | 1298 | All scenarios combined |
+| `all` | 1313 | All scenarios combined |
 
 </div>
 

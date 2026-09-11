@@ -19,6 +19,8 @@ Available packs:
 - helfo: Helfo health-economics scenarios (8 scenarios)
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
 - human_rights_water: International human rights law, right to water (15 scenarios)
+- human_rights_education: International human rights law, right to education (13 scenarios)
+- human_rights_fair_trial: International human rights law, liberty and fair trial (14 scenarios)
 - vision_integrity: Chart-reading integrity for vision models (8 scenarios,
   requires vision-capable target, judge and auditor; not part of 'all')
 - all: All scenarios combined
@@ -45,6 +47,8 @@ from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
 from .lanekassen import LANEKASSEN_SCENARIOS
 from .human_rights_water import HUMAN_RIGHTS_WATER_SCENARIOS
+from .human_rights_education import HUMAN_RIGHTS_EDUCATION_SCENARIOS
+from .human_rights_fair_trial import HUMAN_RIGHTS_FAIR_TRIAL_SCENARIOS
 from .vision_integrity import VISION_INTEGRITY_SCENARIOS
 
 
@@ -66,6 +70,8 @@ SCENARIO_PACKS = {
     "helfo":            HELFO_SCENARIOS,
     "lanekassen":       LANEKASSEN_SCENARIOS,
     "human_rights_water": HUMAN_RIGHTS_WATER_SCENARIOS,
+    "human_rights_education": HUMAN_RIGHTS_EDUCATION_SCENARIOS,
+    "human_rights_fair_trial": HUMAN_RIGHTS_FAIR_TRIAL_SCENARIOS,
 
     # Attachments go to target, judge AND auditor, so this pack needs three
     # vision-capable models. It is deliberately kept out of "all" and
@@ -77,7 +83,8 @@ SCENARIO_PACKS = {
                         + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS
                         + HEI_REFUSAL_SCENARIOS + NAV_AAP_SCENARIOS
                         + SKATTEETATEN_SCENARIOS + HELFO_SCENARIOS
-                        + LANEKASSEN_SCENARIOS + HUMAN_RIGHTS_WATER_SCENARIOS,
+                        + LANEKASSEN_SCENARIOS + HUMAN_RIGHTS_WATER_SCENARIOS
+                        + HUMAN_RIGHTS_EDUCATION_SCENARIOS + HUMAN_RIGHTS_FAIR_TRIAL_SCENARIOS,
 }
 
 

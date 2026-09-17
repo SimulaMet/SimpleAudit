@@ -4,9 +4,15 @@ Cross-judge stability analysis example.
 Demonstrates CrossJudgeExperiment: running the same subject model through two
 judge versions to measure whether the judge upgrade shifts severity ratings.
 
-Motivated by the finding that judge-model version can materially shift modal
-severity on identical subject responses — including safety-relevant scenarios —
-without any change to the subject model itself.
+Motivated by empirical findings that judge model version can materially shift
+modal severity. What this orchestration isolates is narrower than that phrasing
+suggests: each judge runs its own ``AuditExperiment``, so transcripts are
+regenerated per judge, and under the documented ``auditor_models=None`` default
+each judge also serves as its own auditor. A difference reported by
+``severity_shifts`` or ``compare_judges`` therefore combines judge effect,
+auditor effect and target sampling noise, and the auditor term is not expected
+to cancel. To hold a transcript fixed and vary only the grader, re-grade stored
+records with reframing_check.
 
 Usage
 -----

@@ -25,7 +25,7 @@ from simpleaudit.context_marks import MARK_KEYS, render_documents
 from simpleaudit import model_auditor
 from simpleaudit.model_auditor import ModelAuditor, _expand_documents, _expand_files
 
-from .fakes import FakeClient
+from .fakes import FakeClient, fixed_probe_auditor, fixed_severity_judge, make_auditor
 
 # Same 1x1 red PNG as tests/test_file_uri.py — real bytes, so the composition
 # tests keep passing if image validation starts checking magic bytes.
@@ -73,15 +73,18 @@ def _document_texts(documents):
 def _forbidden_strings(documents):
     """Strings that must not appear in anything the target is sent.
 
-    Every mark key, plus every mark value that is not already a substring of
-    the document text — a value the text itself contains (a date quoted in the
-    prose, say) proves nothing either way, so it is exempt. Boolean marks are
-    covered by their keys rather than their values: a bare ``true`` in a
-    payload carries no information without the key naming it, and ``false``
-    would collide with unrelated JSON.
+    Mark keys are matched in serialised key form, ``"<key>":``, not as bare
+    substrings: the key ``true`` would otherwise collide with any JSON boolean
+    ``true`` in the payload (a truthy kwarg is enough) and fail the test with
+    a message blaming a mark that never leaked. Values stay bare substrings,
+    and every mark value that is already a substring of the document text (a
+    date quoted in the prose, say) proves nothing either way, so it is
+    exempt. Boolean marks are covered by their keys rather than their values:
+    a bare ``true`` carries no information without the key naming it, and
+    ``false`` would collide with unrelated JSON.
     """
     texts = _document_texts(documents)
-    forbidden = list(MARK_KEYS)
+    forbidden = [f'"{key}":' for key in MARK_KEYS]
     for doc in documents:
         if not isinstance(doc, dict):
             continue
@@ -377,3 +380,204 @@ class TestMarksNeverReachTheTarget:
         stored = json.dumps(conversation, default=str, ensure_ascii=False)
         for forbidden in _forbidden_strings(SENTINEL_DOCUMENTS):
             assert forbidden not in stored, f"mark {forbidden!r} leaked into storage"
+
+
+def test_run_async_routes_scenario_documents_to_the_target():
+    """A scenario's `documents` must reach the target through the multi-turn path.
+
+    This is the end-to-end guard for the routing, not for the expansion:
+    `_call_async` has accepted a `documents` argument since the field was
+    introduced, but nothing passed `scenario["documents"]` into it, so a
+    scenario carrying documents ran as an ordinary audit with none attached
+    and still reported a valid-looking result. The assertion is on what the
+    target actually received, because that is the only place the omission is
+    visible; every layer above it looked correct while the documents were
+    being dropped.
+
+    Exercised through `run_async` rather than `run_scenario` so that the
+    `_run_one` hop is covered too, which is where the field was lost.
+    """
+    seen_messages = []
+
+    def recording_target(**kwargs):
+        seen_messages.append(kwargs.get("messages"))
+        return "Yes, that is correct."
+
+    auditor = make_auditor(
+        target=FakeClient(recording_target),
+        judge=fixed_severity_judge("pass"),
+        max_turns=1,
+    )
+
+    planted = "Fritaket gjelder barn under 18 aar."
+    scenario = {
+        "name": "documents reach the target",
+        "description": "A scenario that carries documents.",
+        "test_prompt": "Maa hun betale egenandel?",
+        "documents": [
+            {
+                "text": planted,
+                "authority": "regulation",
+                "relevant": True,
+            }
+        ],
+    }
+
+    asyncio.run(auditor.run_async(scenarios=[scenario]))
+
+    assert seen_messages, "the target was never called"
+    flattened = json.dumps(seen_messages, ensure_ascii=False)
+    assert planted in flattened, (
+        "the document text never reached the target: scenario['documents'] "
+        "was dropped between run_async and _call_async"
+    )
+    # Pin the FORM as well as the presence. A raw `documents` key leaking into
+    # the provider payload would also put the planted text into `flattened`,
+    # so presence alone can pass with `_expand_documents` broken; the rendered
+    # marker plus the absence of the raw key close that hole.
+    assert "--- DOCUMENT 1 ---" in flattened, (
+        "the document text reached the wire but not in rendered form: "
+        "_expand_documents did not run on the way to the provider"
+    )
+    assert '"documents"' not in flattened, (
+        "a raw documents key leaked into the provider payload instead of "
+        "being expanded and dropped"
+    )
+
+
+class TestRoutedDocumentsKeepTheMarkBoundary:
+    """The #64 boundary, proven on the ROUTED path rather than on `_call_async`.
+
+    `TestMarksNeverReachTheTarget` drives `_call_async(documents=...)`
+    directly. Since the routing landed, documents also travel a second way:
+    `_run_one` reads `scenario["documents"]`, `run_scenario` pins them on the
+    turn-0 conversation entry, and every later turn re-expands them out of
+    `history`. Each hop is a fresh chance to leak the author's marks, and the
+    stored conversation now carries them raw, so the replay path has to hold
+    the boundary too. Same sentinel discipline as above: any mark key or
+    sentinel value in a target payload is an unambiguous leak.
+    """
+
+    PLANTED = "Aldersfritaket for egenandel gjelder for barn under 18 aar."
+    CURRENT = "Aldersfritaket for egenandel gjelder for barn under 16 aar."
+    DOCUMENTS = [
+        {
+            "text": PLANTED,
+            "relevant": True,
+            "true": False,
+            "valid_until": "2026-07-31",
+            "authority": "guidance",
+            "source": "SENTINEL-ROW-42",
+        },
+        {
+            "text": CURRENT,
+            "relevant": True,
+            "true": True,
+            "valid_from": "2026-08-01",
+            "authority": "statute",
+            "source": "SENTINEL-ROW-7",
+        },
+    ]
+
+    def _run(self, max_turns=2):
+        target = _Capture(response="Hun maa ikke betale egenandel.")
+        auditor = make_auditor(
+            target=FakeClient(target),
+            judge=fixed_severity_judge("pass"),
+            auditor=fixed_probe_auditor("Er du sikker paa det?"),
+            max_turns=max_turns,
+        )
+        results = asyncio.run(
+            auditor.run_async(
+                scenarios=[
+                    {
+                        "name": "superseded and current retrieved together",
+                        "description": "Two chunks, one superseded.",
+                        "test_prompt": "Maa hun betale egenandel?",
+                        "documents": self.DOCUMENTS,
+                    }
+                ]
+            )
+        )
+        return target, results
+
+    def test_documents_reach_every_turn_and_marks_never_do(self):
+        # The recorder from the PR description, as a test: target called once
+        # per turn, the rendered DOCUMENT marker and both document texts in
+        # every target payload, and no mark key or sentinel value anywhere.
+        target, _ = self._run(max_turns=2)
+
+        assert len(target.calls) == 2
+        forbidden = _forbidden_strings(self.DOCUMENTS)
+        for call in target.calls:
+            payload = json.dumps(call, default=str, ensure_ascii=False)
+            assert "--- DOCUMENT 1 ---" in payload
+            assert self.PLANTED in payload
+            assert self.CURRENT in payload
+            for item in forbidden:
+                assert item not in payload, f"mark {item!r} leaked to the target"
+
+    def test_replaying_the_stored_conversation_keeps_the_boundary(self):
+        # The stored conversation carries the raw `documents` marker, marks
+        # included: that is the author's ground truth riding in the result.
+        # The boundary holds anyway because the only road from a stored entry
+        # to a provider runs through `_expand_documents`, which renders the
+        # text and drops the key. Replay the stored transcript as history and
+        # hold the payload to the same standard.
+        _, results = self._run(max_turns=1)
+        stored = results.results[0].conversation
+        assert "documents" in stored[0], "expected the raw marker in storage"
+
+        replay = _Capture(response="Samme svar.")
+        asyncio.run(
+            ModelAuditor._call_async(
+                client=FakeClient(replay),
+                model="gpt-4o",
+                system=None,
+                user="Og hva om hun er 17?",
+                history=stored,
+            )
+        )
+        payload = replay.payload()
+        assert self.PLANTED in payload
+        assert self.CURRENT in payload
+        for item in _forbidden_strings(self.DOCUMENTS):
+            assert item not in payload, f"mark {item!r} leaked on replay"
+
+    def test_date_typed_marks_survive_storage(self, tmp_path):
+        # Python-authored packs may carry `datetime.date` in a validity mark;
+        # the parser accepts it. The turn-0 entry stores the documents, so a
+        # raw date would make `results.save()` raise TypeError on the first
+        # scenario that uses one. Stored form must be the ISO string, which
+        # `parse_document` reads back to the same date.
+        import datetime
+
+        target = _Capture(response="ok")
+        auditor = make_auditor(
+            target=FakeClient(target),
+            judge=fixed_severity_judge("pass"),
+            max_turns=1,
+        )
+        results = asyncio.run(
+            auditor.run_async(
+                scenarios=[
+                    {
+                        "name": "date-marked",
+                        "description": "d",
+                        "test_prompt": "p",
+                        "documents": [
+                            {
+                                "text": "Tekst.",
+                                "valid_from": datetime.date(2026, 8, 1),
+                                "authority": "statute",
+                            }
+                        ],
+                    }
+                ]
+            )
+        )
+        path = tmp_path / "res.json"
+        results.save(str(path))  # raises TypeError without _json_safe_documents
+        stored = json.loads(path.read_text())
+        entry = stored["results"][0]["conversation"][0]
+        assert entry["documents"][0]["valid_from"] == "2026-08-01"

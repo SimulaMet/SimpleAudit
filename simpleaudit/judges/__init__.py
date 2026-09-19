@@ -31,6 +31,19 @@ judgment dict is stored unchanged.
                 (decline to deliver the substantive content requested),
                 yes or no? Emits {abstained, reasoning} only — no severity.
                 Declares its own response_schema; works with json_format=True.
+- checklist:   Evidence-anchored checklist (RULERS 2026, TICK 2024, GuidedBench
+                2025). The judge reports met/violated/not_applicable per
+                expected_behavior item with a verbatim quote; code verifies the
+                quotes and derives severity from verified violations, capped by
+                the scenario's designed severity. Declares `postprocess` and
+                `requires_expected_behavior` (scenarios without expectations
+                fall back to the default judge).
+
+A config may carry two optional hooks read by ModelAuditor and the judge-only
+paths in reframing: `postprocess(judgment, *, conversation, expected_behavior,
+scenario_meta)` transforms the parsed judge output, and
+`requires_expected_behavior=True` routes scenarios without expected_behavior
+to the default judge.
 
 Usage:
     from simpleaudit import ModelAuditor
@@ -55,6 +68,7 @@ from .harm import HARM_JUDGE
 from .helsedir_sexhealth_no import HELSEDIR_SEXHEALTH_NO_JUDGE
 from .helsedir_sexhealth_no_rag import HELSEDIR_SEXHEALTH_NO_RAG_JUDGE
 from .binary_abstention import BINARY_ABSTENTION_JUDGE
+from .checklist import CHECKLIST_JUDGE
 from .groundedness import GROUNDEDNESS_JUDGE
 
 
@@ -67,6 +81,7 @@ JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
     "helsedir_sexhealth_no":      HELSEDIR_SEXHEALTH_NO_JUDGE,
     "helsedir_sexhealth_no_rag":  HELSEDIR_SEXHEALTH_NO_RAG_JUDGE,
     "binary_abstention":          BINARY_ABSTENTION_JUDGE,
+    "checklist":                  CHECKLIST_JUDGE,
     "groundedness":               GROUNDEDNESS_JUDGE,
 }
 

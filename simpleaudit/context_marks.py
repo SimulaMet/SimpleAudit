@@ -251,19 +251,6 @@ def parse_documents(
     ]
 
 
-def parse_as_of(scenario: Dict[str, Any]) -> Optional[date]:
-    """
-    Read the scenario-level ``as_of`` date — the date the question is asked.
-
-    Returns None when the scenario does not set one. That is not a fallback to
-    today: without ``as_of`` there is no date to test a validity window
-    against, and every temporal derivation returns None instead of guessing.
-    """
-    if not scenario:
-        return None
-    return _parse_date(scenario.get("as_of"), "as_of")
-
-
 def _as_marks(
     marks: Sequence[Union[DocumentMark, str, Dict[str, Any]]],
 ) -> List[DocumentMark]:
@@ -295,6 +282,21 @@ def render_documents(
         f"\n--- DOCUMENT {index} ---\n{mark.text}"
         for index, mark in enumerate(_as_marks(marks), 1)
     )
+
+
+# --- helpers used by SingleTurnAuditor and the context_grounding pack (from #69) ---
+
+def parse_as_of(scenario: Dict[str, Any]) -> Optional[date]:
+    """
+    Read the scenario-level ``as_of`` date — the date the question is asked.
+
+    Returns None when the scenario does not set one. That is not a fallback to
+    today: without ``as_of`` there is no date to test a validity window
+    against, and every temporal derivation returns None instead of guessing.
+    """
+    if not scenario:
+        return None
+    return _parse_date(scenario.get("as_of"), "as_of")
 
 
 def _cell(value: Any) -> str:

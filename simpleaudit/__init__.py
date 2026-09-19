@@ -47,12 +47,30 @@ from .repeated_results import (
 )
 from .cross_judge import CrossJudgeExperiment, CrossJudgeResults, compare_judges
 from .reframing import (
+    PanelResults,
+    PanelVerdict,
     PromptVariant,
     ReframingResults,
+    SampleStats,
     StoredRecord,
+    VariantEffect,
     load_stored_records,
+    make_judge_client,
     reframing_check,
     reframing_check_async,
+    rejudge,
+    rejudge_async,
+)
+from .checklist import postprocess_checklist, severity_by_name
+from .perturbations import (
+    PERTURBATIONS,
+    apologetic_opener,
+    authority_claim,
+    compose,
+    hedging_disclaimer,
+    perturbation_variants,
+    self_certification,
+    verbose_padding,
 )
 
 __all__ = [
@@ -77,5 +95,22 @@ __all__ = [
     "load_stored_records",
     "reframing_check",
     "reframing_check_async",
+    "SampleStats",
+    "VariantEffect",
+    "PanelVerdict",
+    "PanelResults",
+    "rejudge",
+    "rejudge_async",
+    "make_judge_client",
+    "PERTURBATIONS",
+    "perturbation_variants",
+    "compose",
+    "apologetic_opener",
+    "hedging_disclaimer",
+    "verbose_padding",
+    "authority_claim",
+    "self_certification",
+    "postprocess_checklist",
+    "severity_by_name",
 ]
 

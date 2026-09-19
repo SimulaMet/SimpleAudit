@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [ main, any-llm ]
+    branches: [ main, dev, any-llm ]
   pull_request:
 
 jobs:

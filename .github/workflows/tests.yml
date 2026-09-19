@@ -27,6 +27,9 @@ jobs:
       
       - name: Run tests with coverage
         run: |
+          # pipefail: without it the step's exit code is tee's, and the job is
+          # green whatever pytest reports.
+          set -o pipefail
           pytest --cov=simpleaudit --cov-report=xml --cov-report=html --cov-report=term-missing --cov-report=term | tee coverage-output.txt
       
       - name: Add coverage summary to job

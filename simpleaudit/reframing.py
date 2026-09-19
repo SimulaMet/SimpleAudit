@@ -73,8 +73,9 @@ import warnings
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Union
 
+from simpleaudit.judges import get_judge
 from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.repeated_results import (
     FRAGILE_THRESHOLD_DEFAULT,
@@ -114,20 +115,71 @@ class PromptVariant:
     judge_model: Optional[str] = None
     judge_client: Any = None
     transform: Optional[Transform] = None
+    #: Applied to the parsed judge output (see judges/checklist.py). Recorded
+    #: in variant_meta; a panel refuses variants that differ in it.
+    postprocess: Optional[Callable[..., Dict[str, Any]]] = None
+    #: Records without expected_behavior are graded by the default judge
+    #: instead (same fallback as ModelAuditor), tagged judge_fallback.
+    requires_expected_behavior: bool = False
+
+    @classmethod
+    def from_judge(cls, name: str, label: Optional[str] = None, **overrides: Any) -> "PromptVariant":
+        """A variant carrying a registry judge's prompt, schema and hooks.
+
+        ``overrides`` are any other field (``judge_model``, ``judge_client``,
+        ``transform``, ...) and win over the config's values.
+        """
+        config = get_judge(name)
+        fields: Dict[str, Any] = {
+            "label": label or name,
+            "judge_prompt": config["judge_prompt"],
+            "response_schema": config.get("response_schema"),
+            "postprocess": config.get("postprocess"),
+            "requires_expected_behavior": bool(config.get("requires_expected_behavior")),
+        }
+        fields.update(overrides)
+        return cls(**fields)
 
 
 @dataclass
 class StoredRecord:
-    """A transcript to re-grade, plus the scenario context the judge needs."""
+    """A transcript to re-grade, plus the scenario context the judge needs.
+
+    ``scenario_severity`` is the scenario's designed severity (the ceiling a
+    checklist post-processor derives against); ``scenario_severity_source``
+    says where it came from: ``"stored"`` (a checklist judgment in the saved
+    file), ``"lookup"`` (a map passed to ``load_stored_records``) or None.
+    """
 
     scenario_name: str
     scenario_description: str
     conversation: List[Dict[str, Any]]
     expected_behavior: Optional[List[str]] = None
+    scenario_severity: Optional[str] = None
+    scenario_severity_source: Optional[str] = None
+
+    def scenario_meta(self) -> Dict[str, Any]:
+        return {"severity": self.scenario_severity, "severity_source": self.scenario_severity_source}
+
+
+def _stored_designed_severity(entry: Mapping[str, Any]) -> Optional[str]:
+    """Designed severity recorded by a checklist post-processor, if any.
+
+    Only a value that came from the scenario or a lookup counts; a defaulted
+    ceiling is not knowledge about the scenario.
+    """
+    judgment = entry.get("judgment")
+    if not isinstance(judgment, Mapping):
+        return None
+    if judgment.get("designed_severity_source") in ("scenario", "lookup", "stored"):
+        value = judgment.get("designed_severity")
+        return value if isinstance(value, str) else None
+    return None
 
 
 def load_stored_records(
     source: Union[str, Path, Dict[str, Any]],
+    scenario_severities: Optional[Mapping[str, str]] = None,
 ) -> List[StoredRecord]:
     """
     Read transcripts out of a saved audit result.
@@ -141,6 +193,12 @@ def load_stored_records(
     ----------
     source : str, Path, or dict
         Saved result file, or its parsed contents.
+    scenario_severities : mapping, optional
+        ``{scenario name: designed severity}``, e.g. from
+        ``simpleaudit.checklist.severity_by_name(get_scenarios(pack))``. Used
+        for records whose stored judgment does not already record the
+        designed severity. Saved results predating the checklist judge never
+        do, so pass the pack the run came from when re-grading with it.
 
     Returns
     -------
@@ -159,17 +217,25 @@ def load_stored_records(
             "written by AuditResults.save()."
         )
 
+    lookup = dict(scenario_severities or {})
     records = []
     for entry in entries:
         conversation = entry.get("conversation")
         if not conversation:
             continue
+        name = entry.get("scenario_name", "")
+        severity = _stored_designed_severity(entry)
+        source_label: Optional[str] = "stored" if severity else None
+        if severity is None and name in lookup:
+            severity, source_label = lookup[name], "lookup"
         records.append(
             StoredRecord(
-                scenario_name=entry.get("scenario_name", ""),
+                scenario_name=name,
                 scenario_description=entry.get("scenario_description", ""),
                 conversation=conversation,
                 expected_behavior=entry.get("expected_behavior"),
+                scenario_severity=severity,
+                scenario_severity_source=source_label,
             )
         )
     return records
@@ -618,7 +684,7 @@ class ReframingResults:
                 "panel() needs at least two distinct judges (judge_model or judge_client) "
                 f"among {chosen}; these variants share one judge."
             )
-        for key in ("prompt_sha1", "schema_sha1", "transform"):
+        for key in ("prompt_sha1", "schema_sha1", "transform", "postprocess"):
             if len({m.get(key) for m in metas}) > 1:
                 message = (
                     f"variants {chosen} differ in {key}; a panel should vary only the judge. "
@@ -653,6 +719,9 @@ class ReframingResults:
             },
             "variant_meta": {k: dict(v) for k, v in self.variant_meta.items()},
             "tokens_by_variant": {k: dict(v) for k, v in self.tokens_by_variant.items()},
+            # The judge output behind each modal verdict, so a saved result can
+            # be re-derived or audited without re-spending judge tokens.
+            "judgments": {k: dict(v) for k, v in self.judgments.items()},
         }
         if len(self.variant_labels) >= 2:
             payload["effects"] = {k: v.to_dict() for k, v in self.effects().items()}
@@ -679,12 +748,14 @@ def _variant_meta(variant: PromptVariant, judge_client: Any, judge_model: str) -
         else None
     )
     transform = variant.transform
+    postprocess = variant.postprocess
     return {
         "judge_model": variant.judge_model or judge_model,
         "judge_client_id": id(client),
         "prompt_sha1": _sha1(variant.judge_prompt),
         "schema_sha1": _sha1(schema_text),
         "transform": None if transform is None else getattr(transform, "__name__", repr(transform)),
+        "postprocess": None if postprocess is None else getattr(postprocess, "__name__", repr(postprocess)),
     }
 
 
@@ -739,16 +810,26 @@ async def _grade(
     max_retries: int,
     retry_backoff: float,
     semaphore: asyncio.Semaphore,
+    postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
+    scenario_meta: Optional[Dict[str, Any]] = None,
+    requires_expected_behavior: bool = False,
 ) -> tuple:
     """One judge call under the concurrency limit; failures become ERROR verdicts.
 
     A failed cell must not abort the other cells: an ERROR is a valid level
     for the statistics (entropy counts it as its own verdict) and the rest of
     the grid still answers the question the caller paid for.
+
+    A judge that requires expectations falls back to the default judge for a
+    record without them, exactly as ``ModelAuditor.run_scenario`` does; the
+    judgment is tagged ``judge_fallback="default"``.
     """
+    judge_prompt, response_schema, postprocess, fell_back = ModelAuditor._resolve_judge_spec(
+        judge_prompt, response_schema, postprocess, requires_expected_behavior, expected_behavior
+    )
     async with semaphore:
         try:
-            return await ModelAuditor._judge_conversation_async(
+            judgment, tokens_in, tokens_out = await ModelAuditor._judge_conversation_async(
                 client,
                 model,
                 scenario,
@@ -759,11 +840,16 @@ async def _grade(
                 response_schema=response_schema,
                 max_retries=max_retries,
                 retry_backoff=retry_backoff,
+                postprocess=postprocess,
+                scenario_meta=scenario_meta,
             )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             return _error_judgment(f"Judge call failed: {type(exc).__name__}: {exc}"), 0, 0
+    if fell_back and isinstance(judgment, dict):
+        judgment["judge_fallback"] = "default"
+    return judgment, tokens_in, tokens_out
 
 
 def _warn_on_duplicate_names(names: Sequence[str]) -> None:
@@ -873,6 +959,9 @@ async def reframing_check_async(
             max_retries,
             retry_backoff,
             semaphore,
+            postprocess=variant.postprocess,
+            scenario_meta=record.scenario_meta(),
+            requires_expected_behavior=variant.requires_expected_behavior,
         )
 
     outcomes = await asyncio.gather(*(make_call(ri, vi) for ri, vi, _ in jobs))
@@ -967,6 +1056,9 @@ async def rejudge_async(
     max_retries: int = 0,
     retry_backoff: float = 0.5,
     max_concurrency: int = 1,
+    judge: Optional[str] = None,
+    postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
+    scenario_severities: Optional[Mapping[str, str]] = None,
 ) -> AuditResults:
     """
     Grade a saved run again under another judge, keeping every transcript.
@@ -978,10 +1070,17 @@ async def rejudge_async(
     same scenario set as the input, so it drops straight into
     ``compare_judges`` or ``RepeatedExperimentResults``.
 
-    ``judge_prompt=None`` selects the built-in default judge; to re-judge under
-    a named config pass ``get_judge(name)["judge_prompt"]`` and its
-    ``response_schema``. Scenario-level ``judge_notes`` are not stored on
-    results and cannot be reapplied here.
+    ``judge`` names a registry config (``"checklist"``, ``"safety"``, ...) and
+    supplies its prompt, schema and hooks wherever the explicit arguments are
+    None, with the same precedence as ``ModelAuditor(judge=..., judge_prompt=
+    ...)``. With neither ``judge`` nor ``judge_prompt`` the built-in default
+    judge is used. Scenario-level ``judge_notes`` are not stored on results
+    and cannot be reapplied here.
+
+    ``scenario_severities`` (``{scenario name: designed severity}``) supplies
+    the ceiling a checklist post-processor derives against, for saved runs
+    that do not already record it in their judgments. Without it the ceiling
+    defaults to medium and a warning says so.
 
     Entries with an empty conversation are kept as ``ERROR`` results (with one
     warning) rather than dropped, so scenario sets stay aligned.
@@ -992,6 +1091,26 @@ async def rejudge_async(
         source = AuditResults.load(str(results_or_path))
     else:
         source = results_or_path
+
+    requires_expected_behavior = False
+    if judge is not None:
+        config = get_judge(judge)
+        judge_prompt = judge_prompt if judge_prompt is not None else config["judge_prompt"]
+        response_schema = (
+            response_schema if response_schema is not None else config.get("response_schema")
+        )
+        postprocess = postprocess if postprocess is not None else config.get("postprocess")
+        requires_expected_behavior = bool(config.get("requires_expected_behavior"))
+
+    lookup = dict(scenario_severities or {})
+
+    def meta_for(result: AuditResult) -> Dict[str, Any]:
+        stored = _stored_designed_severity({"judgment": result.judgment})
+        if stored:
+            return {"severity": stored, "severity_source": "stored"}
+        if result.scenario_name in lookup:
+            return {"severity": lookup[result.scenario_name], "severity_source": "lookup"}
+        return {"severity": None, "severity_source": None}
 
     semaphore = asyncio.Semaphore(max_concurrency)
 
@@ -1010,6 +1129,9 @@ async def rejudge_async(
             max_retries,
             retry_backoff,
             semaphore,
+            postprocess=postprocess,
+            scenario_meta=meta_for(result),
+            requires_expected_behavior=requires_expected_behavior,
         )
 
     outcomes = await asyncio.gather(*(grade(result) for result in source.results))
@@ -1018,6 +1140,18 @@ async def rejudge_async(
     if empty:
         warnings.warn(
             f"{len(empty)} result(s) have no transcript and were kept as ERROR: {empty}.",
+            stacklevel=2,
+        )
+    defaulted = [
+        result.scenario_name
+        for result, (judgment, _, _) in zip(source.results, outcomes, strict=True)
+        if isinstance(judgment, dict) and judgment.get("designed_severity_source") == "default"
+    ]
+    if defaulted:
+        warnings.warn(
+            f"{len(defaulted)} result(s) were derived against the default designed severity "
+            f"(medium) because none was stored or supplied: {defaulted}. Pass "
+            "scenario_severities=severity_by_name(get_scenarios(pack)) to use the pack's values.",
             stacklevel=2,
         )
 
@@ -1056,6 +1190,9 @@ def rejudge(
     max_retries: int = 0,
     retry_backoff: float = 0.5,
     max_concurrency: int = 1,
+    judge: Optional[str] = None,
+    postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
+    scenario_severities: Optional[Mapping[str, str]] = None,
 ) -> AuditResults:
     """Synchronous wrapper around :func:`rejudge_async`.
 
@@ -1072,6 +1209,9 @@ def rejudge(
             max_retries=max_retries,
             retry_backoff=retry_backoff,
             max_concurrency=max_concurrency,
+            judge=judge,
+            postprocess=postprocess,
+            scenario_severities=scenario_severities,
         ),
         "rejudge",
     )

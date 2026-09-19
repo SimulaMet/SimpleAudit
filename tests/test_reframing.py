@@ -758,6 +758,7 @@ def test_to_dict_keeps_existing_keys_and_adds_new_ones():
     assert payload["effects"]["b"]["flip_rate"] == 1.0
     assert payload["variant_meta"]["a"]["judge_model"] == "fake-judge"
     assert payload["tokens_by_variant"]["a"] == {"input": 0, "output": 0}
+    assert payload["judgments"]["Klagefrist"]["b"]["severity"] == "high"
 
 
 def test_make_judge_client_delegates_to_model_auditor():

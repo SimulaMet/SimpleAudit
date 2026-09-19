@@ -61,6 +61,7 @@ from .reframing import (
     rejudge,
     rejudge_async,
 )
+from .checklist import postprocess_checklist, severity_by_name
 from .perturbations import (
     PERTURBATIONS,
     apologetic_opener,
@@ -109,5 +110,7 @@ __all__ = [
     "verbose_padding",
     "authority_claim",
     "self_certification",
+    "postprocess_checklist",
+    "severity_by_name",
 ]
 

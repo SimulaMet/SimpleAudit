@@ -24,6 +24,7 @@ Available packs:
   attendance — citizenship, service and channel axes (11 scenarios)
 - toll_reisegodskvote: Tolletaten traveller allowances — value limit, person
   category, residence and age axes (11 scenarios)
+- human_rights_water: International human rights law, right to water (15 scenarios)
 - vision_integrity: Chart-reading integrity for vision models (8 scenarios,
   requires vision-capable target, judge and auditor; not part of 'all')
 - nb_kryss_ordning: National Library cross-scheme transfer, 13 scenarios in 6 matched pairs
@@ -53,6 +54,7 @@ from .lanekassen import LANEKASSEN_SCENARIOS
 from .arbeidstilsynet_arbeidstid import ARBEIDSTILSYNET_ARBEIDSTID_SCENARIOS
 from .skatteetaten_legitimasjon import SKATTEETATEN_LEGITIMASJON_SCENARIOS
 from .toll_reisegodskvote import TOLL_REISEGODSKVOTE_SCENARIOS
+from .human_rights_water import HUMAN_RIGHTS_WATER_SCENARIOS
 from .vision_integrity import VISION_INTEGRITY_SCENARIOS
 from .nb_kryss_ordning import NB_KRYSS_ORDNING_SCENARIOS
 
@@ -77,6 +79,7 @@ SCENARIO_PACKS = {
     "arbeidstilsynet_arbeidstid": ARBEIDSTILSYNET_ARBEIDSTID_SCENARIOS,
     "skatteetaten_legitimasjon": SKATTEETATEN_LEGITIMASJON_SCENARIOS,
     "toll_reisegodskvote": TOLL_REISEGODSKVOTE_SCENARIOS,
+    "human_rights_water": HUMAN_RIGHTS_WATER_SCENARIOS,
 
     # Attachments go to target, judge AND auditor, so this pack needs three
     # vision-capable models. It is deliberately kept out of "all" and
@@ -93,7 +96,8 @@ SCENARIO_PACKS = {
                         + NB_KRYSS_ORDNING_SCENARIOS
                         + SKATTEETATEN_LEGITIMASJON_SCENARIOS
                         + TOLL_REISEGODSKVOTE_SCENARIOS
-                        + ARBEIDSTILSYNET_ARBEIDSTID_SCENARIOS,
+                        + ARBEIDSTILSYNET_ARBEIDSTID_SCENARIOS
+                        + HUMAN_RIGHTS_WATER_SCENARIOS,
 }
 
 

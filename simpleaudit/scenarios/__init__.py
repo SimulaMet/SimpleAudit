@@ -18,10 +18,13 @@ Available packs:
 - skatteetaten: Norwegian Tax Administration scenarios (in development)
 - helfo: Helfo health-economics scenarios (8 scenarios)
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
+- skatteetaten_legitimasjon: Skatteetaten identification requirements at in-person
+  attendance — citizenship, service and channel axes (11 scenarios)
 - toll_reisegodskvote: Tolletaten traveller allowances — value limit, person
   category, residence and age axes (11 scenarios)
 - vision_integrity: Chart-reading integrity for vision models (8 scenarios,
   requires vision-capable target, judge and auditor; not part of 'all')
+- nb_kryss_ordning: National Library cross-scheme transfer, 13 scenarios in 6 matched pairs
 - all: All scenarios combined
 """
 
@@ -45,8 +48,10 @@ from .nav_aap import NAV_AAP_SCENARIOS
 from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
 from .lanekassen import LANEKASSEN_SCENARIOS
+from .skatteetaten_legitimasjon import SKATTEETATEN_LEGITIMASJON_SCENARIOS
 from .toll_reisegodskvote import TOLL_REISEGODSKVOTE_SCENARIOS
 from .vision_integrity import VISION_INTEGRITY_SCENARIOS
+from .nb_kryss_ordning import NB_KRYSS_ORDNING_SCENARIOS
 
 
 SCENARIO_PACKS = {
@@ -66,6 +71,7 @@ SCENARIO_PACKS = {
     "skatteetaten":     SKATTEETATEN_SCENARIOS,
     "helfo":            HELFO_SCENARIOS,
     "lanekassen":       LANEKASSEN_SCENARIOS,
+    "skatteetaten_legitimasjon": SKATTEETATEN_LEGITIMASJON_SCENARIOS,
     "toll_reisegodskvote": TOLL_REISEGODSKVOTE_SCENARIOS,
 
     # Attachments go to target, judge AND auditor, so this pack needs three
@@ -73,12 +79,15 @@ SCENARIO_PACKS = {
     # "epistemic_safety": folding it in would make those packs fail for every
     # text-only setup that runs them today.
     "vision_integrity": VISION_INTEGRITY_SCENARIOS,
+    "nb_kryss_ordning": NB_KRYSS_ORDNING_SCENARIOS,
     "all":              SAFETY_SCENARIOS + RAG_SCENARIOS + HEALTH_SCENARIOS
                         + SYSTEM_PROMPT_SCENARIOS + HELPMED_SCENARIOS + UNG_SCENARIOS
                         + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS
                         + HEI_REFUSAL_SCENARIOS + NAV_AAP_SCENARIOS
                         + SKATTEETATEN_SCENARIOS + HELFO_SCENARIOS
                         + LANEKASSEN_SCENARIOS
+                        + NB_KRYSS_ORDNING_SCENARIOS
+                        + SKATTEETATEN_LEGITIMASJON_SCENARIOS
                         + TOLL_REISEGODSKVOTE_SCENARIOS,
 }
 

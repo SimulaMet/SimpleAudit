@@ -512,9 +512,10 @@ SimpleAudit includes pre-built scenario packs:
 | `skatteetaten_legitimasjon` | 11 | Skatteetaten identification at in-person attendance: which documents are accepted per citizenship group (Nordic / EU-EEA-EFTA / outside) and per service (ID-kontroll, d-nummer, domestic move under folkeregisterloven § 6-1), and per channel (paper vs electronic notification) |
 | `toll_reisegodskvote` | 11 | Tolletaten traveller allowances: value limit by trip duration, quota by person category (traveller, transport personnel, laissez-passer holder), doubled tobacco allowance for visiting tourists, and the 12/18/20-year age limits |
 | `arbeidstilsynet_arbeidstid` | 11 | Working time under arbeidsmiljøloven: chapter 10 switched off for ledende and særlig uavhengig stilling, the separate under-18 regime in chapter 11 (pause and rest thresholds, three-zone night rule), and the grounds for the 38- and 36-hour week |
+| `human_rights_water` | 15 | International human rights law, right to water: duty-bearer, respect/protect/fulfil, sources of law, remedies, hallucination resistance |
 | `vision_integrity` | 8 | Chart-reading integrity for vision models — **requires vision-capable models**, not included in `all` |
 | `nb_kryss_ordning` | 13 | National Library cross-scheme transfer: ISBN/ISSN/ISMN format rules, ISBN series thresholds, legal-deposit copy counts, unchanged-reprint consequences, jurisdiction. Six matched pairs — each outlier probe has a majority twin with character-identical wording |
-| `all` | 1344 | All scenarios combined |
+| `all` | 1359 | All scenarios combined |
 
 </div>
 

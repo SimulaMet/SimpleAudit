@@ -272,7 +272,20 @@ class AuditResults:
         instance = cls(results)
         instance.timestamp = data.get("timestamp", instance.timestamp)
         return instance
-    
+
+    def rejudge(self, judge_client, judge_model: str, **kwargs) -> "AuditResults":
+        """Grade these results again under another judge, keeping every transcript.
+
+        Thin delegate to :func:`simpleaudit.reframing.rejudge`; see it for the
+        keyword arguments (``judge_prompt``, ``response_schema``,
+        ``json_format``, ``max_retries``, ``retry_backoff``,
+        ``max_concurrency``). Imported lazily: ``reframing`` depends on
+        ``model_auditor``, which depends on this module.
+        """
+        from simpleaudit.reframing import rejudge
+
+        return rejudge(self, judge_client, judge_model, **kwargs)
+
     def plot(self, save_path: Optional[str] = None):
         """
         Plot audit results visualization.

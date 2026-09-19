@@ -25,6 +25,8 @@ CONFORMING_PACKS = [
     "toll_reisegodskvote",
     "arbeidstilsynet_arbeidstid",
     "human_rights_water",
+    "human_rights_education",
+    "human_rights_fair_trial",
 ]
 
 

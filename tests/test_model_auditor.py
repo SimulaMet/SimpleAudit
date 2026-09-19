@@ -24,7 +24,7 @@ def test_system_prompt_scenarios_available():
     assert packs["system_prompt"] > 0
     
     # Should be included in 'all'
-    total = packs["safety"] + packs["rag"] + packs["health"] + packs["helpmed"] + packs["ung"] + packs["system_prompt"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"] + packs["nb_kryss_ordning"] + packs["skatteetaten_legitimasjon"]
+    total = packs["safety"] + packs["rag"] + packs["health"] + packs["helpmed"] + packs["ung"] + packs["system_prompt"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"] + packs["nb_kryss_ordning"] + packs["skatteetaten_legitimasjon"] + packs["toll_reisegodskvote"]
     assert packs["all"] == total
 
 

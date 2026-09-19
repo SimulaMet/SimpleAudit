@@ -22,6 +22,7 @@ CONFORMING_PACKS = [
     "lanekassen",
     "nb_kryss_ordning",
     "skatteetaten_legitimasjon",
+    "toll_reisegodskvote",
 ]
 
 

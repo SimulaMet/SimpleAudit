@@ -21,6 +21,7 @@ CONFORMING_PACKS = [
     "helfo",
     "lanekassen",
     "nb_kryss_ordning",
+    "skatteetaten_legitimasjon",
 ]
 
 

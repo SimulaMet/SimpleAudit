@@ -159,6 +159,7 @@ def make_auditor(
     verbose: bool = False,
     show_progress: bool = False,
     max_retries: int = 0,
+    judge_name: Optional[str] = None,
 ) -> Any:
     """Create a ModelAuditor wired with fake clients — no API keys or network calls.
 
@@ -179,6 +180,8 @@ def make_auditor(
         show_progress: Whether to show a progress bar.
         max_retries: API retry attempts (default 0 so persistently-failing
             fakes don't add backoff sleeps to the test suite).
+        judge_name: Optional named judge config (``ModelAuditor(judge=...)``),
+            e.g. ``"checklist"``.
 
     Returns:
         A configured ModelAuditor instance ready for use in tests.
@@ -192,6 +195,7 @@ def make_auditor(
             provider="openai",
             judge_model="fake-judge",
             judge_provider="openai",
+            judge=judge_name,
             max_turns=max_turns,
             system_prompt=system_prompt,
             probe_prompt=probe_prompt,

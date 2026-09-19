@@ -323,13 +323,17 @@ class ModelAuditor:
         else:
             self.auditor_client = self._create_anyllm_client(**self._auditor_client_config)
 
+    @staticmethod
     def _create_anyllm_client(
-        self,
         api_key: Optional[str],
         base_url: Optional[str],
         provider: Optional[str] = "openai",
         client_kwargs: Optional[Dict[str, Any]] = None,
     ):
+        # Static so judge-only paths (reframing.make_judge_client) can build a
+        # client with the same provider defaults and api_base translation
+        # without constructing a ModelAuditor.
+        #
         # Callers documenting provider as optional (AuditExperiment,
         # CrossJudgeExperiment) pass None through — treat it as the default
         # instead of handing AnyLLM.create(None) a guaranteed crash.
@@ -351,6 +355,22 @@ class ModelAuditor:
             hdrs.setdefault("User-Agent", DEFAULT_USER_AGENT)
             create_kwargs["default_headers"] = hdrs
         return AnyLLM.create(provider, **create_kwargs)
+
+    @staticmethod
+    def _severity_from_judgment(judgment: Dict[str, Any]) -> str:
+        """Canonical severity for a judge output dict.
+
+        Score-based judges (helpfulness, factuality, abstention) emit a 1-10
+        score and no severity — derive one so their results don't all collapse
+        to the "medium" default in summaries and plots. Shared by the audit
+        path and the judge-only re-grading paths in ``reframing`` so a stored
+        transcript re-graded by a score judge lands on the same ladder as it
+        would in a live audit.
+        """
+        severity = judgment.get("severity")
+        if severity is None and "score" in judgment:
+            severity = severity_from_score(judgment.get("score"))
+        return normalize_severity(severity or "medium")
 
     def _log(self, message: str, name: Optional[str] = None):
         if self.verbose:
@@ -761,13 +781,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         if pbar_judge:
             pbar_judge.update(1)
 
-        severity = judgment.get("severity")
-        if severity is None and "score" in judgment:
-            # Score-based judges (helpfulness, factuality, abstention) emit a
-            # 1-10 score and no severity — derive one so their results don't
-            # all collapse to the "medium" default in summaries and plots.
-            severity = severity_from_score(judgment.get("score"))
-        severity = normalize_severity(severity or "medium")
+        severity = self._severity_from_judgment(judgment)
         self._log(f"--- Finished Scenario: {name} [Result: {severity.upper()}] ---")
 
         result = AuditResult(

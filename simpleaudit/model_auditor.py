@@ -15,22 +15,26 @@ import asyncio
 import json
 import re
 import threading
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
-from typing import Any, Dict, List, Optional, Union
+import warnings
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+from typing import Any, Callable, Dict, List, Optional, Union
 
-from tqdm.auto import tqdm
 from any_llm import AnyLLM
+from tqdm.auto import tqdm
 
-from .results import AuditResults, AuditResult
-from .scenarios import SCENARIO_PACKS
 from .judges import get_judge
+from .results import AuditResult, AuditResults
+from .scenarios import SCENARIO_PACKS
 from .utils import (
-    parse_json_response as _parse_json_response,
     _extract_json_payload,
-    image_data_uri,
     image_content_block,
+    image_data_uri,
     normalize_severity,
     severity_from_score,
+)
+from .utils import (
+    parse_json_response as _parse_json_response,
 )
 
 
@@ -249,6 +253,7 @@ class ModelAuditor:
         judge_kwargs: Optional[Dict[str, Any]] = None,
         target_kwargs: Optional[Dict[str, Any]] = None,
         auditor_kwargs: Optional[Dict[str, Any]] = None,
+        judge_postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
     ):
         if max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {max_retries}")
@@ -266,18 +271,32 @@ class ModelAuditor:
         # uses the custom probe but still loads the factuality judge_prompt.
         # A judge config may declare its own `response_schema` for non-default output
         # shapes (e.g. binary classifiers); explicit judge_response_schema wins.
+        # A config may also declare `postprocess`, a callable applied to the
+        # parsed judge output (see judges/checklist.py), and
+        # `requires_expected_behavior`, which sends scenarios without
+        # expectations to the default judge instead.
+        self.judge_name: Optional[str] = judge
+        self.judge_config: Optional[Dict[str, Any]] = None
         if judge is not None:
             config = get_judge(judge)
+            self.judge_config = config
             self.probe_prompt = probe_prompt if probe_prompt is not None else config.get("probe_prompt")
             self.judge_prompt = judge_prompt if judge_prompt is not None else config["judge_prompt"]
             self.judge_response_schema = (
                 judge_response_schema if judge_response_schema is not None
                 else config.get("response_schema")
             )
+            self.judge_postprocess = (
+                judge_postprocess if judge_postprocess is not None else config.get("postprocess")
+            )
+            self.judge_requires_expected_behavior = bool(config.get("requires_expected_behavior"))
         else:
             self.probe_prompt = probe_prompt
             self.judge_prompt = judge_prompt
             self.judge_response_schema = judge_response_schema
+            self.judge_postprocess = judge_postprocess
+            self.judge_requires_expected_behavior = False
+        self._warned_no_expectations = False
 
         # If judge_fields is set, override the schema to only include those fields.
         # This takes precedence over both the config schema and explicit schema
@@ -355,6 +374,38 @@ class ModelAuditor:
             hdrs.setdefault("User-Agent", DEFAULT_USER_AGENT)
             create_kwargs["default_headers"] = hdrs
         return AnyLLM.create(provider, **create_kwargs)
+
+    @staticmethod
+    def _resolve_judge_spec(
+        judge_prompt: Optional[str],
+        response_schema: Optional[Dict[str, Any]],
+        postprocess: Optional[Callable[..., Dict[str, Any]]],
+        requires_expected_behavior: bool,
+        expected_behavior: Optional[List[str]],
+    ) -> tuple:
+        """The judge to use for one scenario: ``(prompt, schema, postprocess, fell_back)``.
+
+        A judge that grades against the scenario's expectations has nothing to
+        grade when a scenario carries none (the 32 v1 scenarios). Rather than
+        invent a checklist, such a scenario is sent to the built-in default
+        judge, and the caller records that it did. Shared by the audit path and
+        the judge-only paths in ``reframing`` so both fall back the same way.
+        """
+        if requires_expected_behavior and not expected_behavior:
+            return None, None, None, True
+        return judge_prompt, response_schema, postprocess, False
+
+    def _warn_no_expectations(self, scenario_name: str) -> None:
+        if self._warned_no_expectations:
+            return
+        self._warned_no_expectations = True
+        warnings.warn(
+            f"Judge {self.judge_name!r} grades against expected_behavior, but scenario "
+            f"{scenario_name!r} has none. Such scenarios are graded by the default judge "
+            "instead; their judgment carries judge_fallback='default'. "
+            "(Reported once per auditor.)",
+            stacklevel=3,
+        )
 
     @staticmethod
     def _severity_from_judgment(judgment: Dict[str, Any]) -> str:
@@ -553,6 +604,8 @@ Generate the next user message to probe this scenario."""
         judge_fields: Optional[List[str]] = None,
         max_retries: int = 0,
         retry_backoff: float = 0.5,
+        postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
+        scenario_meta: Optional[Dict[str, Any]] = None,
     ) -> tuple[Dict, int, int]:
         conv_text, file_uris = _render_conversation(
             conversation, role_separator="\n", turn_separator="\n\n"
@@ -651,8 +704,20 @@ Evaluate this conversation and respond with this exact JSON structure:
                     }
             except Exception:
                 judgment = {"severity": "ERROR", "issues_found": ["Could not parse judge response"], "summary": response[:500]}
-            return judgment, input_tokens, output_tokens
-        return ModelAuditor.parse_json_response(response), input_tokens, output_tokens
+        else:
+            judgment = ModelAuditor.parse_json_response(response)
+        if postprocess is not None:
+            # A judge config's post-processor turns the judge's observations
+            # into the verdict fields (see judges/checklist.py). It sees the
+            # transcript the judge saw and the scenario's own expectations and
+            # metadata; the judge itself never sees the metadata.
+            judgment = postprocess(
+                judgment,
+                conversation=conversation,
+                expected_behavior=expected_behavior,
+                scenario_meta=scenario_meta,
+            )
+        return judgment, input_tokens, output_tokens
 
     async def run_scenario(
         self,
@@ -667,6 +732,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         pbar_audit: Optional[tqdm] = None,
         pbar_judge: Optional[tqdm] = None,
         max_workers: Optional[int] = None,
+        scenario_meta: Optional[Dict[str, Any]] = None,
     ) -> AuditResult:
         turns = max_turns or self.max_turns
 
@@ -746,6 +812,15 @@ Evaluate this conversation and respond with this exact JSON structure:
 
         if error is None:
             self._log("Judging conversation...", name=name)
+            judge_prompt, judge_schema, judge_postprocess, fell_back = self._resolve_judge_spec(
+                self.judge_prompt,
+                self.judge_response_schema,
+                self.judge_postprocess,
+                self.judge_requires_expected_behavior,
+                expected_behavior,
+            )
+            if fell_back:
+                self._warn_no_expectations(name)
             try:
                 judgment, j_in, j_out = await self._judge_conversation_async(
                     self.judge_client,
@@ -753,16 +828,20 @@ Evaluate this conversation and respond with this exact JSON structure:
                     description,
                     conversation,
                     expected_behavior,
-                    judge_prompt=self.judge_prompt,
+                    judge_prompt=judge_prompt,
                     json_format=self.json_format,
                     judge_notes=judge_notes,
-                    response_schema=self.judge_response_schema,
+                    response_schema=judge_schema,
                     judge_fields=self.judge_fields,
                     max_retries=self.max_retries,
                     retry_backoff=self.retry_backoff,
+                    postprocess=judge_postprocess,
+                    scenario_meta=scenario_meta,
                 )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out
+                if fell_back and isinstance(judgment, dict):
+                    judgment["judge_fallback"] = "default"
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
                 self._log(f"--- Judging FAILED: {name} [{error}] ---")
@@ -870,6 +949,14 @@ Evaluate this conversation and respond with this exact JSON structure:
                         test_prompt=scenario.get("test_prompt"),
                         file_uri=scenario.get("file_uri"),
                         judge_notes=(scenario.get("metadata") or {}).get("judge_notes"),
+                        # Scenario-level facts a judge's post-processor may
+                        # need (the designed severity is the ceiling for the
+                        # checklist judge). Never rendered to the judge.
+                        scenario_meta={
+                            "severity": scenario.get("severity"),
+                            "category": scenario.get("category"),
+                            "metadata": scenario.get("metadata") or {},
+                        },
                         max_turns=max_turns,
                         language=language,
                         pbar_audit=pbar_audit,

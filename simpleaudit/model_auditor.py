@@ -15,6 +15,7 @@ import asyncio
 import json
 import re
 import threading
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from typing import Any, Dict, List, Optional, Union
 
 from tqdm.auto import tqdm
@@ -31,6 +32,38 @@ from .utils import (
     normalize_severity,
     severity_from_score,
 )
+
+
+def _user_agent() -> str:
+    try:
+        return f"simpleaudit/{_pkg_version('simpleaudit')}"
+    except PackageNotFoundError:
+        return "simpleaudit/dev"
+
+
+#: Sent to providers whose SDK accepts `default_headers`; ollama/gemini/
+#: bedrock/vertexai reject it, so application is gated on _accepts_... below.
+DEFAULT_USER_AGENT = _user_agent()
+
+_HEADER_SUPPORT: Dict[str, bool] = {}
+
+
+def _accepts_default_headers(provider: str) -> bool:
+    """Probe by building the client: any-llm splats kwargs into the vendor SDK,
+    and only the OpenAI family declares `default_headers`. Construction opens
+    no connection. Non-TypeError failures are inconclusive -> unsupported."""
+    cached = _HEADER_SUPPORT.get(provider)
+    if cached is None:
+        try:
+            AnyLLM.create(provider, api_key="probe", default_headers={"User-Agent": "x"})
+            cached = True
+        except Exception:
+            cached = False
+        _HEADER_SUPPORT[provider] = cached
+    return cached
+
+
+_HEADER_SUPPORT: Dict[str, bool] = {}
 
 
 DEFAULT_JUDGE_RESPONSE_SCHEMA: Dict[str, Any] = {
@@ -212,6 +245,10 @@ class ModelAuditor:
         show_progress: bool = True,
         max_retries: int = 2,
         retry_backoff: float = 0.5,
+        kwargs: Optional[Dict[str, Any]] = None,
+        judge_kwargs: Optional[Dict[str, Any]] = None,
+        target_kwargs: Optional[Dict[str, Any]] = None,
+        auditor_kwargs: Optional[Dict[str, Any]] = None,
     ):
         if max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {max_retries}")
@@ -260,6 +297,7 @@ class ModelAuditor:
             "api_key": api_key,
             "base_url": base_url,
             "provider": provider,
+            "client_kwargs": kwargs if target_kwargs is None else target_kwargs,
         }
         self.target_client = self._create_anyllm_client(**self._target_client_config)
 
@@ -268,6 +306,7 @@ class ModelAuditor:
             "api_key": judge_api_key,
             "base_url": judge_base_url,
             "provider": judge_provider,
+            "client_kwargs": kwargs if judge_kwargs is None else judge_kwargs,
         }
         self.judge_client = self._create_anyllm_client(**self._judge_client_config)
 
@@ -277,6 +316,7 @@ class ModelAuditor:
             "api_key": auditor_api_key or judge_api_key,
             "base_url": auditor_base_url or judge_base_url,
             "provider": auditor_provider or judge_provider,
+            "client_kwargs": kwargs if auditor_kwargs is None else auditor_kwargs,
         }
         if self._auditor_client_config == self._judge_client_config and self.auditor_model == self.judge_model:
             self.auditor_client = self.judge_client
@@ -288,6 +328,7 @@ class ModelAuditor:
         api_key: Optional[str],
         base_url: Optional[str],
         provider: Optional[str] = "openai",
+        client_kwargs: Optional[Dict[str, Any]] = None,
     ):
         # Callers documenting provider as optional (AuditExperiment,
         # CrossJudgeExperiment) pass None through — treat it as the default
@@ -298,6 +339,17 @@ class ModelAuditor:
             create_kwargs["api_key"] = api_key
         if base_url:
             create_kwargs["api_base"] = base_url
+        # Forwarded verbatim to AnyLLM.create -> the provider client. Public
+        # spelling is kwargs / target_kwargs / judge_kwargs / auditor_kwargs;
+        # named client_kwargs here so a bare `kwargs` cannot shadow __init__.
+        if client_kwargs:
+            create_kwargs.update(client_kwargs)
+        # Identify simpleaudit unless the caller set their own UA or the SDK
+        # would reject the argument.
+        if _accepts_default_headers(provider):
+            hdrs = dict(create_kwargs.get("default_headers") or {})
+            hdrs.setdefault("User-Agent", DEFAULT_USER_AGENT)
+            create_kwargs["default_headers"] = hdrs
         return AnyLLM.create(provider, **create_kwargs)
 
     def _log(self, message: str, name: Optional[str] = None):

@@ -23,6 +23,7 @@ CONFORMING_PACKS = [
     "nb_kryss_ordning",
     "skatteetaten_legitimasjon",
     "toll_reisegodskvote",
+    "arbeidstilsynet_arbeidstid",
 ]
 
 

@@ -18,6 +18,8 @@ Available packs:
 - skatteetaten: Norwegian Tax Administration scenarios (in development)
 - helfo: Helfo health-economics scenarios (8 scenarios)
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
+- arbeidstilsynet_arbeidstid: Working-time rules — person category, age and
+  working-time arrangement axes (11 scenarios)
 - skatteetaten_legitimasjon: Skatteetaten identification requirements at in-person
   attendance — citizenship, service and channel axes (11 scenarios)
 - toll_reisegodskvote: Tolletaten traveller allowances — value limit, person
@@ -48,6 +50,7 @@ from .nav_aap import NAV_AAP_SCENARIOS
 from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
 from .lanekassen import LANEKASSEN_SCENARIOS
+from .arbeidstilsynet_arbeidstid import ARBEIDSTILSYNET_ARBEIDSTID_SCENARIOS
 from .skatteetaten_legitimasjon import SKATTEETATEN_LEGITIMASJON_SCENARIOS
 from .toll_reisegodskvote import TOLL_REISEGODSKVOTE_SCENARIOS
 from .vision_integrity import VISION_INTEGRITY_SCENARIOS
@@ -71,6 +74,7 @@ SCENARIO_PACKS = {
     "skatteetaten":     SKATTEETATEN_SCENARIOS,
     "helfo":            HELFO_SCENARIOS,
     "lanekassen":       LANEKASSEN_SCENARIOS,
+    "arbeidstilsynet_arbeidstid": ARBEIDSTILSYNET_ARBEIDSTID_SCENARIOS,
     "skatteetaten_legitimasjon": SKATTEETATEN_LEGITIMASJON_SCENARIOS,
     "toll_reisegodskvote": TOLL_REISEGODSKVOTE_SCENARIOS,
 
@@ -88,7 +92,8 @@ SCENARIO_PACKS = {
                         + LANEKASSEN_SCENARIOS
                         + NB_KRYSS_ORDNING_SCENARIOS
                         + SKATTEETATEN_LEGITIMASJON_SCENARIOS
-                        + TOLL_REISEGODSKVOTE_SCENARIOS,
+                        + TOLL_REISEGODSKVOTE_SCENARIOS
+                        + ARBEIDSTILSYNET_ARBEIDSTID_SCENARIOS,
 }
 
 

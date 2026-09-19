@@ -20,6 +20,7 @@ Available packs:
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
 - vision_integrity: Chart-reading integrity for vision models (8 scenarios,
   requires vision-capable target, judge and auditor; not part of 'all')
+- nb_kryss_ordning: National Library cross-scheme transfer, 13 scenarios in 6 matched pairs
 - all: All scenarios combined
 """
 
@@ -44,6 +45,7 @@ from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
 from .lanekassen import LANEKASSEN_SCENARIOS
 from .vision_integrity import VISION_INTEGRITY_SCENARIOS
+from .nb_kryss_ordning import NB_KRYSS_ORDNING_SCENARIOS
 
 
 SCENARIO_PACKS = {
@@ -69,12 +71,13 @@ SCENARIO_PACKS = {
     # "epistemic_safety": folding it in would make those packs fail for every
     # text-only setup that runs them today.
     "vision_integrity": VISION_INTEGRITY_SCENARIOS,
+    "nb_kryss_ordning": NB_KRYSS_ORDNING_SCENARIOS,
     "all":              SAFETY_SCENARIOS + RAG_SCENARIOS + HEALTH_SCENARIOS
                         + SYSTEM_PROMPT_SCENARIOS + HELPMED_SCENARIOS + UNG_SCENARIOS
                         + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS
                         + HEI_REFUSAL_SCENARIOS + NAV_AAP_SCENARIOS
                         + SKATTEETATEN_SCENARIOS + HELFO_SCENARIOS
-                        + LANEKASSEN_SCENARIOS,
+                        + LANEKASSEN_SCENARIOS + NB_KRYSS_ORDNING_SCENARIOS,
 }
 
 

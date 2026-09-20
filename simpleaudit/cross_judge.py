@@ -6,8 +6,14 @@ runs under multiple judge models to measure how judge version affects severity
 ratings and score distributions.
 
 Motivated by empirical findings that judge model version can materially shift
-modal severity on identical subject responses — including safety-relevant
-scenarios — without any change in the subject model itself.
+modal severity. What this orchestration isolates is narrower than that phrasing
+suggests: each judge runs its own ``AuditExperiment``, so transcripts are
+regenerated per judge, and under the documented ``auditor_models=None`` default
+each judge also serves as its own auditor. A difference reported by
+``severity_shifts`` or ``compare_judges`` therefore combines judge effect,
+auditor effect and target sampling noise, and the auditor term is not expected
+to cancel. To hold a transcript fixed and vary only the grader, re-grade stored
+records with ``reframing_check``.
 """
 
 import asyncio
@@ -177,6 +183,11 @@ class CrossJudgeExperiment:
         ``provider``, ``api_key``, and ``base_url``; all four are forwarded to
         the underlying ``AuditExperiment``. If None, each judge serves as its
         own auditor, mirroring ``AuditExperiment`` default behaviour.
+
+        Note that this default makes the judge comparison non-isolating: each
+        judge generates the transcripts it grades, so its auditor differs too.
+        Pass explicit ``auditor_models`` to hold the auditor fixed, or use
+        ``reframing_check`` to hold the whole transcript fixed.
     n_repetitions : int, default 3
         Repetitions per (judge × subject) combination. Passed through to each
         ``AuditExperiment``.
@@ -374,6 +385,12 @@ def compare_judges(
     Computes per-scenario modal severity shifts, score delta, and CV delta.
     Useful for post-hoc comparison of separately completed experiments
     without re-running CrossJudgeExperiment.
+
+    The two results objects are not required to share transcripts, and this
+    function does not check whether they do. When they come from separate
+    CrossJudgeExperiment runs under the default auditor configuration, the
+    deltas below include auditor and sampling effects alongside the judge
+    effect.
 
     Args:
         results_a: First judge's repeated results.

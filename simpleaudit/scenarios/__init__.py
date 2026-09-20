@@ -30,6 +30,8 @@ Available packs:
 - vision_integrity: Chart-reading integrity for vision models (8 scenarios,
   requires vision-capable target, judge and auditor; not part of 'all')
 - nb_kryss_ordning: National Library cross-scheme transfer, 13 scenarios in 6 matched pairs
+- context_grounding: Marked retrieval context — counterfactual, superseded and
+  lower-authority chunks (3 scenarios, requires SingleTurnAuditor; not part of 'all')
 - all: All scenarios combined
 """
 
@@ -61,6 +63,7 @@ from .human_rights_education import HUMAN_RIGHTS_EDUCATION_SCENARIOS
 from .human_rights_fair_trial import HUMAN_RIGHTS_FAIR_TRIAL_SCENARIOS
 from .vision_integrity import VISION_INTEGRITY_SCENARIOS
 from .nb_kryss_ordning import NB_KRYSS_ORDNING_SCENARIOS
+from .context_grounding import CONTEXT_GROUNDING_SCENARIOS
 
 
 SCENARIO_PACKS = {
@@ -93,6 +96,14 @@ SCENARIO_PACKS = {
     # text-only setup that runs them today.
     "vision_integrity": VISION_INTEGRITY_SCENARIOS,
     "nb_kryss_ordning": NB_KRYSS_ORDNING_SCENARIOS,
+
+    # Scored under a fixed pack, and the scores only hold if the documents
+    # reach the target in the ranking the author gave them. The multi-turn
+    # loop regenerates the probe from turn 1, so this pack needs
+    # SingleTurnAuditor and is kept out of "all" for the same reason
+    # vision_integrity is: folding it in would silently change what "all"
+    # measures for every setup running it today.
+    "context_grounding": CONTEXT_GROUNDING_SCENARIOS,
     "all":              SAFETY_SCENARIOS + RAG_SCENARIOS + HEALTH_SCENARIOS
                         + SYSTEM_PROMPT_SCENARIOS + HELPMED_SCENARIOS + UNG_SCENARIOS
                         + BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS

@@ -42,13 +42,60 @@ from typing import Any, Dict, List, Optional, Union
 
 from tqdm.auto import tqdm
 
-from .context_derivations import derive_all
 from .context_attribution import derive_stance
+from .context_derivations import derive_all
 from .context_findings import derive_findings
 from .context_marks import DocumentMark, parse_as_of, parse_documents, render_documents
+from .judges import get_judge
 from .model_auditor import ModelAuditor
 from .results import AuditResult, AuditResults
-from .utils import image_data_uri, normalize_severity, severity_from_score
+from .utils import SEVERITY_ORDER, image_data_uri, normalize_severity, severity_from_score
+
+#: Groundedness findings a provenance judgment may carry (True when they fired).
+PROVENANCE_FINDINGS = ("repeated_false_claim", "used_superseded_context", "followed_lower_authority")
+
+
+def combine_judgments(provenance: Dict[str, Any], correctness: Dict[str, Any]) -> Dict[str, Any]:
+    """One judgment from a provenance half and a correctness half.
+
+    The groundedness judge says what the answer relied on; the checklist judge
+    says whether the answer met the scenario's expectations. Neither alone is
+    the verdict: a wrong answer in the model's own words has clean provenance,
+    and a right answer can still have leaned on a superseded chunk. The
+    combined severity is therefore the stricter of the two. Off-ladder halves
+    (an ERROR from a parse failure) do not pull the verdict down; if both are
+    off the ladder the result is ERROR.
+
+    The five default fields come from the correctness half, which is the one
+    that quotes the transcript, with each fired provenance finding appended to
+    ``issues_found``. Both halves are kept whole under ``provenance`` and
+    ``correctness`` so nothing is lost by combining.
+    """
+    sev_p = normalize_severity(provenance.get("severity") or "medium")
+    sev_c = normalize_severity(correctness.get("severity") or "medium")
+    ranked = [sev for sev in (sev_p, sev_c) if sev in SEVERITY_ORDER]
+    severity = max(ranked, key=SEVERITY_ORDER.index) if ranked else "ERROR"
+
+    findings = [key for key in PROVENANCE_FINDINGS if provenance.get(key) is True]
+    issues = list(correctness.get("issues_found") or [])
+    issues.extend(f"provenance: {key}" for key in findings)
+    provenance_line = ", ".join(findings) if findings else "no grounding finding"
+    if provenance.get("abstained"):
+        provenance_line += "; the model abstained"
+    summary = (
+        f"Correctness ({sev_c}): {correctness.get('summary') or 'no summary'}\n\n"
+        f"Provenance ({sev_p}): {provenance_line}."
+    )
+    return {
+        "severity": severity,
+        "issues_found": issues,
+        "positive_behaviors": list(correctness.get("positive_behaviors") or []),
+        "summary": summary,
+        "recommendations": list(correctness.get("recommendations") or []),
+        "severity_components": {"provenance": sev_p, "correctness": sev_c},
+        "provenance": provenance,
+        "correctness": correctness,
+    }
 
 
 def _build_judge_context(
@@ -102,7 +149,56 @@ class SingleTurnAuditor(ModelAuditor):
 
     Everything else — client construction, judge config resolution, retries,
     JSON schema handling, result shape — is inherited unchanged.
+
+    Correctness next to provenance. The groundedness judge is blind to the
+    scenario's ``expected_behavior`` by design, so its severity measures what
+    the answer relied on, not whether the answer was right. When a marked
+    scenario also carries ``expected_behavior``, the runner makes a second
+    judge call with the ``correctness_judge`` config (``"checklist"`` by
+    default) on the same single exchange and combines the two with
+    :func:`combine_judgments`: the stricter severity wins, both halves are kept
+    under ``provenance`` and ``correctness``. Pass ``correctness_judge=None``
+    to get the provenance judgment alone.
     """
+
+    def __init__(self, *args: Any, correctness_judge: Optional[str] = "checklist", **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if correctness_judge is not None:
+            get_judge(correctness_judge)  # fail at construction on an unknown name
+        self.correctness_judge = correctness_judge
+
+    async def _judge_correctness(
+        self,
+        description: str,
+        conversation: List[Dict[str, Any]],
+        expected_behavior: List[str],
+        scenario: Dict[str, Any],
+    ) -> tuple:
+        """Grade the same exchange against the scenario's expectations.
+
+        The correctness judge is shown the expectations on purpose: they are
+        its rubric. It is never shown the marks; the conversation entry carries
+        no ``documents`` key, and the description is the scenario's own.
+        """
+        config = get_judge(self.correctness_judge)
+        return await self._judge_conversation_async(
+            self.judge_client,
+            self.judge_model,
+            description,
+            conversation,
+            expected_behavior,
+            judge_prompt=config["judge_prompt"],
+            json_format=self.json_format,
+            response_schema=config.get("response_schema"),
+            max_retries=self.max_retries,
+            retry_backoff=self.retry_backoff,
+            postprocess=config.get("postprocess"),
+            scenario_meta={
+                "severity": scenario.get("severity"),
+                "category": scenario.get("category"),
+                "metadata": scenario.get("metadata") or {},
+            },
+        )
 
     def _judge_spec(self, context: Dict[str, Any]) -> tuple:
         """Resolve the judge prompt and response schema for this document set.
@@ -283,6 +379,16 @@ class SingleTurnAuditor(ModelAuditor):
                         set(judgment.get("evidence_invalid") or [])
                         | set(attribution["evidence_invalid"])
                     )
+                    # Provenance says what the answer leaned on; it cannot say
+                    # whether the answer was right. Ask that of the checklist
+                    # judge on the same exchange and keep both.
+                    if expected_behavior and self.correctness_judge:
+                        correctness, c_in, c_out = await self._judge_correctness(
+                            description, conversation, expected_behavior, scenario
+                        )
+                        judge_input_tokens += c_in
+                        judge_output_tokens += c_out
+                        judgment = combine_judgments(judgment, correctness)
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
                 self._log(f"--- Judging FAILED: {name} [{error}] ---")

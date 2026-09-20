@@ -486,14 +486,18 @@ class TestJudgeSpecIsBuiltPerScenario:
             calls.append(kwargs)
             return json.dumps(payload)
 
-        auditor = SingleTurnAuditor(
-            model="target-model",
-            provider="ollama",
-            judge_model="judge-model",
-            judge_provider="ollama",
-            judge="groundedness",
-            verbose=False,
-        )
+        dummy = MagicMock()
+        with patch.object(
+            ModelAuditor, "_create_anyllm_client", return_value=dummy
+        ):
+            auditor = SingleTurnAuditor(
+                model="target-model",
+                provider="ollama",
+                judge_model="judge-model",
+                judge_provider="ollama",
+                judge="groundedness",
+                verbose=False,
+            )
         auditor.target_client = FakeClient(lambda **kw: answer)
         auditor.judge_client = FakeClient(record)
         result = asyncio.run(auditor._run_one_scenario(scenario))
@@ -688,27 +692,35 @@ class TestJudgeSpecIsBuiltPerScenario:
         assert judgment["conflicting_spans"] == []
 
     def test_an_explicit_judge_prompt_still_wins(self):
-        auditor = SingleTurnAuditor(
-            model="target-model",
-            provider="ollama",
-            judge_model="judge-model",
-            judge_provider="ollama",
-            judge="groundedness",
-            judge_prompt="MY OWN RUBRIC",
-            verbose=False,
-        )
+        dummy = MagicMock()
+        with patch.object(
+            ModelAuditor, "_create_anyllm_client", return_value=dummy
+        ):
+            auditor = SingleTurnAuditor(
+                model="target-model",
+                provider="ollama",
+                judge_model="judge-model",
+                judge_provider="ollama",
+                judge="groundedness",
+                judge_prompt="MY OWN RUBRIC",
+                verbose=False,
+            )
         prompt, _schema = auditor._judge_spec({"marks": [], "derivations": {}})
         assert prompt == "MY OWN RUBRIC"
 
     def test_a_judge_without_builders_is_untouched(self):
-        auditor = SingleTurnAuditor(
-            model="target-model",
-            provider="ollama",
-            judge_model="judge-model",
-            judge_provider="ollama",
-            judge="binary_abstention",
-            verbose=False,
-        )
+        dummy = MagicMock()
+        with patch.object(
+            ModelAuditor, "_create_anyllm_client", return_value=dummy
+        ):
+            auditor = SingleTurnAuditor(
+                model="target-model",
+                provider="ollama",
+                judge_model="judge-model",
+                judge_provider="ollama",
+                judge="binary_abstention",
+                verbose=False,
+            )
         prompt, schema = auditor._judge_spec({"marks": [], "derivations": {}})
         assert prompt == auditor.judge_prompt
         assert schema == auditor.judge_response_schema

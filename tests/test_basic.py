@@ -23,6 +23,13 @@ def test_list_scenario_packs():
     assert "skatteetaten" in packs
     assert "helfo" in packs
     assert "lanekassen" in packs
+    assert "nb_kryss_ordning" in packs
+    assert "skatteetaten_legitimasjon" in packs
+    assert "toll_reisegodskvote" in packs
+    assert "arbeidstilsynet_arbeidstid" in packs
+    assert "human_rights_water" in packs
+    assert "human_rights_education" in packs
+    assert "human_rights_fair_trial" in packs
 
     assert packs["safety"] > 0
     assert packs["rag"] > 0
@@ -34,7 +41,14 @@ def test_list_scenario_packs():
     assert packs["skatteetaten"] >= 0
     assert packs["helfo"] > 0
     assert packs["lanekassen"] > 0
-    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"]
+    assert packs["nb_kryss_ordning"] > 0
+    assert packs["skatteetaten_legitimasjon"] > 0
+    assert packs["toll_reisegodskvote"] > 0
+    assert packs["arbeidstilsynet_arbeidstid"] > 0
+    assert packs["human_rights_water"] > 0
+    assert packs["human_rights_education"] > 0
+    assert packs["human_rights_fair_trial"] > 0
+    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"] + packs["nb_kryss_ordning"] + packs["skatteetaten_legitimasjon"] + packs["toll_reisegodskvote"] + packs["arbeidstilsynet_arbeidstid"] + packs["human_rights_water"] + packs["human_rights_education"] + packs["human_rights_fair_trial"]
 
 
 def test_get_scenarios():
@@ -152,3 +166,83 @@ def test_model_auditor_requires_provider():
             os.environ["OPENAI_API_KEY"] = original_openai
         if original_xai:
             os.environ["XAI_API_KEY"] = original_xai
+
+
+# ---------------------------------------------------------------------------
+# __version__ is single-sourced from package metadata
+# ---------------------------------------------------------------------------
+
+def test_version_is_single_sourced_and_not_stale():
+    """__version__ must come from installed package metadata, not a stale literal.
+
+    The old bug: __init__.py hardcoded a version that drifted from
+    pyproject.toml. The fix reads importlib.metadata at runtime, so the two
+    can never disagree.
+    """
+    import re
+    from importlib.metadata import version as pkg_version
+    from pathlib import Path
+
+    import simpleaudit
+
+    # The runtime version must match what the package metadata reports.
+    assert simpleaudit.__version__ == pkg_version("simpleaudit")
+
+    # And that metadata version must match pyproject.toml (the source of truth).
+    pyproject = Path(simpleaudit.__file__).parent.parent / "pyproject.toml"
+    if pyproject.exists():
+        m = re.search(r'^version\s*=\s*["\']([^"\']+)["\']', pyproject.read_text(), re.MULTILINE)
+        assert m, "pyproject.toml must declare a version"
+        assert simpleaudit.__version__ == m.group(1), (
+            f"__version__={simpleaudit.__version__!r} != pyproject {m.group(1)!r}"
+        )
+
+
+def test_fallback_is_a_sentinel_not_a_version_number():
+    """The PackageNotFoundError branch must not carry a real version.
+
+    A literal there has to be bumped by hand alongside pyproject.toml, and it
+    was missed on 0.1.9 and again on 0.1.10. A sentinel cannot drift, because
+    there is nothing about it to keep in sync.
+    """
+    import re
+    from pathlib import Path
+
+    import simpleaudit
+
+    init_src = Path(simpleaudit.__file__).read_text()
+    m = re.search(
+        r'except\s+PackageNotFoundError:.*?\n\s*__version__\s*=\s*["\']([^"\']+)["\']',
+        init_src,
+    )
+    assert m, "fallback assignment not found in __init__.py"
+    fallback = m.group(1)
+
+    assert fallback == "0.0.0+unknown", (
+        f"fallback is {fallback!r}; it must stay a sentinel. Reintroducing a "
+        "version number here brings back the drift this replaced."
+    )
+    assert not re.fullmatch(r"\d+(\.\d+)*", fallback), (
+        f"fallback {fallback!r} looks like a release version"
+    )
+
+
+def test_fallback_is_used_when_metadata_is_missing(monkeypatch):
+    """An uninstalled checkout takes the except branch and gets the sentinel.
+
+    Reimports the package with importlib.metadata.version raising, which is
+    what happens when the distribution is not installed.
+    """
+    import importlib
+    import importlib.metadata
+    import sys
+
+    def raise_not_found(name):
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", raise_not_found)
+    for name in [n for n in sys.modules if n == "simpleaudit" or n.startswith("simpleaudit.")]:
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
+    reimported = importlib.import_module("simpleaudit")
+    assert reimported.__version__ == "0.0.0+unknown"

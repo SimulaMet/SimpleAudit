@@ -20,6 +20,13 @@ CONFORMING_PACKS = [
     "skatteetaten",
     "helfo",
     "lanekassen",
+    "nb_kryss_ordning",
+    "skatteetaten_legitimasjon",
+    "toll_reisegodskvote",
+    "arbeidstilsynet_arbeidstid",
+    "human_rights_water",
+    "human_rights_education",
+    "human_rights_fair_trial",
 ]
 
 

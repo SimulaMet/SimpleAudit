@@ -303,3 +303,64 @@ class TestConfigFingerprint:
         _run_experiment(exp, counter)
         stored = json.loads((tmp_path / "m1" / "config.json").read_text())
         assert "super-secret" not in json.dumps(stored)
+
+
+# ---------------------------------------------------------------------------
+# A persisted ERROR run is retried on resume, not treated as cached
+# ---------------------------------------------------------------------------
+
+def test_experiment_reruns_error_bearing_cached_run(tmp_path):
+    # Pre-save a run_0.json that contains an ERROR result (a prior transient
+    # failure). It must NOT be treated as a finished cached run on resume.
+    run_dir = tmp_path / "m1"
+    run_dir.mkdir(parents=True)
+    AuditResults([
+        AuditResult("s1", "d", [], "ERROR", ["boom"], [], "failed", []),
+    ]).save(str(run_dir / "run_0.json"))
+
+    calls = {"n": 0}
+
+    async def fake_run_async(self_a, scenarios, **kwargs):
+        calls["n"] += 1
+        return AuditResults([AuditResult("s1", "d", [], "pass", [], [], "", [])])
+
+    exp = AuditExperiment(
+        models=[{"model": "m1", "provider": "openai"}],
+        judge_model="j", judge_provider="openai",
+        n_repetitions=1, save_dir=str(tmp_path), show_progress=False,
+    )
+    with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()), \
+         patch.object(ModelAuditor, "run_async", new=fake_run_async):
+        results = asyncio.run(exp.run_async(scenarios=[{"name": "s1", "description": "d"}]))
+
+    # The ERROR run was re-attempted (one live call) and overwritten with a clean result.
+    assert calls["n"] == 1
+    assert results["m1"][0].severity == "pass"
+    reloaded = AuditResults.load(str(run_dir / "run_0.json"))
+    assert reloaded[0].severity == "pass"
+
+
+def test_experiment_reuses_clean_cached_run(tmp_path):
+    """A non-ERROR cached run is still reused (no live call) — the resume
+    fast-path must not regress."""
+    run_dir = tmp_path / "m1"
+    run_dir.mkdir(parents=True)
+    AuditResults([AuditResult("s1", "d", [], "pass", [], [], "", [])]).save(str(run_dir / "run_0.json"))
+
+    calls = {"n": 0}
+
+    async def fake_run_async(self_a, scenarios, **kwargs):
+        calls["n"] += 1
+        return AuditResults([AuditResult("s1", "d", [], "low", [], [], "", [])])
+
+    exp = AuditExperiment(
+        models=[{"model": "m1", "provider": "openai"}],
+        judge_model="j", judge_provider="openai",
+        n_repetitions=1, save_dir=str(tmp_path), show_progress=False,
+    )
+    with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()), \
+         patch.object(ModelAuditor, "run_async", new=fake_run_async):
+        results = asyncio.run(exp.run_async(scenarios=[{"name": "s1", "description": "d"}]))
+
+    assert calls["n"] == 0  # reused from disk
+    assert results["m1"][0].severity == "pass"

@@ -290,6 +290,159 @@ class TestStabilityStats:
 
 
 # ---------------------------------------------------------------------------
+# RepeatedExperimentResults — fragility signal (Part 1 of #48)
+# ---------------------------------------------------------------------------
+
+class TestFragilitySignal:
+    """Per-scenario fragility: entropy, ordinal spread, fragile() accessor."""
+
+    def _uniform_results(self) -> RepeatedExperimentResults:
+        """3 runs, 1 scenario, all different severities → max disagreement."""
+        return RepeatedExperimentResults({
+            "m": [
+                _make_results(["pass"]),
+                _make_results(["medium"]),
+                _make_results(["critical"]),
+            ]
+        })
+
+    def test_entropy_zero_when_all_runs_agree(self):
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["pass"]), _make_results(["pass"]), _make_results(["pass"])]
+        })
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert stats.normalised_entropy == 0.0
+
+    def test_entropy_positive_when_runs_disagree(self):
+        results = self._uniform_results()
+        stats = results.stability("m").per_scenario["scenario_0"]
+        # 3 distinct severities out of 5 possible → entropy > 0
+        assert stats.normalised_entropy > 0.0
+        # Normalised against the full 5-level ladder: 3 runs split evenly
+        # over 3 of 5 levels gives log(3)/log(5) ≈ 0.68
+        assert abs(stats.normalised_entropy - 0.68) < 0.05
+
+    def test_entropy_between_zero_and_one(self):
+        # 2 runs: pass, pass → entropy 0
+        # 2 runs: pass, low → entropy 1.0 (uniform over 2)
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["pass"]), _make_results(["low"])]
+        })
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert 0.0 < stats.normalised_entropy <= 1.0
+
+    def test_ordinal_spread_zero_when_all_runs_agree(self):
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["high"]), _make_results(["high"]), _make_results(["high"])]
+        })
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert stats.ordinal_spread == 0.0
+
+    def test_ordinal_spread_positive_when_severities_differ(self):
+        # pass=0, medium=2, critical=4 → positions [0, 2, 4]
+        # population std = sqrt(((0-2)^2 + (2-2)^2 + (4-2)^2) / 3) = sqrt(8/3) ≈ 1.633
+        results = self._uniform_results()
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert abs(stats.ordinal_spread - 1.633) < 0.01
+
+    def test_ordinal_spread_small_for_adjacent_severities(self):
+        # pass=0, low=1 → positions [0, 1] → population std = 0.5
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["pass"]), _make_results(["low"])]
+        })
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert abs(stats.ordinal_spread - 0.5) < 0.01
+
+    def test_fragile_returns_empty_when_all_stable(self):
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["pass"]), _make_results(["pass"]), _make_results(["pass"])]
+        })
+        report = results.stability("m")
+        assert report.fragile(threshold=0.6) == {}
+
+    def test_fragile_returns_disagreement_scenarios(self):
+        # 3 runs, 3 different severities → agreement = 1/3 ≈ 0.33 < 0.6
+        results = self._uniform_results()
+        report = results.stability("m")
+        fragile = report.fragile(threshold=0.6)
+        assert "scenario_0" in fragile
+        assert fragile["scenario_0"].agreement_rate < 0.6
+
+    def test_fragile_threshold_boundary(self):
+        # 2 runs: pass, pass → agreement = 1.0 (not fragile)
+        # 2 runs: pass, low  → agreement = 0.5 (fragile at threshold 0.6)
+        results = RepeatedExperimentResults({
+            "m": [
+                _make_results(["pass"]),
+                _make_results(["low"]),
+            ]
+        })
+        report = results.stability("m")
+        # agreement = 0.5 < 0.6 → fragile
+        assert "scenario_0" in report.fragile(threshold=0.6)
+        # agreement = 0.5 < 0.5 is False → not fragile at threshold 0.5
+        assert "scenario_0" not in report.fragile(threshold=0.5)
+
+    def test_fragile_default_threshold(self):
+        # 4 runs: pass, pass, pass, low → agreement = 3/4 = 0.75 (not fragile)
+        results = RepeatedExperimentResults({
+            "m": [
+                _make_results(["pass"]),
+                _make_results(["pass"]),
+                _make_results(["pass"]),
+                _make_results(["low"]),
+            ]
+        })
+        report = results.stability("m")
+        assert "scenario_0" not in report.fragile()
+
+    def test_fragile_multiple_scenarios(self):
+        # 2 scenarios: s0 stable, s1 unstable
+        def _two_scenario(sev0, sev1):
+            return AuditResults([
+                AuditResult(
+                    scenario_name="stable", scenario_description="d",
+                    conversation=[], severity=sev0, issues_found=[],
+                    positive_behaviors=[], summary="", recommendations=[],
+                ),
+                AuditResult(
+                    scenario_name="unstable", scenario_description="d",
+                    conversation=[], severity=sev1, issues_found=[],
+                    positive_behaviors=[], summary="", recommendations=[],
+                ),
+            ])
+
+        results = RepeatedExperimentResults({
+            "m": [
+                _two_scenario("pass", "pass"),
+                _two_scenario("pass", "critical"),
+                _two_scenario("pass", "medium"),
+            ]
+        })
+        report = results.stability("m")
+        fragile = report.fragile(threshold=0.6)
+        assert "stable" not in fragile
+        assert "unstable" in fragile
+
+    def test_to_dict_includes_fragility_fields(self):
+        results = self._uniform_results()
+        report = results.stability("m")
+        d = report.to_dict()
+        stats = d["per_scenario"]["scenario_0"]
+        assert "normalised_entropy" in stats
+        assert "ordinal_spread" in stats
+
+    def test_single_run_has_zero_fragility(self):
+        results = RepeatedExperimentResults({
+            "m": [_make_results(["high"])]
+        })
+        stats = results.stability("m").per_scenario["scenario_0"]
+        assert stats.normalised_entropy == 0.0
+        assert stats.ordinal_spread == 0.0
+        assert stats.agreement_rate == 1.0
+
+
+# ---------------------------------------------------------------------------
 # RepeatedExperimentResults — serialization
 # ---------------------------------------------------------------------------
 
@@ -300,7 +453,22 @@ class TestSerialization:
         assert "n_repetitions" in d
         assert "models" in d
         assert "aggregate" in d
+        assert "stability" in d
         assert "runs" in d
+
+    def test_to_dict_stability_includes_fragility_fields(self):
+        runs = [_make_results(["pass"]), _make_results(["critical"])]
+        results = RepeatedExperimentResults({"m": runs})
+        d = results.to_dict()
+        stab = d["stability"]["m"]
+        assert "per_scenario" in stab
+        scenario = stab["per_scenario"]["scenario_0"]
+        assert "normalised_entropy" in scenario
+        assert "ordinal_spread" in scenario
+        assert "agreement_rate" in scenario
+        # pass/critical → agreement 0.5, entropy > 0
+        assert scenario["agreement_rate"] == 0.5
+        assert scenario["normalised_entropy"] > 0
 
     def test_to_dict_n_repetitions_matches_run_count(self):
         runs = [_make_results(["pass"]), _make_results(["low"])]
@@ -403,3 +571,187 @@ class TestOnModelDone:
             assert judge is not None
             assert judge["judge_model"] == "judge-x"
             assert judge["judge_provider"] == "openai"
+
+
+# ---------------------------------------------------------------------------
+# AuditExperiment — adaptive reruns (Part 2 of #48)
+# ---------------------------------------------------------------------------
+
+class TestAdaptiveReruns:
+    """Adaptive rerun allocation: spend extra budget on fragile scenarios."""
+
+    SCENARIOS = [
+        {"name": "s1", "description": "d1"},
+        {"name": "s2", "description": "d2"},
+    ]
+
+    def _make_experiment(self, n_repetitions=2, adaptive_reruns=None, **kwargs):
+        return AuditExperiment(
+            models=[{"model": "test-model", "provider": "openai"}],
+            judge_model="judge",
+            judge_provider="openai",
+            show_progress=False,
+            n_repetitions=n_repetitions,
+            adaptive_reruns=adaptive_reruns,
+            **kwargs,
+        )
+
+    def test_adaptive_reruns_none_is_default(self):
+        exp = self._make_experiment()
+        assert exp.adaptive_reruns is None
+
+    def test_adaptive_reruns_stored(self):
+        config = {"agreement_target": 0.8, "max_extra": 3}
+        exp = self._make_experiment(adaptive_reruns=config)
+        assert exp.adaptive_reruns == config
+
+    def test_invalid_agreement_target_zero(self):
+        with pytest.raises(ValueError, match="agreement_target"):
+            self._make_experiment(adaptive_reruns={"agreement_target": 0})
+
+    def test_invalid_agreement_target_above_one(self):
+        with pytest.raises(ValueError, match="agreement_target"):
+            self._make_experiment(adaptive_reruns={"agreement_target": 1.5})
+
+    def test_missing_agreement_target(self):
+        with pytest.raises(ValueError, match="agreement_target"):
+            self._make_experiment(adaptive_reruns={"max_extra": 3})
+
+    def test_negative_max_extra(self):
+        with pytest.raises(ValueError, match="max_extra"):
+            self._make_experiment(adaptive_reruns={"agreement_target": 0.8, "max_extra": -1})
+
+    def test_non_dict_raises(self):
+        with pytest.raises(ValueError, match="adaptive_reruns"):
+            self._make_experiment(adaptive_reruns="not a dict")
+
+    def test_adaptive_reruns_triggers_extra_run_when_disagreement(self):
+        """2 base runs disagree on s1 → 1 adaptive rerun triggered."""
+        # Base runs: s1 gets pass/critical (agreement 0.5 < 0.8)
+        # s2 gets pass/pass (agreement 1.0 >= 0.8)
+        run1 = AuditResults([
+            AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+            AuditResult(scenario_name="s2", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+        ])
+        run2 = AuditResults([
+            AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                        severity="critical", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+            AuditResult(scenario_name="s2", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+        ])
+        # Adaptive rerun: s1 now gets pass (agreement becomes 2/3 = 0.67 < 0.8, still below)
+        # But max_extra=1 so only 1 extra run
+        adaptive_run = AuditResults([
+            AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+        ])
+
+        call_count = 0
+
+        async def fake_run_async(self_a, scenarios, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                # Base runs
+                return run1 if call_count == 1 else run2
+            else:
+                # Adaptive rerun (only fragile scenarios)
+                assert len(scenarios) == 1
+                assert scenarios[0]["name"] == "s1"
+                return adaptive_run
+
+        exp = self._make_experiment(
+            n_repetitions=2,
+            adaptive_reruns={"agreement_target": 0.8, "max_extra": 1},
+        )
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()), \
+             patch.object(ModelAuditor, "run_async", new=fake_run_async):
+            results = asyncio.run(exp.run_async(scenarios=self.SCENARIOS))
+
+        # 2 base runs + 1 adaptive rerun = 3 runs total
+        assert len(results._runs["test-model"]) == 3
+        assert call_count == 3
+
+    def test_adaptive_reruns_no_extra_when_all_stable(self):
+        """All scenarios agree → no adaptive reruns."""
+        run1 = AuditResults([
+            AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+            AuditResult(scenario_name="s2", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+        ])
+        run2 = AuditResults([
+            AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+            AuditResult(scenario_name="s2", scenario_description="d", conversation=[],
+                        severity="pass", issues_found=[], positive_behaviors=[],
+                        summary="", recommendations=[]),
+        ])
+
+        call_count = 0
+
+        async def fake_run_async(self_a, scenarios, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return run1 if call_count == 1 else run2
+
+        exp = self._make_experiment(
+            n_repetitions=2,
+            adaptive_reruns={"agreement_target": 0.8, "max_extra": 3},
+        )
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()), \
+             patch.object(ModelAuditor, "run_async", new=fake_run_async):
+            results = asyncio.run(exp.run_async(scenarios=self.SCENARIOS))
+
+        # Only 2 base runs, no adaptive reruns
+        assert len(results._runs["test-model"]) == 2
+        assert call_count == 2
+
+    def test_adaptive_reruns_respects_max_extra(self):
+        """max_extra=2 limits total adaptive reruns to 2."""
+        # All runs disagree on s1 → agreement always < 0.8
+        def _make_run(sev):
+            return AuditResults([
+                AuditResult(scenario_name="s1", scenario_description="d", conversation=[],
+                            severity=sev, issues_found=[], positive_behaviors=[],
+                            summary="", recommendations=[]),
+            ])
+
+        severities = ["pass", "critical", "medium", "high", "low"]
+        call_count = 0
+
+        async def fake_run_async(self_a, scenarios, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return _make_run(severities[call_count - 1])
+
+        exp = self._make_experiment(
+            n_repetitions=2,
+            adaptive_reruns={"agreement_target": 0.9, "max_extra": 2},
+        )
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()), \
+             patch.object(ModelAuditor, "run_async", new=fake_run_async):
+            results = asyncio.run(exp.run_async(scenarios=[{"name": "s1", "description": "d"}]))
+
+        # 2 base + 2 adaptive = 4 runs
+        assert len(results._runs["test-model"]) == 4
+        assert call_count == 4
+
+    def test_adaptive_reruns_backward_compatible(self):
+        """Without adaptive_reruns, behavior is unchanged."""
+        run1 = _make_results(["pass"])
+        run2 = _make_results(["low"])
+
+        exp = self._make_experiment(n_repetitions=2)
+        results = _run_experiment(exp, [run1, run2])
+        assert len(results._runs["test-model"]) == 2

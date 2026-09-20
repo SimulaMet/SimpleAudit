@@ -54,6 +54,55 @@
             border-color: #6366f1;
             background-color: #eef2ff;
         }
+        .fragility-tooltip {
+            position: relative;
+            cursor: default;
+        }
+        .fragility-tooltip .tooltip-content {
+            visibility: hidden;
+            opacity: 0;
+            position: fixed;
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 12px;
+            line-height: 1.6;
+            white-space: nowrap;
+            z-index: 9999;
+            transition: opacity 0.15s ease, visibility 0.15s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .fragility-tooltip .tooltip-content::after {
+            content: '';
+            position: absolute;
+            bottom: 100%;
+            left: 16px;
+            border: 6px solid transparent;
+            border-bottom-color: #1f2937;
+        }
+        .fragility-tooltip:hover .tooltip-content {
+            visibility: visible;
+            opacity: 1;
+        }
+        .fragility-tooltip .tooltip-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .fragility-tooltip .tooltip-row + .tooltip-row {
+            padding-top: 4px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .fragility-tooltip .tooltip-label {
+            font-weight: 600;
+        }
+        .fragility-tooltip .tooltip-stable .tooltip-label { color: #34d399; }
+        .fragility-tooltip .tooltip-fragile .tooltip-label { color: #fbbf24; }
     </style>
 </head>
 
@@ -114,6 +163,17 @@
 
             <!-- Dashboard / Stats -->
             <div id="dashboard" class="p-6 border-b border-gray-200 bg-gray-50">
+                <!-- Run Selector (multi-run experiments) -->
+                <div id="run-selector-bar" class="hidden mb-4 px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50">
+                    <div class="flex items-center justify-between gap-2">
+                        <button id="run-prev-btn" onclick="selectRun(currentRunIndex - 1)" class="px-2 py-1 text-xs rounded font-medium bg-white text-indigo-600 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">&larr; Prev</button>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Run:</span>
+                            <span id="run-selector-count" class="text-sm font-bold text-indigo-900">1 of 1</span>
+                        </div>
+                        <button id="run-next-btn" onclick="selectRun(currentRunIndex + 1)" class="px-2 py-1 text-xs rounded font-medium bg-white text-indigo-600 border border-indigo-200 hover:bg-indigo-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Next &rarr;</button>
+                    </div>
+                </div>
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-100 text-center">
                         <div class="text-xs text-gray-500 uppercase font-semibold">Pass Rate</div>
@@ -188,6 +248,9 @@
         let currentScenarios = [];
         let selectedScenarioId = null;
         let currentFileName = '';
+        let currentExperimentRuns = null; // { model, runs: [...] } for run switching
+        let currentRunIndex = 0;
+        let currentFragility = null; // { scenarioName: { agreement, entropy, spread, mode } }
 
         // Constants
         const SEVERITY_COLORS = {
@@ -227,6 +290,122 @@
             'pass': 10,
             'ERROR': 0,
         };
+
+        // --- Experiment / multi-run support ---
+
+        function experimentModels(data) {
+            if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
+            const runs = data.runs;
+            if (!runs || typeof runs !== 'object' || Array.isArray(runs)) return [];
+            return Object.keys(runs).filter(model => {
+                const entries = Array.isArray(runs[model]) ? runs[model] : [runs[model]];
+                return entries.some(entry => entry && typeof entry === 'object'
+                    && Array.isArray(entry.results) && entry.results.length > 0);
+            });
+        }
+
+        function selectRun(runIndex) {
+            if (!currentExperimentRuns || !currentExperimentRuns.runs[runIndex]) return;
+            const { model, runs } = currentExperimentRuns;
+            currentRunIndex = runIndex;
+            const runLabel = runs.length > 1 ? ` — run ${runIndex + 1} of ${runs.length}` : '';
+            processData(runs[runIndex], `${model}${runLabel}`);
+        }
+
+        function updateRunSelectorBar() {
+            const bar = document.getElementById('run-selector-bar');
+            const count = document.getElementById('run-selector-count');
+            const prevBtn = document.getElementById('run-prev-btn');
+            const nextBtn = document.getElementById('run-next-btn');
+            if (!bar || !count) return;
+            if (currentExperimentRuns && currentExperimentRuns.runs.length > 1) {
+                bar.classList.remove('hidden');
+                const total = currentExperimentRuns.runs.length;
+                const idx = currentRunIndex;
+                count.textContent = `${idx + 1} of ${total}`;
+                if (prevBtn) prevBtn.disabled = idx <= 0;
+                if (nextBtn) nextBtn.disabled = idx >= total - 1;
+            } else {
+                bar.classList.add('hidden');
+            }
+        }
+
+        function resetMultiRunState() {
+            currentFragility = null;
+            currentExperimentRuns = null;
+            currentRunIndex = 0;
+        }
+
+        function computeFragility(runs) {
+            if (!runs || runs.length < 2) return null;
+            const SEV_ORDER = ['pass', 'low', 'medium', 'high', 'critical'];
+            const scenarioSevs = {};
+            runs.forEach(run => {
+                const results = run.results || [];
+                results.forEach(r => {
+                    const name = r.scenario_name || r.name;
+                    if (!name) return;
+                    if (!scenarioSevs[name]) scenarioSevs[name] = [];
+                    scenarioSevs[name].push(r.severity);
+                });
+            });
+            const fragility = {};
+            Object.entries(scenarioSevs).forEach(([name, sevs]) => {
+                const counts = {};
+                sevs.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+                const mode = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+                const agreement = counts[mode] / sevs.length;
+                const total = sevs.length;
+                const uniqueSevs = Object.keys(counts);
+                let rawEntropy = 0;
+                uniqueSevs.forEach(s => {
+                    const p = counts[s] / total;
+                    rawEntropy -= p * Math.log(p);
+                });
+                const logBase = uniqueSevs.length > 1 ? Math.log(uniqueSevs.length) : 1;
+                const entropy = logBase > 0 ? rawEntropy / logBase : 0;
+                const positions = sevs.map(s => {
+                    const idx = SEV_ORDER.indexOf(s);
+                    return idx >= 0 ? idx : 0;
+                });
+                const mean = positions.reduce((a, b) => a + b, 0) / positions.length;
+                const variance = positions.reduce((a, b) => a + (b - mean) ** 2, 0) / positions.length;
+                const spread = Math.sqrt(variance);
+                fragility[name] = { agreement, entropy, spread, mode };
+            });
+            return fragility;
+        }
+
+        // Fragility tooltip positioning
+        document.addEventListener('mouseover', (e) => {
+            const trigger = e.target.closest('.fragility-tooltip[data-tooltip]');
+            if (!trigger) return;
+            const tip = trigger.querySelector('.tooltip-content');
+            if (!tip) return;
+            const rect = trigger.getBoundingClientRect();
+            tip.style.visibility = 'visible';
+            tip.style.opacity = '0';
+            const tipW = tip.offsetWidth;
+            const tipH = tip.offsetHeight;
+            let left = rect.left;
+            let top = rect.bottom + 8;
+            if (left + tipW > window.innerWidth - 8) left = window.innerWidth - tipW - 8;
+            if (left < 8) left = 8;
+            if (top + tipH > window.innerHeight - 8) top = rect.top - tipH - 8;
+            if (top < 8) top = 8;
+            tip.style.left = left + 'px';
+            tip.style.top = top + 'px';
+            tip.style.opacity = '1';
+        });
+        document.addEventListener('mouseout', (e) => {
+            const trigger = e.target.closest('.fragility-tooltip[data-tooltip]');
+            if (!trigger) return;
+            const tip = trigger.querySelector('.tooltip-content');
+            if (tip) {
+                tip.style.opacity = '0';
+                tip.style.visibility = 'hidden';
+            }
+        });
 
         // Returns true if this scenario used a custom judge schema (no fixed severity/issues fields)
         function isCustomSchema(s) {
@@ -333,6 +512,7 @@
             currentScenarios = [];
             selectedScenarioId = null;
             currentFileName = '';
+            resetMultiRunState();
             document.getElementById('file-info').textContent = 'Upload a JSON file to view audit results';
         }
 
@@ -421,8 +601,31 @@
                 allScenarios = data;
             } else if (data.results && Array.isArray(data.results)) {
                 allScenarios = data.results;
+            } else if (experimentModels(data).length > 0) {
+                // Multi-model experiment — show model picker in the list area
+                const models = experimentModels(data);
+                const listEl = document.getElementById('scenario-list');
+                listEl.innerHTML = '';
+                models.forEach(model => {
+                    const runs = data.runs[model];
+                    const runLabel = Array.isArray(runs) && runs.length > 1 ? ` — run 1 of ${runs.length}` : '';
+                    const el = document.createElement('div');
+                    el.className = 'p-3 rounded-lg border border-gray-200 bg-white cursor-pointer hover:bg-gray-50 transition-colors';
+                    el.innerHTML = `<div class="flex items-center gap-2"><span class="text-base">📄</span><span class="text-sm font-medium text-gray-700">${escapeHtml(model)}</span>${runLabel ? `<span class="text-xs text-gray-400">${runLabel}</span>` : ''}</div>`;
+                    el.onclick = () => {
+                        currentExperimentRuns = Array.isArray(runs) ? { model, runs } : null;
+                        currentRunIndex = 0;
+                        currentFragility = Array.isArray(runs) ? computeFragility(runs) : null;
+                        processData(Array.isArray(runs) ? runs[0] : runs, `${filename} — ${model}${runLabel}`);
+                    };
+                    listEl.appendChild(el);
+                });
+                document.getElementById('upload-section').classList.add('hidden');
+                document.getElementById('results-section').classList.remove('hidden');
+                document.getElementById('file-info').textContent = `${filename} — select a model`;
+                return;
             } else {
-                alert('Invalid JSON format. Expected a list of results or an object with a "results" array.');
+                alert('Invalid JSON format. Expected a list of results, an object with a "results" array, or an AuditExperiment file with a "runs" object.');
                 return;
             }
 
@@ -475,6 +678,7 @@
             document.getElementById('results-section').classList.remove('hidden');
             document.getElementById('file-info').textContent = `${filename} • ${allScenarios.length} scenarios`;
 
+            updateRunSelectorBar();
             updateStats(globalScore);
             handleFilter();
         }
@@ -654,6 +858,28 @@
             // can be previewed; local paths fall back to a file icon.
             const standalone = true;
 
+            // Fragility tooltip (multi-run experiments)
+            const fragility = currentFragility ? currentFragility[name] : null;
+            let fragilityTooltip = '';
+            if (fragility) {
+                const isStable = fragility.agreement >= 0.8;
+                const cls = isStable ? 'tooltip-stable' : 'tooltip-fragile';
+                const label = isStable ? 'Stable' : 'Fragile';
+                fragilityTooltip = `
+                    <span class="fragility-tooltip" data-tooltip>
+                        <span class="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200 cursor-default">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            ${label}
+                        </span>
+                        <span class="tooltip-content">
+                            <span class="tooltip-row ${cls}"><span class="tooltip-label">${label}</span><span>— ${Math.round(fragility.agreement * 100)}% agreement across runs</span></span>
+                            <span class="tooltip-row"><span class="tooltip-label">Mode:</span><span>${escapeHtml(fragility.mode)}</span></span>
+                            <span class="tooltip-row"><span class="tooltip-label">Entropy:</span><span>${fragility.entropy.toFixed(2)}</span></span>
+                            <span class="tooltip-row"><span class="tooltip-label">Spread:</span><span>${fragility.spread.toFixed(2)}</span></span>
+                        </span>
+                    </span>`;
+            }
+
             let html = `
                 <div class="max-w-4xl mx-auto space-y-6 pb-20">
                     <!-- Mobile Back Button -->
@@ -672,6 +898,7 @@
                                     <span class="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide ${statusColor} text-white bg-opacity-90">
                                         ${escapeHtml(severity)}
                                     </span>
+                                    ${fragilityTooltip}
                                     <span class="text-sm text-gray-500">Score: <strong class="${textColor}">${escapeHtml(scoreLabel)}</strong></span>
                                 </div>
                             </div>

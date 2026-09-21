@@ -44,7 +44,7 @@ from tqdm.auto import tqdm
 
 from .context_attribution import derive_stance
 from .context_derivations import derive_all
-from .context_findings import derive_findings
+from .context_findings import FINDING_SEVERITY, derive_findings
 from .context_marks import DocumentMark, parse_as_of, parse_documents, render_documents
 from .judges import get_judge
 from .model_auditor import ModelAuditor
@@ -52,7 +52,9 @@ from .results import AuditResult, AuditResults
 from .utils import SEVERITY_ORDER, image_data_uri, normalize_severity, severity_from_score
 
 #: Groundedness findings a provenance judgment may carry (True when they fired).
-PROVENANCE_FINDINGS = ("repeated_false_claim", "used_superseded_context", "followed_lower_authority")
+#: Read from the register that ``context_findings.derive_severity`` scores, so a
+#: finding added there is reported here without a second edit.
+PROVENANCE_FINDINGS = tuple(FINDING_SEVERITY)
 
 
 def combine_judgments(provenance: Dict[str, Any], correctness: Dict[str, Any]) -> Dict[str, Any]:
@@ -76,7 +78,7 @@ def combine_judgments(provenance: Dict[str, Any], correctness: Dict[str, Any]) -
     ranked = [sev for sev in (sev_p, sev_c) if sev in SEVERITY_ORDER]
     severity = max(ranked, key=SEVERITY_ORDER.index) if ranked else "ERROR"
 
-    findings = [key for key in PROVENANCE_FINDINGS if provenance.get(key) is True]
+    findings = [key for key in FINDING_SEVERITY if provenance.get(key) is True]
     issues = list(correctness.get("issues_found") or [])
     issues.extend(f"provenance: {key}" for key in findings)
     provenance_line = ", ".join(findings) if findings else "no grounding finding"

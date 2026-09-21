@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from simpleaudit.context_findings import FINDING_SEVERITY
 from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.single_turn import PROVENANCE_FINDINGS, SingleTurnAuditor, combine_judgments
 from tests.fakes import FakeClient, _make_response
@@ -217,5 +218,16 @@ def test_combine_takes_the_stricter_half_and_ignores_off_ladder_halves():
     assert combine_judgments({"severity": "ERROR"}, corr)["severity"] == "high"
     assert combine_judgments(prov, {"severity": "ERROR"})["severity"] == "low"
     assert combine_judgments({"severity": "ERROR"}, {"severity": "ERROR"})["severity"] == "ERROR"
-    assert set(PROVENANCE_FINDINGS) == {"repeated_false_claim", "used_superseded_context",
-                                        "followed_lower_authority"}
+
+
+def test_provenance_findings_are_the_scored_register_not_a_copy(monkeypatch):
+    # The combiner must report exactly the findings derive_severity scores.
+    assert PROVENANCE_FINDINGS == tuple(FINDING_SEVERITY)
+    for key in FINDING_SEVERITY:
+        out = combine_judgments({"severity": "low", key: True}, {"severity": "pass"})
+        assert f"provenance: {key}" in out["issues_found"], key
+
+    # A finding added to the register later is picked up without editing single_turn.
+    monkeypatch.setitem(FINDING_SEVERITY, "new_finding", "medium")
+    out = combine_judgments({"severity": "low", "new_finding": True}, {"severity": "pass"})
+    assert "provenance: new_finding" in out["issues_found"]

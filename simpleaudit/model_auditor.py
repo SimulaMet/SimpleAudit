@@ -305,6 +305,10 @@ class ModelAuditor:
         target_kwargs: Optional[Dict[str, Any]] = None,
         auditor_kwargs: Optional[Dict[str, Any]] = None,
         judge_postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        target_params: Optional[Dict[str, Any]] = None,
+        judge_params: Optional[Dict[str, Any]] = None,
+        auditor_params: Optional[Dict[str, Any]] = None,
     ):
         if max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {max_retries}")
@@ -316,6 +320,10 @@ class ModelAuditor:
         self.max_retries = max_retries
         self.retry_backoff = retry_backoff
         self.judge_fields = judge_fields
+        self.params = params
+        self.target_params = target_params
+        self.judge_params = judge_params
+        self.auditor_params = auditor_params if auditor_params is not None else (judge_params if judge_params is not None else params)
 
         # Resolve judge config: named config is a baseline; explicit params always win.
         # Partial override is supported — e.g. judge="factuality", probe_prompt="custom"
@@ -531,6 +539,7 @@ class ModelAuditor:
         documents: Optional[List[Union[str, Dict[str, Any]]]] = None,
         max_retries: int = 0,
         retry_backoff: float = 0.5,
+        params: Optional[Dict[str, Any]] = None,
     ) -> tuple[str, int, int]:
         """Returns (content, input_tokens, output_tokens).
 
@@ -552,11 +561,13 @@ class ModelAuditor:
             # Documents first: the prompt keeps the leading text block, the
             # documents follow it, and any images come last.
             messages.append(_expand_files(_expand_documents(user_message)))
-        kwargs: Dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "stream": False,
-        }
+        kwargs: Dict[str, Any] = {}
+        if params:
+            kwargs.update(params)
+        # Framework-owned keys always win over user params.
+        kwargs["model"] = model
+        kwargs["messages"] = messages
+        kwargs["stream"] = False
         if response_format:
             kwargs["response_format"] = response_format
         attempt = 0
@@ -591,6 +602,7 @@ class ModelAuditor:
         file_uri: Optional[Union[str, List[str]]] = None,
         max_retries: int = 0,
         retry_backoff: float = 0.5,
+        params: Optional[Dict[str, Any]] = None,
     ) -> tuple[str, int, int]:
         if probe_prompt is not None:
             # Custom probe prompts may opt into the language parameter via a
@@ -643,6 +655,7 @@ Generate the next user message to probe this scenario."""
             file_uri=file_uris,
             max_retries=max_retries,
             retry_backoff=retry_backoff,
+            params=params,
         )
         return content, input_tokens, output_tokens
 
@@ -662,6 +675,7 @@ Generate the next user message to probe this scenario."""
         retry_backoff: float = 0.5,
         postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
         scenario_meta: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
     ) -> tuple[Dict, int, int]:
         conv_text, file_uris = _render_conversation(
             conversation, role_separator="\n", turn_separator="\n\n"
@@ -743,6 +757,7 @@ Evaluate this conversation and respond with this exact JSON structure:
             file_uri=file_uris,
             max_retries=max_retries,
             retry_backoff=retry_backoff,
+            params=params,
         )
         # Reasoning judges wrap their verdict in <think> blocks whose prose
         # routinely contains braces and JSON fragments that would win the
@@ -790,8 +805,16 @@ Evaluate this conversation and respond with this exact JSON structure:
         pbar_judge: Optional[tqdm] = None,
         max_workers: Optional[int] = None,
         scenario_meta: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        target_params: Optional[Dict[str, Any]] = None,
+        judge_params: Optional[Dict[str, Any]] = None,
+        auditor_params: Optional[Dict[str, Any]] = None,
     ) -> AuditResult:
         turns = max_turns or self.max_turns
+        base = {**(self.params or {}), **(params or {})}
+        effective_target = {**base, **(self.target_params or {}), **(target_params or {})}
+        effective_judge = {**base, **(self.judge_params or {}), **(judge_params or {})}
+        effective_auditor = {**base, **(self.auditor_params or {}), **(auditor_params or {})}
 
         mode_str = " (Parallel)" if (max_workers or 1) > 1 else ""
         self._log(f"--- Started Scenario: {name}{mode_str} ---")
@@ -830,6 +853,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                         file_uri=file_uri if turn == 0 else None,
                         max_retries=self.max_retries,
                         retry_backoff=self.retry_backoff,
+                        params=effective_auditor or None,
                     )
                     auditor_input_tokens += a_in
                     auditor_output_tokens += a_out
@@ -856,6 +880,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     history=conversation,
                     max_retries=self.max_retries,
                     retry_backoff=self.retry_backoff,
+                    params=effective_target or None,
                 )
                 target_input_tokens += t_in
                 target_output_tokens += t_out
@@ -898,6 +923,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     retry_backoff=self.retry_backoff,
                     postprocess=judge_postprocess,
                     scenario_meta=scenario_meta,
+                    params=effective_judge or None,
                 )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out
@@ -959,6 +985,10 @@ Evaluate this conversation and respond with this exact JSON structure:
         max_turns: Optional[int] = None,
         language: str = "English",
         max_workers: int = 1,
+        params: Optional[Dict[str, Any]] = None,
+        target_params: Optional[Dict[str, Any]] = None,
+        judge_params: Optional[Dict[str, Any]] = None,
+        auditor_params: Optional[Dict[str, Any]] = None,
     ) -> AuditResults:
         if max_workers < 1:
             raise ValueError(
@@ -1024,6 +1054,10 @@ Evaluate this conversation and respond with this exact JSON structure:
                         pbar_audit=pbar_audit,
                         pbar_judge=pbar_judge,
                         max_workers=max_workers,
+                        params=params,
+                        target_params=target_params,
+                        judge_params=judge_params,
+                        auditor_params=auditor_params,
                     )
                 except Exception as exc:
                     # Don't let one failing scenario abort the whole batch and
@@ -1076,6 +1110,10 @@ Evaluate this conversation and respond with this exact JSON structure:
         max_turns: Optional[int] = None,
         language: str = "English",
         max_workers: int = 1,
+        params: Optional[Dict[str, Any]] = None,
+        target_params: Optional[Dict[str, Any]] = None,
+        judge_params: Optional[Dict[str, Any]] = None,
+        auditor_params: Optional[Dict[str, Any]] = None,
     ) -> AuditResults:
         try:
             asyncio.get_running_loop()
@@ -1086,6 +1124,10 @@ Evaluate this conversation and respond with this exact JSON structure:
                     max_turns=max_turns,
                     language=language,
                     max_workers=max_workers,
+                    params=params,
+                    target_params=target_params,
+                    judge_params=judge_params,
+                    auditor_params=auditor_params,
                 )
             )
         msg = "ModelAuditor.run() cannot be called from an active event loop. Use await <object>.run_async()."

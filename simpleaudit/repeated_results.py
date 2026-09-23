@@ -517,6 +517,7 @@ class RepeatedExperimentResults:
             "n_repetitions": n_reps,
             "models": list(self._runs.keys()),
             "judge": self._judge,
+            "cancelled": self.cancelled,
             "aggregate": {
                 label: _build_model_aggregate(runs)
                 for label, runs in self._runs.items()
@@ -557,4 +558,8 @@ class RepeatedExperimentResults:
                 reconstructed.append(instance)
             runs_by_model[label] = reconstructed
 
-        return cls(runs_by_model, judge=data.get("judge"))
+        return cls(
+            runs_by_model,
+            judge=data.get("judge"),
+            cancelled=data.get("cancelled", False),
+        )

@@ -38,7 +38,7 @@ from .model_auditor import ModelAuditor
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios, list_scenario_packs
 from .judges import get_judge, list_judge_configs
-from .experiment import AuditExperiment
+from .experiment import AuditExperiment, ExperimentEvent
 from .repeated_results import (
     FRAGILE_THRESHOLD_DEFAULT,
     ModelStabilityReport,
@@ -82,6 +82,7 @@ __all__ = [
     "get_judge",
     "list_judge_configs",
     "AuditExperiment",
+    "ExperimentEvent",
     "RepeatedExperimentResults",
     "ModelStabilityReport",
     "ScenarioStats",

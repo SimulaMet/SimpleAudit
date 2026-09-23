@@ -398,9 +398,10 @@ class RepeatedExperimentResults:
     - .save() / .load() — JSON serialization
     """
 
-    def __init__(self, runs_by_model: Dict[str, List[AuditResults]], judge: Optional[Dict] = None) -> None:
+    def __init__(self, runs_by_model: Dict[str, List[AuditResults]], judge: Optional[Dict] = None, cancelled: bool = False) -> None:
         self._runs: Dict[str, List[AuditResults]] = runs_by_model
         self._judge: Optional[Dict] = judge
+        self.cancelled: bool = cancelled
 
     # ------------------------------------------------------------------
     # Backward-compatible dict interface

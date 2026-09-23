@@ -388,7 +388,8 @@ class TestRunStreamed:
         done_events = [e for e in events if e.type == "rep_done"]
         assert len(done_events) == 1
         assert done_events[0].result is not None
-        assert done_events[0].result.severity == "high"
+        # result is full AuditResults; first item has the severity
+        assert done_events[0].result[0].severity == "high"
 
     def test_model_done_has_partial(self):
         results = [_make_results(["pass"]) for _ in range(1)]

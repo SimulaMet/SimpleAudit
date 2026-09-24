@@ -40,10 +40,10 @@ simpleaudit serve --results_dir ./results --port 8080 --host 0.0.0.0
 **Or run directly with uv (no installation needed):**
 ```bash
 # Run directly using uvx
-uvx simpleaudit[visualize] serve --results_dir ./my_audit_results
+uvx 'simpleaudit[visualize]' serve --results_dir ./my_audit_results
 
 # With custom port and host
-uvx simpleaudit[visualize] serve --results_dir ./results --port 8080 --host 0.0.0.0
+uvx 'simpleaudit[visualize]' serve --results_dir ./results --port 8080 --host 0.0.0.0
 ```
 
 > **Note:** `uvx` requires `uv` to be installed on your system. Install it with:
@@ -51,6 +51,14 @@ uvx simpleaudit[visualize] serve --results_dir ./results --port 8080 --host 0.0.
 > pip install uv
 > # or see https://docs.astral.sh/uv/getting-started/installation/
 > ```
+> The package spec is quoted so your shell doesn't glob-expand `[visualize]`.
+
+<Troubleshooting>
+If the command fails:
+- **`Address already in use`** — port 8000 is taken. Use `--port 8080` or stop the other process.
+- **`uvx: command not found`** — install `uv` first (`curl -LsSf https://astral.sh/uv/install.sh | sh`).
+- **Weird import/module error** — stale cache. Run `uv cache clean` and retry.
+</Troubleshooting>
 
 **Features:**
 - 📁 Browse nested folder structures

@@ -120,10 +120,10 @@ results.save("./my_audit_results/audit_results.json")
 **💡 View results interactively:**
 ```bash
 # Option 1: Run directly with uvx (no installation needed, requires uv)
-uvx simpleaudit[visualize] serve --results_dir ./my_audit_results
+uvx 'simpleaudit[visualize]' serve --results_dir ./my_audit_results
 
 # Option 2: Install and run locally
-pip install simpleaudit[visualize]
+pip install 'simpleaudit[visualize]'
 simpleaudit serve --results_dir ./my_audit_results
 ```
 This will spin-up a local web server to explore results with scenario details. 👉 [Check for live demo.](https://simulamet-simpleauditvisualization.hf.space)
@@ -131,7 +131,14 @@ See [visualization/README.md](https://github.com/kelkalot/simpleaudit/blob/main/
 
 To share results as a single self-contained HTML file (no server, no JSON upload), use `simpleaudit export-html ./audit_results.json` or the **Download HTML** button in the visualizer.
 
-> **Note:** Option 1 requires [`uv`](https://pypi.org/project/uv/) to be installed ([install guide](https://docs.astral.sh/uv/getting-started/installation/)).
+> **Note:** Option 1 requires [`uv`](https://pypi.org/project/uv/) to be installed ([install guide](https://docs.astral.sh/uv/getting-started/installation/)). The package spec is quoted so your shell doesn't glob-expand `[visualize]`.
+
+<Troubleshooting>
+If the command fails:
+- **`Address already in use`** — port 8000 is taken. Use `--port 8080` or stop the other process.
+- **`uvx: command not found`** — install `uv` first (`curl -LsSf https://astral.sh/uv/install.sh | sh`).
+- **Weird import/module error** — stale cache. Run `uv cache clean` and retry.
+</Troubleshooting>
 
 [![simpleaudit-visualization-ui](https://github.com/user-attachments/assets/f9bbb891-a847-48d4-85d6-6d6d99c9e017)](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/visualization/README.md)
 

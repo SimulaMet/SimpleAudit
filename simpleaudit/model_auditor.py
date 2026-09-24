@@ -15,6 +15,7 @@ import asyncio
 import json
 import re
 import threading
+import traceback
 import warnings
 from datetime import date
 from importlib.metadata import PackageNotFoundError
@@ -309,6 +310,7 @@ class ModelAuditor:
         target_params: Optional[Dict[str, Any]] = None,
         judge_params: Optional[Dict[str, Any]] = None,
         auditor_params: Optional[Dict[str, Any]] = None,
+        on_turn: Optional[Callable[[int, int, str], None]] = None,
     ):
         if max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {max_retries}")
@@ -319,6 +321,7 @@ class ModelAuditor:
         self.json_format = json_format
         self.max_retries = max_retries
         self.retry_backoff = retry_backoff
+        self.on_turn = on_turn
         self.judge_fields = judge_fields
         self.params = params
         self.target_params = target_params
@@ -488,6 +491,26 @@ class ModelAuditor:
                 if name:
                     message = f"[{name}] {message}"
                 tqdm.write(message)
+
+    def _fire_on_turn(
+        self,
+        turn_index: int,
+        max_turns: int,
+        role: str,
+        callback: Optional[Callable[[int, int, str], None]] = None,
+    ) -> None:
+        """Invoke an on_turn callback if set. Never raises.
+
+        Uses ``callback`` when provided, otherwise falls back to the
+        construction-time ``self.on_turn``. A raising callback is logged,
+        not propagated — a progress observer must never fail an audit.
+        """
+        cb = callback if callback is not None else self.on_turn
+        if cb is not None:
+            try:
+                cb(turn_index, max_turns, role)
+            except Exception:
+                self._log(f"on_turn callback failed:\n{traceback.format_exc()}")
 
     @staticmethod
     def strip_thinking(text: str) -> str:
@@ -809,12 +832,16 @@ Evaluate this conversation and respond with this exact JSON structure:
         target_params: Optional[Dict[str, Any]] = None,
         judge_params: Optional[Dict[str, Any]] = None,
         auditor_params: Optional[Dict[str, Any]] = None,
+        on_turn: Optional[Callable[[int, int, str], None]] = None,
     ) -> AuditResult:
         turns = max_turns or self.max_turns
         base = {**(self.params or {}), **(params or {})}
         effective_target = {**base, **(self.target_params or {}), **(target_params or {})}
         effective_judge = {**base, **(self.judge_params or {}), **(judge_params or {})}
         effective_auditor = {**base, **(self.auditor_params or {}), **(auditor_params or {})}
+
+        # A per-call on_turn overrides one set at construction time; either may be used.
+        effective_on_turn = on_turn if on_turn is not None else self.on_turn
 
         mode_str = " (Parallel)" if (max_workers or 1) > 1 else ""
         self._log(f"--- Started Scenario: {name}{mode_str} ---")
@@ -858,6 +885,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     auditor_input_tokens += a_in
                     auditor_output_tokens += a_out
                     probe = ModelAuditor.strip_thinking(probe)
+                    self._fire_on_turn(turn, turns, "auditor", effective_on_turn)
 
                 probe_preview = probe[:80] + "..." if len(probe) > 80 else probe
                 self._log(f"PROBE: {probe_preview}", name=name)
@@ -885,6 +913,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                 target_input_tokens += t_in
                 target_output_tokens += t_out
                 response = ModelAuditor.strip_thinking(response)
+                self._fire_on_turn(turn, turns, "target", effective_on_turn)
 
                 response_preview = response[:80] + "..." if len(response) > 80 else response
                 self._log(f"TARGET: {response_preview}", name=name)
@@ -927,6 +956,9 @@ Evaluate this conversation and respond with this exact JSON structure:
                 )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out
+                # The judge runs once after all turns complete; report it against
+                # the final turn index so consumers can place it at the end.
+                self._fire_on_turn(turns - 1, turns, "judge", effective_on_turn)
                 if fell_back and isinstance(judgment, dict):
                     judgment["judge_fallback"] = "default"
             except Exception as exc:
@@ -989,6 +1021,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         target_params: Optional[Dict[str, Any]] = None,
         judge_params: Optional[Dict[str, Any]] = None,
         auditor_params: Optional[Dict[str, Any]] = None,
+        on_turn: Optional[Callable[[int, int, str], None]] = None,
     ) -> AuditResults:
         if max_workers < 1:
             raise ValueError(
@@ -1058,6 +1091,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                         target_params=target_params,
                         judge_params=judge_params,
                         auditor_params=auditor_params,
+                        on_turn=on_turn,
                     )
                 except Exception as exc:
                     # Don't let one failing scenario abort the whole batch and
@@ -1114,6 +1148,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         target_params: Optional[Dict[str, Any]] = None,
         judge_params: Optional[Dict[str, Any]] = None,
         auditor_params: Optional[Dict[str, Any]] = None,
+        on_turn: Optional[Callable[[int, int, str], None]] = None,
     ) -> AuditResults:
         try:
             asyncio.get_running_loop()
@@ -1128,6 +1163,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     target_params=target_params,
                     judge_params=judge_params,
                     auditor_params=auditor_params,
+                    on_turn=on_turn,
                 )
             )
         msg = "ModelAuditor.run() cannot be called from an active event loop. Use await <object>.run_async()."

@@ -305,6 +305,7 @@ class AuditExperiment:
         max_turns: Optional[int],
         language: str,
         max_workers: int,
+        on_turn: Optional[Callable[[int, int, str], None]] = None,
     ) -> AuditResults:
         """Execute one rep with auto-retry on ERROR. Returns the final result."""
         attempts = 1 + self.max_retries_per_rep
@@ -316,6 +317,7 @@ class AuditExperiment:
                 max_turns=max_turns,
                 language=language,
                 max_workers=max_workers,
+                on_turn=on_turn,
             )
             if not any(r.severity == "ERROR" for r in result):
                 break
@@ -335,6 +337,7 @@ class AuditExperiment:
         scenario: Dict[str, Any],
         max_turns: Optional[int] = None,
         language: str = "English",
+        on_turn: Optional[Callable[[int, int, str], None]] = None,
     ) -> List[AuditResult]:
         """Run a single scenario N times for one model.
 
@@ -348,6 +351,10 @@ class AuditExperiment:
             scenario: A single scenario dict.
             max_turns: Override for max conversation turns.
             language: Language for probe generation.
+            on_turn: Optional callback fired at each phase boundary with
+                ``(turn_index, max_turns, role)`` where role is "auditor",
+                "target", or "judge". Called synchronously from within the
+                asyncio event loop.
 
         Returns:
             List of :class:`AuditResult`, one per completed rep. May be
@@ -397,7 +404,8 @@ class AuditExperiment:
 
             # Execute with auto-retry
             rep_result = await self._run_single_rep(
-                merged, [scenario], max_turns, language, max_workers=1
+                merged, [scenario], max_turns, language, max_workers=1,
+                on_turn=on_turn,
             )
 
             # Persist

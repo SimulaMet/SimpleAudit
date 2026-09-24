@@ -555,3 +555,76 @@ class TestExperimentEvent:
         assert e.rep_index == 2
         assert e.total_reps == 5
         assert e.result.severity == "pass"
+
+
+# ---------------------------------------------------------------------------
+# on_turn forwarding through run_scenario_reps
+# ---------------------------------------------------------------------------
+
+class TestOnTurnForwarding:
+    """Tests that on_turn is forwarded through run_scenario_reps."""
+
+    def test_on_turn_forwarded_to_each_rep(self):
+        """on_turn should be called for each rep's execution."""
+        calls = []
+
+        def on_turn(turn_index, max_turns, role):
+            calls.append((turn_index, max_turns, role))
+
+        with patch.object(ModelAuditor, '_create_anyllm_client', return_value=MagicMock()):
+            exp = AuditExperiment(
+                models=[{"model": "test-model", "provider": "openai"}],
+                judge_model="judge",
+                judge_provider="openai",
+                show_progress=False,
+                n_repetitions=2,
+            )
+
+            # Mock run_async to capture on_turn
+            async def fake_run_async(self_a, scenarios, **kwargs):
+                # Verify on_turn was passed
+                assert 'on_turn' in kwargs
+                if kwargs['on_turn']:
+                    # Simulate a single turn with target phase
+                    kwargs['on_turn'](0, 1, "target")
+                return _make_results(["pass"])
+
+            with patch.object(ModelAuditor, 'run_async', new=fake_run_async):
+                results = asyncio.run(exp.run_scenario_reps(
+                    model_index=0,
+                    scenario={"name": "test", "description": "desc"},
+                    on_turn=on_turn,
+                ))
+
+        # Should have created 2 reps
+        assert len(results) == 2
+        # on_turn should have been called (at least once per rep)
+        assert len(calls) >= 2
+
+    def test_on_turn_not_forwarded_when_none(self):
+        """When on_turn is None, it should not cause errors."""
+        captured_kwargs = []
+
+        async def fake_run_async(self_a, scenarios, **kwargs):
+            captured_kwargs.append(kwargs)
+            return _make_results(["pass"])
+
+        with patch.object(ModelAuditor, '_create_anyllm_client', return_value=MagicMock()), \
+             patch.object(ModelAuditor, 'run_async', new=fake_run_async):
+            
+            exp = AuditExperiment(
+                models=[{"model": "test-model", "provider": "openai"}],
+                judge_model="judge",
+                judge_provider="openai",
+                show_progress=False,
+                n_repetitions=1,
+            )
+
+            asyncio.run(exp.run_scenario_reps(
+                model_index=0,
+                scenario={"name": "test", "description": "desc"},
+            ))
+
+        # on_turn should not be in kwargs or should be None
+        for kwargs in captured_kwargs:
+            assert 'on_turn' not in kwargs or kwargs['on_turn'] is None

@@ -27,6 +27,7 @@ from tqdm.auto import tqdm
 
 from .context_marks import render_documents
 from .judges import get_judge
+from .judges.compose import SEVERITY_RESPONSE_SCHEMA
 from .judges.default import DEFAULT_JUDGE_CRITERIA, DEFAULT_JUDGE_SEVERITY_LEVELS, DEFAULT_PROBE_PROMPT
 from .results import AuditResult, AuditResults
 from .scenarios import SCENARIO_PACKS
@@ -72,26 +73,7 @@ def _accepts_default_headers(provider: str) -> bool:
 _HEADER_SUPPORT: Dict[str, bool] = {}
 
 
-DEFAULT_JUDGE_RESPONSE_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "severity": {
-            "type": "string",
-            "enum": ["critical", "high", "medium", "low", "pass"],
-        },
-        "issues_found": {"type": "array", "items": {"type": "string"}},
-        "positive_behaviors": {"type": "array", "items": {"type": "string"}},
-        "summary": {"type": "string"},
-        "recommendations": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": [
-        "severity",
-        "issues_found",
-        "positive_behaviors",
-        "summary",
-        "recommendations",
-    ],
-}
+DEFAULT_JUDGE_RESPONSE_SCHEMA: Dict[str, Any] = SEVERITY_RESPONSE_SCHEMA
 
 # Canonical field definitions used to build dynamic schemas and prompt
 # snippets when the caller restricts the judge output via `judge_fields`.
@@ -291,7 +273,7 @@ class ModelAuditor:
         auditor_provider: Optional[str] = None,
         auditor_api_key: Optional[str] = None,
         auditor_base_url: Optional[str] = None,
-        judge: Optional[str] = None,
+        judge: Optional[Union[str, Dict[str, Any]]] = None,
         probe_prompt: Optional[str] = None,
         judge_prompt: Optional[str] = None,
         judge_response_schema: Optional[Dict[str, Any]] = None,
@@ -337,8 +319,11 @@ class ModelAuditor:
         # A config may also declare `postprocess`, a callable applied to the
         # parsed judge output (see judges/checklist.py), and
         # `requires_expected_behavior`, which sends scenarios without
-        # expectations to the default judge instead.
-        self.judge_name: Optional[str] = judge
+        # expectations to the default judge instead. `judge` may also be a
+        # config dict, e.g. from build_judge() or customize_judge().
+        self.judge_name: Optional[str] = (
+            judge.get("name") or "custom judge" if isinstance(judge, dict) else judge
+        )
         self.judge_config: Optional[Dict[str, Any]] = None
         if judge is not None:
             config = get_judge(judge)

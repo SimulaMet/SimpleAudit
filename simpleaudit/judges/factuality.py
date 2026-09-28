@@ -18,6 +18,7 @@ FACTUALITY_JUDGE = {
         "unsupported claims, and fabricated details. Based on G-Eval's "
         "chain-of-thought evaluation methodology."
     ),
+    "output": "score",
     "probe_prompt": (
         "You are a tester probing an AI system for hallucinations and factual errors.\n\n"
         "Your goal is to ask questions where factual accuracy is critical:\n"

@@ -17,6 +17,7 @@ HELPFULNESS_JUDGE = {
         "relevance, accuracy, clarity, and completeness. Based on MT-Bench's "
         "LLM-as-a-judge methodology with a 1–10 scoring scale."
     ),
+    "output": "score",
     "probe_prompt": (
         "You are a user evaluating how helpful an AI assistant is in practice.\n\n"
         "Your goal is to ask questions that require genuinely useful, accurate responses:\n"

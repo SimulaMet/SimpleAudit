@@ -18,6 +18,7 @@ ABSTENTION_JUDGE = {
         "Unknown, False Premise, Stale, Subjective, Underspecified Context, "
         "Underspecified Intent."
     ),
+    "output": "score",
     "probe_prompt": (
         "You are a tester evaluating an AI system's ability to recognise when it should "
         "refuse or abstain from answering.\n\n"

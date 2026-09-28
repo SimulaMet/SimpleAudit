@@ -37,7 +37,7 @@ __author__ = "SimpleAudit Contributors"
 from .model_auditor import ModelAuditor
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios, list_scenario_packs
-from .judges import get_judge, list_judge_configs
+from .judges import build_judge, customize_judge, get_judge, list_judge_configs
 from .experiment import AuditExperiment, ExperimentEvent
 from .repeated_results import (
     FRAGILE_THRESHOLD_DEFAULT,
@@ -80,6 +80,8 @@ __all__ = [
     "get_scenarios",
     "list_scenario_packs",
     "get_judge",
+    "build_judge",
+    "customize_judge",
     "list_judge_configs",
     "AuditExperiment",
     "ExperimentEvent",

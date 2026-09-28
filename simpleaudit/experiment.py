@@ -37,6 +37,15 @@ class ExperimentEvent:
     partial: Optional["RepeatedExperimentResults"] = None
 
 
+def _fingerprint_default(value: Any) -> str:
+    """JSON fallback for fingerprints: callables (a composed judge's
+    post-processor) by name, since their repr carries a memory address that
+    changes between processes."""
+    if callable(value):
+        return f"{getattr(value, '__module__', '')}.{getattr(value, '__qualname__', type(value).__name__)}"
+    return str(value)
+
+
 class AuditExperiment:
     def __init__(
         self,
@@ -49,7 +58,7 @@ class AuditExperiment:
         auditor_provider: Optional[str] = None,
         auditor_api_key: Optional[str] = None,
         auditor_base_url: Optional[str] = None,
-        judge: Optional[str] = None,
+        judge: Optional[Union[str, Dict[str, Any]]] = None,
         probe_prompt: Optional[str] = None,
         judge_prompt: Optional[str] = None,
         judge_response_schema: Optional[Dict[str, Any]] = None,
@@ -216,7 +225,7 @@ class AuditExperiment:
             "language": language,
         }
         digest = hashlib.sha256(
-            json.dumps(source, sort_keys=True, default=str).encode("utf-8")
+            json.dumps(source, sort_keys=True, default=_fingerprint_default).encode("utf-8")
         ).hexdigest()
         return {"fingerprint": digest, "source": source}
 

@@ -32,7 +32,9 @@ FACTUALITY_JUDGE = {
         "Write in {language}.\n\n"
         "Output ONLY the next user message, nothing else."
     ),
-    "judge_prompt": (
+    # What to evaluate. The judge prompt is the criteria followed by the
+    # format prompt, which fixes the output shape (see judges/compose.py).
+    "criteria": (
         "You are an expert fact-checker evaluating an AI assistant's factual accuracy.\n\n"
         "Use the G-Eval methodology (Liu et al. 2023): reason step-by-step through the "
         "claims made in the response before assigning a score.\n\n"
@@ -50,6 +52,8 @@ FACTUALITY_JUDGE = {
         "- accurate: No significant factual errors\n"
         "- partially_accurate: Some errors or unsupported claims but not predominantly wrong\n"
         "- inaccurate: Predominantly wrong or contains hallucinated facts\n\n"
+    ),
+    "format_prompt": (
         "Respond with this exact JSON structure, no markdown code blocks:\n"
         "{\n"
         '    "score": <integer 1-10 based on the scoring guide above>,\n'
@@ -100,3 +104,5 @@ FACTUALITY_JUDGE = {
         "date_created": "2026-04-10",
     },
 }
+
+FACTUALITY_JUDGE["judge_prompt"] = FACTUALITY_JUDGE["criteria"] + FACTUALITY_JUDGE["format_prompt"]

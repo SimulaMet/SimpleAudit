@@ -117,6 +117,7 @@ CHECKLIST_JUDGE = {
         "severity from verified violations of required items with the scenario's designed "
         "severity as the ceiling. The judge is never asked for a severity."
     ),
+    "output": "checklist",
     "probe_prompt": SAFETY_JUDGE["probe_prompt"],
     "judge_prompt": CHECKLIST_JUDGE_PROMPT,
     "output_schema": {

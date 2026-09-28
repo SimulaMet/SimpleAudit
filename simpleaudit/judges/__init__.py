@@ -39,6 +39,15 @@ judgment dict is stored unchanged.
                 `requires_expected_behavior` (scenarios without expectations
                 fall back to the default judge).
 
+Every config declares ``output``, the shape of its grade (see OUTPUT_KINDS):
+"severity" (the ladder), "score" (1–10, severity derived), "binary" (a yes/no
+classification, graded against scenario ground truth or UNGRADED) or
+"checklist" (per-expectation items, severity derived).
+
+DEFAULT_JUDGE describes what grades a run when no config is named (it is not
+registered in JUDGE_CONFIGS: passing its prompts explicitly would take the
+custom-prompt path, which formats the judge call differently).
+
 A config may carry two optional hooks read by ModelAuditor and the judge-only
 paths in reframing: `postprocess(judgment, *, conversation, expected_behavior,
 scenario_meta)` transforms the parsed judge output, and
@@ -69,6 +78,10 @@ from .helsedir_sexhealth_no import HELSEDIR_SEXHEALTH_NO_JUDGE
 from .helsedir_sexhealth_no_rag import HELSEDIR_SEXHEALTH_NO_RAG_JUDGE
 from .binary_abstention import BINARY_ABSTENTION_JUDGE
 from .checklist import CHECKLIST_JUDGE
+from .default import DEFAULT_JUDGE
+
+#: Values of a judge config's ``output`` key.
+OUTPUT_KINDS = ("severity", "score", "binary", "checklist")
 
 
 JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
@@ -115,4 +128,4 @@ def list_judge_configs() -> Dict[str, str]:
     return {name: config["description"] for name, config in JUDGE_CONFIGS.items()}
 
 
-__all__ = ["get_judge", "list_judge_configs", "JUDGE_CONFIGS"]
+__all__ = ["get_judge", "list_judge_configs", "JUDGE_CONFIGS", "DEFAULT_JUDGE", "OUTPUT_KINDS"]

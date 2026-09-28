@@ -53,6 +53,10 @@ class AuditExperiment:
         probe_prompt: Optional[str] = None,
         judge_prompt: Optional[str] = None,
         judge_response_schema: Optional[Dict[str, Any]] = None,
+        judge_kwargs: Optional[Dict[str, Any]] = None,
+        auditor_kwargs: Optional[Dict[str, Any]] = None,
+        judge_params: Optional[Dict[str, Any]] = None,
+        auditor_params: Optional[Dict[str, Any]] = None,
         json_format: bool = True,
         verbose: bool = False,
         show_progress: bool = True,
@@ -113,6 +117,12 @@ class AuditExperiment:
         self.probe_prompt = probe_prompt
         self.judge_prompt = judge_prompt
         self.judge_response_schema = judge_response_schema
+        # Judge / auditor client kwargs and per-request params shared by every
+        # model; a model entry's own values win (see _merge_common).
+        self.judge_kwargs = judge_kwargs
+        self.auditor_kwargs = auditor_kwargs
+        self.judge_params = judge_params
+        self.auditor_params = auditor_params
         self.json_format = json_format
         self.verbose = verbose
         self.show_progress = show_progress
@@ -161,6 +171,9 @@ class AuditExperiment:
             merged["json_format"] = self.json_format
         if merged.get("judge_response_schema") is None and self.judge_response_schema is not None:
             merged["judge_response_schema"] = self.judge_response_schema
+        for key in ("judge_kwargs", "auditor_kwargs", "judge_params", "auditor_params"):
+            if merged.get(key) is None and getattr(self, key) is not None:
+                merged[key] = getattr(self, key)
         if merged.get("verbose") is None:
             merged["verbose"] = self.verbose
         if merged.get("show_progress") is None:

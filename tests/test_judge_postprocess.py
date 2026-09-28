@@ -114,10 +114,18 @@ def test_explicit_judge_postprocess_overrides_the_config():
 
 
 def test_existing_judges_have_no_hooks():
-    for name in ("safety", "abstention", "helpfulness", "factuality", "harm", "binary_abstention"):
+    for name in ("safety", "abstention", "helpfulness", "factuality", "harm"):
         auditor = make_auditor(fixed_target("x"), fixed_severity_judge("pass"), judge_name=name)
         assert auditor.judge_postprocess is None
         assert auditor.judge_requires_expected_behavior is False
+
+
+def test_binary_abstention_grades_in_postprocess():
+    from simpleaudit.judges.binary_abstention import postprocess_binary_abstention
+
+    auditor = make_auditor(fixed_target("x"), fixed_severity_judge("pass"), judge_name="binary_abstention")
+    assert auditor.judge_postprocess is postprocess_binary_abstention
+    assert auditor.judge_requires_expected_behavior is False
 
 
 def _checklist_json(*statuses):

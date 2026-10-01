@@ -34,11 +34,18 @@ def normalize_span(raw: Dict[str, Any]) -> Dict[str, Any]:
                 return attrs[k]
         return None
 
+    # OTLP carries span kind as a proto int (1=INTERNAL, 2=SERVER, ...); the
+    # OpenInference/OTel attribute carries a string kind (RETRIEVER, TOOL, ...).
+    # Prefer the string attribute; fall back to the OTLP kind coerced to a
+    # string so downstream code (e.g. select_spans) can always call .upper().
+    kind = _attr("openinference.span.kind", "span.kind") or raw.get("kind")
+    kind = str(kind) if kind is not None and kind != "" else "CHAIN"
+
     return {
         "span_id": raw.get("span_id") or _attr("span_id") or "",
         "trace_id": raw.get("trace_id") or _attr("trace_id") or "",
         "name": raw.get("name") or _attr("openinference.span.kind", "span.name") or "span",
-        "kind": _attr("openinference.span.kind", "span.kind") or raw.get("kind") or "CHAIN",
+        "kind": kind,
         "parent_span_id": raw.get("parent_span_id") or _attr("parent_span_id") or None,
         "attributes": attrs,
         "start_time": raw.get("start_time"),

@@ -67,6 +67,7 @@ def parse_otlp_json(payload: Any) -> List[Dict[str, Any]]:
                         "span_id": span.get("spanId") or "",
                         "parent_span_id": span.get("parentSpanId") or None,
                         "name": span.get("name") or "span",
+                        "kind": span.get("kind"),
                         "start_time": _proto_ts_to_unix(span.get("startTimeUnixNano")),
                         "end_time": _proto_ts_to_unix(span.get("endTimeUnixNano")),
                         "status": _status_code(span.get("status")),
@@ -369,6 +370,12 @@ class EphemeralOTLPGRPCReceiver:
     def __exit__(self, *exc: Any) -> None:
         self.stop()
 
+    async def __aenter__(self) -> "EphemeralOTLPGRPCReceiver":
+        return self.start()
+
+    async def __aexit__(self, *exc: Any) -> None:
+        self.stop()
+
 
 def _parse_otlp_grpc(request: Any) -> List[Dict[str, Any]]:
     """Parse an OTLP/gRPC ``ExportTraceServiceRequest`` into raw span dicts.
@@ -435,6 +442,3 @@ def _proto_attr_value(value: Any) -> Any:
     if which == "kvlist_value":
         return {kv.key: _proto_attr_value(kv.value) for kv in value.kvlist_value.values}
     return None
-
-    async def __aexit__(self, *exc: Any) -> None:
-        self.stop()

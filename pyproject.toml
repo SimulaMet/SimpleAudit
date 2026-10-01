@@ -34,6 +34,14 @@ dependencies = [
 simpleaudit = "simpleaudit.cli:main"
 
 [project.optional-dependencies]
+# OTLP trace ingestion (simpleaudit.tracing). The core audit engine works with
+# no tracing; install this extra to run the builtin OTLP receiver (HTTP-JSON
+# and gRPC) that captures spans from instrumented targets.
+tracing = [
+    "aiohttp>=3.9",
+    "grpcio>=1.60",
+    "opentelemetry-proto>=1.20",
+]
 plot = ["matplotlib>=3.5.0"]
 visualize = [
     "fastapi>=0.104.0",

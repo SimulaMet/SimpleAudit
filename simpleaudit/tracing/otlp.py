@@ -19,9 +19,12 @@ with a protobuf decoder. The normalization target is the same either way.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .store import SpanStore, normalize_span
+
+if TYPE_CHECKING:  # pragma: no cover - annotation only
+    from .auth import Authenticator
 
 
 def _proto_ts_to_unix(ns: Any) -> Optional[float]:
@@ -125,11 +128,29 @@ class OTLPTraceReceiver:
         await receiver.handle(open("export.json").read())
     """
 
-    def __init__(self, store: Optional[SpanStore] = None) -> None:
+    def __init__(
+        self,
+        store: Optional[SpanStore] = None,
+        authenticator: Optional["Authenticator"] = None,
+    ) -> None:
         self.store = store or SpanStore()
+        # Optional auth gate. When set, handle() calls it with the request's
+        # Authorization header and rejects the export (401) on failure. When
+        # None the receiver is open — the historical, backward-compatible
+        # behaviour for the local, single-audit ephemeral case.
+        self.authenticator = authenticator
 
-    async def handle(self, body: Any) -> Dict[str, Any]:
-        """Ingest an OTLP JSON export body; return the OTLP ack payload."""
+    async def handle(self, body: Any, authorization: Optional[str] = None) -> Dict[str, Any]:
+        """Ingest an OTLP JSON export body; return the OTLP ack payload.
+
+        When an ``authenticator`` was provided, *authorization* (the raw
+        ``Authorization`` header) is checked first; a failed check returns a
+        401 ``{"error": ...}`` payload and no spans are stored.
+        """
+        if self.authenticator is not None:
+            result = self.authenticator(authorization)
+            if not result.authenticated:
+                return {"status": 401, "error": {"code": "unauthorized", "message": "Invalid or missing OTLP credentials."}}
         raw_spans = parse_otlp_json(body)
         self.store.add_many(raw_spans)
         # OTLP ack: partialSuccess with the number of rejected spans (0 here).
@@ -169,10 +190,20 @@ class EphemeralOTLPReceiver:
     sync and async callers. Port 0 binds an ephemeral port.
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 0, store: Optional[SpanStore] = None) -> None:
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 0,
+        store: Optional[SpanStore] = None,
+        authenticator: Optional["Authenticator"] = None,
+    ) -> None:
         self.host = host
         self.port = port
         self.store = store or SpanStore()
+        # Optional auth gate (see OTLPTraceReceiver). When set, each POST is
+        # checked against the request's Authorization header and rejected with
+        # 401 on failure. None = open receiver (default).
+        self.authenticator = authenticator
         self._runner: Optional[Any] = None
         self._site: Optional[Any] = None
         self._thread: Optional[Any] = None
@@ -192,6 +223,14 @@ class EphemeralOTLPReceiver:
 
     async def _handle_traces(self, request: Any) -> Any:
         from aiohttp import web
+
+        if self.authenticator is not None:
+            result = self.authenticator(request.headers.get("Authorization"))
+            if not result.authenticated:
+                return web.json_response(
+                    {"error": {"code": "unauthorized", "message": "Invalid or missing OTLP credentials."}},
+                    status=401,
+                )
 
         content_type = request.headers.get("Content-Type", "")
         body_bytes = await request.read()

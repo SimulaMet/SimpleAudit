@@ -53,8 +53,10 @@ from .repeated_results import (
     ModelStabilityReport,
     RepeatedExperimentResults,
     ScenarioStats,
+    aggregate_severities,
 )
 from .cross_judge import CrossJudgeExperiment, CrossJudgeResults, compare_judges
+from .stats import DEFAULT_Z, two_proportion_z, wilson_interval
 from .reframing import (
     PanelResults,
     PanelVerdict,
@@ -105,6 +107,10 @@ __all__ = [
     "ModelStabilityReport",
     "ScenarioStats",
     "FRAGILE_THRESHOLD_DEFAULT",
+    "aggregate_severities",
+    "wilson_interval",
+    "two_proportion_z",
+    "DEFAULT_Z",
     "CrossJudgeExperiment",
     "CrossJudgeResults",
     "compare_judges",

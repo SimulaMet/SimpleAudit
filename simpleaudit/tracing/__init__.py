@@ -12,6 +12,17 @@ Tracing adds richer evidence (retrieved docs, tool calls, agent reasoning)
 when the target is instrumented.
 """
 
+from .auth import (
+    AuthResult,
+    Authenticator,
+    hash_secret,
+    make_basic_bearer_authenticator,
+    new_salt,
+    parse_basic_header,
+    parse_bearer_header,
+    token_lookup_prefix,
+    verify_secret,
+)
 from .context import (
     TraceCorrelation,
     TurnTraceLink,
@@ -58,4 +69,13 @@ __all__ = [
     "summarize_for_judge",
     "DEFAULT_EVIDENCE_KINDS",
     "DEFAULT_NOISE_KINDS",
+    "AuthResult",
+    "Authenticator",
+    "hash_secret",
+    "new_salt",
+    "verify_secret",
+    "parse_basic_header",
+    "parse_bearer_header",
+    "token_lookup_prefix",
+    "make_basic_bearer_authenticator",
 ]

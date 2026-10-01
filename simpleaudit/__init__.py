@@ -35,6 +35,15 @@ except PackageNotFoundError:
 __author__ = "SimpleAudit Contributors"
 
 from .model_auditor import ModelAuditor
+from .auditor import Auditor
+from .targets import (
+    CallableTarget,
+    HTTPAppTarget,
+    ModelTarget,
+    Target,
+    TargetContext,
+    TargetResponse,
+)
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios, list_scenario_packs
 from .judges import build_judge, customize_judge, get_judge, list_judge_configs
@@ -44,8 +53,10 @@ from .repeated_results import (
     ModelStabilityReport,
     RepeatedExperimentResults,
     ScenarioStats,
+    aggregate_severities,
 )
 from .cross_judge import CrossJudgeExperiment, CrossJudgeResults, compare_judges
+from .stats import DEFAULT_Z, two_proportion_z, wilson_interval
 from .reframing import (
     PanelResults,
     PanelVerdict,
@@ -75,6 +86,13 @@ from .perturbations import (
 
 __all__ = [
     "ModelAuditor",
+    "Auditor",
+    "Target",
+    "TargetContext",
+    "TargetResponse",
+    "ModelTarget",
+    "HTTPAppTarget",
+    "CallableTarget",
     "AuditResults",
     "AuditResult",
     "get_scenarios",
@@ -89,6 +107,10 @@ __all__ = [
     "ModelStabilityReport",
     "ScenarioStats",
     "FRAGILE_THRESHOLD_DEFAULT",
+    "aggregate_severities",
+    "wilson_interval",
+    "two_proportion_z",
+    "DEFAULT_Z",
     "CrossJudgeExperiment",
     "CrossJudgeResults",
     "compare_judges",

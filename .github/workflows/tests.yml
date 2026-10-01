@@ -14,7 +14,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      
+        with:
+          # testmon diffs against the base to pick affected tests; needs history.
+          fetch-depth: 0
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -23,14 +26,24 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-      
-      - name: Run tests with coverage
+          # dev: test tooling; tracing: aiohttp/grpcio/otlp-proto needed by the
+          # builtin OTLP receiver tests.
+          pip install -e ".[dev,tracing]"
+
+      - name: Cache testmon dependency data
+        uses: actions/cache@v4
+        with:
+          path: .testmondata
+          key: testmon-py${{ matrix.python-version }}-${{ github.sha }}
+          restore-keys: |
+            testmon-py${{ matrix.python-version }}-
+
+      - name: Run tests (parallel, affected-only via testmon) with coverage
         run: |
           # pipefail: without it the step's exit code is tee's, and the job is
           # green whatever pytest reports.
           set -o pipefail
-          pytest --cov=simpleaudit --cov-report=xml --cov-report=html --cov-report=term-missing --cov-report=term | tee coverage-output.txt
+          pytest --testmon -n auto --cov=simpleaudit --cov-report=xml --cov-report=html --cov-report=term-missing --cov-report=term | tee coverage-output.txt
       
       - name: Add coverage summary to job
         if: always()

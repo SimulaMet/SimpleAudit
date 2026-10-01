@@ -34,15 +34,28 @@ dependencies = [
 simpleaudit = "simpleaudit.cli:main"
 
 [project.optional-dependencies]
+# OTLP trace ingestion (simpleaudit.tracing). The core audit engine works with
+# no tracing; install this extra to run the builtin OTLP receiver (HTTP-JSON
+# and gRPC) that captures spans from instrumented targets.
+tracing = [
+    "aiohttp>=3.9",
+    "grpcio>=1.60",
+    "opentelemetry-proto>=1.20",
+]
 plot = ["matplotlib>=3.5.0"]
 visualize = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
 ]
 dev = [
-    "pytest>=7.0.0",
+    # pytest is pinned <9 because pytest-testmon 2.x is not yet compatible with
+    # pytest 9 (same pin as Studio).
+    "pytest>=8,<9",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
+    # xdist is pinned <3.8 because 3.8+ pulls in `greenlet` (same pin as Studio).
+    "pytest-xdist>=3.6,<3.8",
+    "pytest-testmon>=2,<3",
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]

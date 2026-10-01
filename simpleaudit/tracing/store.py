@@ -18,6 +18,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+# OTLP SpanKind proto enum values -> names (opentelemetry.proto.trace.v1).
+# Used to render an int kind (as sent over gRPC/proto) as its name.
+_OTLP_SPAN_KIND_NAMES: Dict[int, str] = {
+    0: "UNSPECIFIED",
+    1: "INTERNAL",
+    2: "SERVER",
+    3: "CLIENT",
+    4: "PRODUCER",
+    5: "CONSUMER",
+}
+
 
 def normalize_span(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize a raw span (OTel/OpenInference-shaped) to the store schema.
@@ -36,9 +47,12 @@ def normalize_span(raw: Dict[str, Any]) -> Dict[str, Any]:
 
     # OTLP carries span kind as a proto int (1=INTERNAL, 2=SERVER, ...); the
     # OpenInference/OTel attribute carries a string kind (RETRIEVER, TOOL, ...).
-    # Prefer the string attribute; fall back to the OTLP kind coerced to a
-    # string so downstream code (e.g. select_spans) can always call .upper().
+    # Prefer the string attribute; fall back to the OTLP kind mapped to its
+    # SpanKind name (or coerced to a string) so downstream code (e.g.
+    # select_spans) can always call .upper().
     kind = _attr("openinference.span.kind", "span.kind") or raw.get("kind")
+    if isinstance(kind, int):
+        kind = _OTLP_SPAN_KIND_NAMES.get(kind, str(kind))
     kind = str(kind) if kind is not None and kind != "" else "CHAIN"
 
     return {

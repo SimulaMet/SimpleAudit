@@ -351,6 +351,18 @@ def test_span_store_by_kind_and_trace():
     assert [s["span_id"] for s in store.by_kind("tool")] == ["s3"]  # case-insensitive
 
 
+def test_normalize_span_maps_otlp_int_kind_to_name():
+    from simpleaudit.tracing.store import normalize_span
+
+    # OTLP gRPC/proto sends kind as a SpanKind int; normalize to its name.
+    assert normalize_span({"span_id": "s", "trace_id": "t", "kind": 2})["kind"] == "SERVER"
+    assert normalize_span({"span_id": "s", "trace_id": "t", "kind": 3})["kind"] == "CLIENT"
+    # A string kind (OpenInference) is preserved as-is.
+    assert normalize_span({"span_id": "s", "trace_id": "t", "kind": "RETRIEVER"})["kind"] == "RETRIEVER"
+    # Unknown int falls back to its string form.
+    assert normalize_span({"span_id": "s", "trace_id": "t", "kind": 99})["kind"] == "99"
+
+
 def test_span_store_by_attribute():
     store = SpanStore()
     store.add({"span_id": "s1", "trace_id": "t1", "attributes": {"simpleaudit.turn_id": "turn_5"}})

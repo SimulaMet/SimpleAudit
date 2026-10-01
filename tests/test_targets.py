@@ -269,3 +269,58 @@ def test_auditor_delegates_to_engine():
     assert hasattr(a, "run_async")
     # The unused model target client should be the noop placeholder
     assert type(a.engine.target_client).__name__ == "_NoopTargetClient"
+
+
+# ---------------------------------------------------------------------------
+# Trace-context correlation (engine -> target)
+# ---------------------------------------------------------------------------
+
+def test_engine_forwards_traceparent_and_records_correlation():
+    """The engine generates a W3C traceparent per turn and records it."""
+    import asyncio
+
+    from simpleaudit.tracing.context import TraceCorrelation
+    from tests.fakes import fixed_probe_auditor, fixed_severity_judge, fixed_target, make_auditor
+
+    captured: dict = {}
+
+    class _CapturingTarget:
+        async def send(self, *, user, history=None, context=None, **kw):
+            captured["context"] = context
+            return TargetResponse(content="ok")
+
+    auditor = make_auditor(
+        target=fixed_target("ok"),
+        judge=fixed_severity_judge("pass"),
+        auditor=fixed_probe_auditor("probe"),
+        max_turns=2,
+        show_progress=False,
+    )
+    # Override the target with one that captures the context.
+    auditor.set_target(_CapturingTarget())
+
+    correlation = TraceCorrelation(audit_run_id="audit_test")
+    scenarios = [{"name": "Corr", "description": "correlation test"}]
+    asyncio.run(
+        auditor.run_async(
+            scenarios=scenarios,
+            max_turns=2,
+            audit_run_id="audit_test",
+            trace_correlation=correlation,
+        )
+    )
+
+    ctx = captured["context"]
+    assert ctx is not None
+    assert ctx.audit_run_id == "audit_test"
+    assert ctx.scenario_run_id
+    assert ctx.turn_id
+    # traceparent is a valid W3C header: 00-<32hex>-<16hex>-01
+    tp = ctx.trace_headers["traceparent"]
+    parts = tp.split("-")
+    assert parts[0] == "00"
+    assert len(parts[1]) == 32
+    assert len(parts[2]) == 16
+    assert parts[3] == "01"
+    # The correlation recorded at least one turn -> trace link.
+    assert correlation.all_trace_ids()

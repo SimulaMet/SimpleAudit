@@ -31,6 +31,8 @@ from .judges.compose import SEVERITY_RESPONSE_SCHEMA
 from .judges.default import DEFAULT_JUDGE_CRITERIA, DEFAULT_JUDGE_SEVERITY_LEVELS, DEFAULT_PROBE_PROMPT
 from .results import AuditResult, AuditResults
 from .scenarios import SCENARIO_PACKS
+from .targets.base import TargetContext
+from .tracing.context import make_traceparent, new_trace_id
 from .utils import (
     _extract_json_payload,
     image_content_block,
@@ -863,8 +865,15 @@ Evaluate this conversation and respond with this exact JSON structure:
         auditor_params: Optional[Dict[str, Any]] = None,
         on_turn: Optional[Callable[[int, int, str], None]] = None,
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
+        audit_run_id: Optional[str] = None,
+        trace_correlation: Optional[Any] = None,
     ) -> AuditResult:
         turns = max_turns or self.max_turns
+        # Per-scenario correlation ids. A fresh trace id per scenario keeps each
+        # scenario's turns in one W3C trace while still allowing 0..N observed
+        # traces per turn (fan-out) via trace_correlation.
+        scenario_run_id = f"scen_{new_trace_id()[:12]}"
+        scenario_trace_id = new_trace_id()
         base = {**(self.params or {}), **(params or {})}
         effective_target = {**base, **(self.target_params or {}), **(target_params or {})}
         effective_judge = {**base, **(self.judge_params or {}), **(judge_params or {})}
@@ -930,12 +939,25 @@ Evaluate this conversation and respond with this exact JSON structure:
                     entry["documents"] = _json_safe_documents(documents)
                 conversation.append(entry)
 
+                # Build per-turn trace context so an instrumented target can
+                # propagate the W3C traceparent and link its spans back to this
+                # audit turn. Black-box targets simply ignore the context.
+                turn_id = f"{scenario_run_id}_t{turn + 1}"
+                target_context = TargetContext(
+                    audit_run_id=audit_run_id,
+                    scenario_run_id=scenario_run_id,
+                    turn_id=turn_id,
+                    trace_headers={"traceparent": make_traceparent(scenario_trace_id)},
+                )
                 target_resp = await self.target.send(
                     system=self.system_prompt,
                     user=probe,
                     history=conversation,
                     params=effective_target or None,
+                    context=target_context,
                 )
+                if trace_correlation is not None:
+                    trace_correlation.record(turn_id, scenario_trace_id)
                 t_in = target_resp.input_tokens or 0
                 t_out = target_resp.output_tokens or 0
                 target_input_tokens += t_in
@@ -1052,12 +1074,15 @@ Evaluate this conversation and respond with this exact JSON structure:
         auditor_params: Optional[Dict[str, Any]] = None,
         on_turn: Optional[Callable[[int, int, str], None]] = None,
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
+        audit_run_id: Optional[str] = None,
+        trace_correlation: Optional[Any] = None,
     ) -> AuditResults:
         if max_workers < 1:
             raise ValueError(
                 f"max_workers must be >= 1, got {max_workers} "
                 "(a semaphore of 0 permits would deadlock the run)"
             )
+        audit_run_id = audit_run_id or f"audit_{new_trace_id()[:12]}"
         # Cached on URI alone, so a file regenerated between two audits in one
         # process would otherwise be replayed from its old bytes.
         image_data_uri.cache_clear()
@@ -1123,6 +1148,8 @@ Evaluate this conversation and respond with this exact JSON structure:
                         auditor_params=auditor_params,
                         on_turn=on_turn,
                         evidence_spans=evidence_spans,
+                        audit_run_id=audit_run_id,
+                        trace_correlation=trace_correlation,
                     )
                 except Exception as exc:
                     # Don't let one failing scenario abort the whole batch and
@@ -1181,6 +1208,8 @@ Evaluate this conversation and respond with this exact JSON structure:
         auditor_params: Optional[Dict[str, Any]] = None,
         on_turn: Optional[Callable[[int, int, str], None]] = None,
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
+        audit_run_id: Optional[str] = None,
+        trace_correlation: Optional[Any] = None,
     ) -> AuditResults:
         try:
             asyncio.get_running_loop()
@@ -1197,6 +1226,8 @@ Evaluate this conversation and respond with this exact JSON structure:
                     auditor_params=auditor_params,
                     on_turn=on_turn,
                     evidence_spans=evidence_spans,
+                    audit_run_id=audit_run_id,
+                    trace_correlation=trace_correlation,
                 )
             )
         msg = "ModelAuditor.run() cannot be called from an active event loop. Use await <object>.run_async()."

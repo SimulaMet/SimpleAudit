@@ -313,6 +313,70 @@ class SharedOTLPReceiver:
         self.stop()
 
 
+class SharedOTLP:
+    """A :class:`TraceProvider` that plugs into a :class:`SharedOTLPReceiver`.
+
+    Use this with :func:`audit_with_tracing` when the target exports to a
+    shared, long-lived OTLP receiver (e.g. the Studio's global endpoint)
+    rather than an ephemeral per-audit receiver.
+
+    The provider creates a :class:`TraceSession` on :meth:`start`, registers
+    trace ids as the engine generates them, and discards the session on
+    :meth:`stop`.
+
+    Usage::
+
+        shared = SharedOTLPReceiver(port=4317).start()
+        provider = SharedOTLP(shared, audit_id="audit_101")
+        results = await audit_with_tracing(auditor, "safety", provider=provider)
+    """
+
+    def __init__(self, shared: "SharedOTLPReceiver", *, audit_id: str = "", ttl: float = 300.0) -> None:
+        self._shared = shared
+        self._audit_id = audit_id
+        self._ttl = ttl
+        self._session: Optional[TraceSession] = None
+
+    def start(self) -> "SharedOTLP":
+        from .context import new_trace_id
+
+        if self._session is None:
+            self._audit_id = self._audit_id or f"audit_{new_trace_id()[:12]}"
+            self._session = self._shared.sessions.create(
+                self._audit_id, ttl=self._ttl
+            )
+        return self
+
+    def stop(self) -> None:
+        if self._session is not None:
+            self._shared.sessions.close(self._audit_id)
+            self._session = None
+
+    @property
+    def endpoint(self) -> Optional[str]:
+        return self._shared.endpoint
+
+    @property
+    def audit_id(self) -> str:
+        return self._audit_id
+
+    def register_trace(self, trace_id: str) -> None:
+        """Register a trace_id with this session (called by the correlation layer)."""
+        if self._session is not None:
+            self._shared.sessions.register_trace(self._audit_id, trace_id)
+
+    def fetch(self, trace_id: str) -> List[Dict[str, Any]]:
+        if self._session is None:
+            return []
+        return self._session.spans_for_trace(trace_id)
+
+    def __enter__(self) -> "SharedOTLP":
+        return self.start()
+
+    def __exit__(self, *exc: Any) -> None:
+        self.stop()
+
+
 class _RoutingSpanStore:
     """A SpanStore-compatible facade that routes spans to TraceSessions.
 

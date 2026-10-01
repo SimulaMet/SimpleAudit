@@ -164,6 +164,11 @@ async def audit_with_tracing(
     audit_run_id = audit_run_id or f"audit_{new_trace_id()[:12]}"
     correlation = TraceCorrelation(audit_run_id=audit_run_id)
 
+    # If the provider supports trace registration (SharedOTLP), hook the
+    # correlation so new trace_ids are routed to the right session.
+    if hasattr(provider, "register_trace"):
+        correlation.on_new_trace = provider.register_trace
+
     with provider:
         results = await auditor.run_async(
             scenarios,

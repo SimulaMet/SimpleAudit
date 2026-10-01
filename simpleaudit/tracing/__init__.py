@@ -21,7 +21,7 @@ from .context import (
 )
 from .otlp import EphemeralOTLPGRPCReceiver, EphemeralOTLPReceiver, OTLPTraceReceiver, parse_otlp_json
 from .provider import BuiltinOTLP, ExternalTraceProvider, TraceProvider, audit_with_tracing
-from .shared import SharedOTLPReceiver, TraceSession, TraceSessionManager
+from .shared import SharedOTLP, SharedOTLPReceiver, TraceSession, TraceSessionManager
 from .selection import (
     DEFAULT_EVIDENCE_KINDS,
     DEFAULT_NOISE_KINDS,
@@ -44,6 +44,7 @@ __all__ = [
     "OTLPTraceReceiver",
     "EphemeralOTLPReceiver",
     "EphemeralOTLPGRPCReceiver",
+    "SharedOTLP",
     "SharedOTLPReceiver",
     "TraceSession",
     "TraceSessionManager",

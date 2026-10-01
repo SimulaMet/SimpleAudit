@@ -62,10 +62,17 @@ class TraceCorrelation:
     """Correlates an audit run's turns with observed traces.
 
     Call :meth:`record` as traces arrive; query with :meth:`trace_ids_for_turn`.
+
+    Set :attr:`on_new_trace` to a callback that is invoked the first time each
+    ``trace_id`` is recorded. Use this to register the trace with a
+    :class:`~simpleaudit.tracing.shared.SharedOTLP` session so the shared
+    receiver routes incoming spans to the right audit.
     """
 
     audit_run_id: str
     _turns: Dict[str, TurnTraceLink] = field(default_factory=dict)
+    on_new_trace: Optional[Any] = field(default=None, repr=False)
+    _seen_traces: set = field(default_factory=set, repr=False)
 
     def link_turn(self, turn_id: str, traceparent: Optional[str] = None) -> TurnTraceLink:
         if turn_id not in self._turns:
@@ -79,6 +86,9 @@ class TraceCorrelation:
         link = self.link_turn(turn_id)
         if trace_id not in link.trace_ids:
             link.trace_ids.append(trace_id)
+        if self.on_new_trace is not None and trace_id not in self._seen_traces:
+            self._seen_traces.add(trace_id)
+            self.on_new_trace(trace_id)
 
     def trace_ids_for_turn(self, turn_id: str) -> List[str]:
         link = self._turns.get(turn_id)

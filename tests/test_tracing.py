@@ -534,3 +534,176 @@ async def test_judge_without_evidence_has_no_traces_block():
     auditor.judge_client = FakeClient(judge_fn)
     await auditor.run_scenario(name="Test", description="desc")
     assert "OBSERVED INTERNAL TRACES" not in captured["user"]
+
+
+# ---------------------------------------------------------------------------
+# SharedOTLPReceiver + TraceSessionManager
+# ---------------------------------------------------------------------------
+
+def test_trace_session_lifecycle():
+    from simpleaudit.tracing import TraceSession
+
+    s = TraceSession(audit_id="a1", ttl=10)
+    assert not s.expired
+    s.add_many([
+        {"trace_id": "t1", "span_id": "s1", "name": "span1"},
+        {"trace_id": "t1", "span_id": "s2", "name": "span2"},
+    ])
+    assert len(s) == 2
+    assert len(s.spans_for_trace("t1")) == 2
+    assert len(s.spans_for_trace("t2")) == 0
+    s.close()
+    assert s.expired
+    assert len(s) == 0
+    assert s.spans_for_trace("t1") == []
+
+
+def test_trace_session_ttl_expiry():
+    import time
+    from simpleaudit.tracing import TraceSession
+
+    s = TraceSession(audit_id="a1", ttl=0.1)
+    s.add_many([{"trace_id": "t1", "span_id": "s1", "name": "x"}])
+    assert len(s) == 1
+    time.sleep(0.15)
+    assert s.expired
+    assert len(s) == 0
+
+
+def test_session_manager_routing():
+    from simpleaudit.tracing import TraceSessionManager
+
+    mgr = TraceSessionManager()
+    s1 = mgr.create("audit_1", ttl=60)
+    s2 = mgr.create("audit_2", ttl=60)
+    mgr.register_trace("audit_1", "trace_A")
+    mgr.register_trace("audit_2", "trace_B")
+
+    # Route spans — each goes to the right session.
+    mgr.route_spans([
+        {"trace_id": "trace_A", "span_id": "s1", "name": "span_A"},
+        {"trace_id": "trace_B", "span_id": "s2", "name": "span_B"},
+        {"trace_id": "trace_UNKNOWN", "span_id": "s3", "name": "dropped"},
+    ])
+    assert len(s1) == 1
+    assert len(s2) == 1
+    assert s1.spans_for_trace("trace_A")[0]["name"] == "span_A"
+    assert s2.spans_for_trace("trace_B")[0]["name"] == "span_B"
+
+    # Close audit_1 — its spans are discarded.
+    mgr.close("audit_1")
+    assert len(s1) == 0
+    assert mgr.get("audit_1") is None
+    # audit_2 still has its span.
+    assert len(s2) == 1
+
+
+def test_session_manager_sweep():
+    import time
+    from simpleaudit.tracing import TraceSessionManager
+
+    mgr = TraceSessionManager()
+    s1 = mgr.create("audit_1", ttl=0.1)
+    s2 = mgr.create("audit_2", ttl=60)
+    s1.add_many([{"trace_id": "t1", "span_id": "s1", "name": "x"}])
+    s2.add_many([{"trace_id": "t2", "span_id": "s2", "name": "y"}])
+    time.sleep(0.15)
+    closed = mgr.sweep()
+    assert closed == 1
+    assert mgr.get("audit_1") is None
+    assert mgr.get("audit_2") is not None
+
+
+def test_shared_receiver_routes_spans():
+    import asyncio
+    import httpx
+    from simpleaudit.tracing import SharedOTLPReceiver
+
+    async def _run():
+        shared = SharedOTLPReceiver(host="127.0.0.1", port=0).start()
+        try:
+            session = shared.sessions.create("audit_1", ttl=60)
+            shared.sessions.register_trace("audit_1", "a" * 32)
+
+            # Send a span via HTTP to the shared receiver.
+            payload = {
+                "resourceSpans": [{
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "test"}}]},
+                    "scopeSpans": [{"spans": [{
+                        "traceId": "a" * 32, "spanId": "b" * 16, "name": "routed-span",
+                        "kind": 2, "startTimeUnixNano": 1000000000, "endTimeUnixNano": 2000000000,
+                        "attributes": [], "status": {"code": 1},
+                    }]}],
+                }]
+            }
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(shared.endpoint, json=payload)
+                assert r.status_code == 200
+
+            # The span should be in the session.
+            spans = session.spans_for_trace("a" * 32)
+            assert len(spans) == 1
+            assert spans[0]["name"] == "routed-span"
+
+            # A span for an unregistered trace is dropped.
+            payload2 = dict(payload)
+            payload2["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["traceId"] = "c" * 32
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(shared.endpoint, json=payload2)
+                assert r.status_code == 200
+            assert len(session) == 1  # still just one span
+
+            shared.sessions.close("audit_1")
+            assert len(session) == 0
+        finally:
+            shared.stop()
+
+    asyncio.run(_run())
+
+
+def test_shared_receiver_parallel_audits():
+    """Two concurrent audit sessions on the same shared receiver."""
+    import asyncio
+    import httpx
+    from simpleaudit.tracing import SharedOTLPReceiver
+
+    async def _run():
+        shared = SharedOTLPReceiver(host="127.0.0.1", port=0).start()
+        try:
+            s1 = shared.sessions.create("audit_1", ttl=60)
+            s2 = shared.sessions.create("audit_2", ttl=60)
+            shared.sessions.register_trace("audit_1", "a" * 32)
+            shared.sessions.register_trace("audit_2", "b" * 32)
+
+            async def send_span(trace_id: str, span_id: str, name: str):
+                payload = {
+                    "resourceSpans": [{
+                        "resource": {"attributes": []},
+                        "scopeSpans": [{"spans": [{
+                            "traceId": trace_id, "spanId": span_id, "name": name,
+                            "kind": 2, "startTimeUnixNano": 1000000000, "endTimeUnixNano": 2000000000,
+                            "attributes": [], "status": {"code": 1},
+                        }]}],
+                    }]
+                }
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.post(shared.endpoint, json=payload)
+                    assert r.status_code == 200
+
+            # Send spans for both audits concurrently.
+            await asyncio.gather(
+                send_span("a" * 32, "s1", "audit1-span"),
+                send_span("b" * 32, "s2", "audit2-span"),
+            )
+
+            assert len(s1) == 1
+            assert len(s2) == 1
+            assert s1.spans_for_trace("a" * 32)[0]["name"] == "audit1-span"
+            assert s2.spans_for_trace("b" * 32)[0]["name"] == "audit2-span"
+
+            shared.sessions.close("audit_1")
+            shared.sessions.close("audit_2")
+        finally:
+            shared.stop()
+
+    asyncio.run(_run())

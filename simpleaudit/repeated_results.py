@@ -34,7 +34,7 @@ import warnings
 from collections import Counter
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 from simpleaudit.results import AuditResult, AuditResults, _atomic_json_dump
 from simpleaudit.utils import SEVERITY_ORDER
@@ -117,6 +117,64 @@ def _ordinal_spread(severities: List[str]) -> Optional[float]:
     if len(indices) < 2:
         return 0.0
     return statistics.pstdev(indices)
+
+
+def aggregate_severities(severities: List[str]) -> Dict[str, Any]:
+    """Aggregate a scenario's per-run severity verdicts into summary stats.
+
+    This is the single source of truth for collapsing a list of per-run
+    severities (one per repetition) into the three numbers a repeated run
+    reports: the modal severity, the share of runs that agreed with it, and
+    the raw severity distribution. It is a pure function of the verdicts —
+    no runs, results, or storage involved — so both the in-process stability
+    report and out-of-process callers (e.g. a web studio that runs reps
+    itself) can share the exact same aggregation instead of each hand-rolling
+    a modal computation.
+
+    Tie-breaking is deliberately *conservative*: when two severities are tied
+    for the mode, the more severe one wins. A run that swings between "high"
+    and "critical" should surface "critical", not whichever happened to be
+    seen first — and a verdict that is "ERROR" (the judge failed) is treated
+    as the most severe of all, so a run that errored in some reps is not
+    quietly reported as a stable, milder verdict. This differs from a plain
+    ``Counter.most_common(1)``, whose tie-break is insertion order and is
+    therefore arbitrary.
+
+    Args:
+        severities: One severity string per run, in execution order. May
+            contain off-ladder values such as "ERROR" or a custom judge
+            vocabulary; those are counted in the distribution and ranked
+            above the canonical ladder for tie-breaking.
+
+    Returns:
+        A dict with:
+            - ``most_common_severity`` (str): the modal severity under the
+              conservative tie-break above. "ERROR" when *severities* is empty.
+            - ``agreement_rate`` (float): fraction of runs matching the mode;
+              0.0 when *severities* is empty.
+            - ``severity_distribution`` (dict): ``{severity: count}`` over all
+              runs, in first-seen order.
+    """
+    if not severities:
+        return {
+            "most_common_severity": "ERROR",
+            "agreement_rate": 0.0,
+            "severity_distribution": {},
+        }
+
+    counts = Counter(severities)
+    # Rank for tie-breaking: off-ladder verdicts (ERROR, custom vocab) are the
+    # most severe; on-ladder verdicts rank by their position on SEVERITY_ORDER
+    # (pass=0 … critical=4). Among ties, the higher rank wins.
+    def _rank(sev: str) -> int:
+        return SEVERITY_ORDER.index(sev) if sev in SEVERITY_ORDER else len(SEVERITY_ORDER)
+
+    modal = max(counts, key=lambda s: (counts[s], _rank(s)))
+    return {
+        "most_common_severity": modal,
+        "agreement_rate": counts[modal] / len(severities),
+        "severity_distribution": dict(counts),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -354,14 +412,13 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
                     severities.append(indexed[scenario_name].severity)
             if not severities:
                 continue
-            dist = dict(Counter(severities))
-            mode_sev = Counter(severities).most_common(1)[0][0]
+            agg = aggregate_severities(severities)
             spread = _ordinal_spread(severities)
             per_scenario[scenario_name] = ScenarioStats(
                 pass_rate=severities.count("pass") / len(severities),
-                severity_distribution=dist,
-                most_common_severity=mode_sev,
-                agreement_rate=severities.count(mode_sev) / len(severities),
+                severity_distribution=agg["severity_distribution"],
+                most_common_severity=agg["most_common_severity"],
+                agreement_rate=agg["agreement_rate"],
                 normalised_entropy=round(_normalised_entropy(severities), 4),
                 ordinal_spread=None if spread is None else round(spread, 4),
                 n_observations=len(severities),

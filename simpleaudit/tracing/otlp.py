@@ -250,9 +250,9 @@ class EphemeralOTLPReceiver:
     def _serve(self, loop: Any) -> None:
         import asyncio
 
-        from aiohttp import web
-
         try:
+            from aiohttp import web
+
             app = web.Application()
             app.router.add_post("/v1/traces", self._handle_traces)
             runner = web.AppRunner(app)

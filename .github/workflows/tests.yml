@@ -23,7 +23,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          # dev: test tooling; tracing: aiohttp/grpcio/otlp-proto needed by the
+          # builtin OTLP receiver tests.
+          pip install -e ".[dev,tracing]"
       
       - name: Run tests with coverage
         run: |

@@ -211,6 +211,7 @@ class EphemeralOTLPReceiver:
         self._ready: Optional[Any] = None
         self._actual_port: Optional[int] = None
         self._closed = False
+        self._start_error: Optional[BaseException] = None
 
     @property
     def endpoint(self) -> str:
@@ -251,35 +252,63 @@ class EphemeralOTLPReceiver:
 
         from aiohttp import web
 
-        app = web.Application()
-        app.router.add_post("/v1/traces", self._handle_traces)
-        runner = web.AppRunner(app)
-        loop.run_until_complete(runner.setup())
-        site = web.TCPSite(runner, self.host, self.port)
-        loop.run_until_complete(site.start())
-        self._runner = runner
-        self._site = site
-        self._actual_port = site._server.sockets[0].getsockname()[1]
-        self._ready.set()
         try:
+            app = web.Application()
+            app.router.add_post("/v1/traces", self._handle_traces)
+            runner = web.AppRunner(app)
+            loop.run_until_complete(runner.setup())
+            site = web.TCPSite(runner, self.host, self.port)
+            loop.run_until_complete(site.start())
+            self._runner = runner
+            self._site = site
+            self._actual_port = site._server.sockets[0].getsockname()[1]
+            self._ready.set()
             loop.run_forever()
+        except Exception as exc:  # surface the real cause to the caller
+            self._start_error = exc
+            self._ready.set()
         finally:
-            loop.run_until_complete(runner.cleanup())
+            if self._runner is not None:
+                try:
+                    loop.run_until_complete(self._runner.cleanup())
+                except Exception:
+                    pass
 
     def start(self) -> "EphemeralOTLPReceiver":
-        """Start the receiver on a background thread; bind an ephemeral port."""
+        """Start the receiver on a background thread; bind an ephemeral port.
+
+        Bounded retry: under load (e.g. CI) the first bind can be slow, so we
+        give the serve thread a few attempts before giving up.
+        """
         import asyncio
         import threading
 
         if self._thread is not None:
             return self
-        self._loop = asyncio.new_event_loop()
-        self._ready = threading.Event()
-        self._thread = threading.Thread(target=self._serve, args=(self._loop,), daemon=True)
-        self._thread.start()
-        if not self._ready.wait(timeout=10):
-            raise RuntimeError("EphemeralOTLPReceiver failed to start within 10s")
-        return self
+        last_error: Optional[BaseException] = None
+        for _ in range(3):
+            self._loop = asyncio.new_event_loop()
+            self._ready = threading.Event()
+            self._start_error = None
+            self._thread = threading.Thread(target=self._serve, args=(self._loop,), daemon=True)
+            self._thread.start()
+            if not self._ready.wait(timeout=10):
+                # Thread is stuck; tear it down and retry.
+                self._closed = True
+                if self._loop is not None:
+                    self._loop.call_soon_threadsafe(self._loop.stop)
+                self._thread.join(timeout=2)
+                self._thread = None
+                last_error = RuntimeError("EphemeralOTLPReceiver failed to start within 10s")
+                continue
+            if self._start_error is not None:
+                self._thread = None
+                last_error = self._start_error
+                continue
+            return self
+        raise RuntimeError(
+            "EphemeralOTLPReceiver failed to start"
+        ) from last_error
 
     def stop(self) -> None:
         """Stop the server and discard the in-memory spans."""

@@ -59,6 +59,46 @@ def test_trace_correlation_multiple_traces_per_turn():
     assert set(corr.all_trace_ids()) == {"traceA", "traceB", "traceC"}
 
 
+def test_spans_for_turn_collects_all_linked_traces():
+    corr = TraceCorrelation(audit_run_id="run_1")
+    corr.record("turn_1", "traceA")
+    corr.record("turn_1", "traceB")
+    store = SpanStore()
+    store.add({"span_id": "s1", "trace_id": "traceA", "name": "a", "attributes": {"openinference.span.kind": "RETRIEVER"}})
+    store.add({"span_id": "s2", "trace_id": "traceB", "name": "b", "attributes": {"openinference.span.kind": "LLM"}})
+    store.add({"span_id": "s3", "trace_id": "traceC", "name": "c", "attributes": {"openinference.span.kind": "TOOL"}})
+
+    spans = corr.spans_for_turn("turn_1", store)
+    assert {s["span_id"] for s in spans} == {"s1", "s2"}
+    # turn with no linked traces returns nothing
+    assert corr.spans_for_turn("turn_9", store) == []
+
+
+def test_evidence_spans_for_turn_selects_and_adds_provenance():
+    from simpleaudit.tracing import evidence_spans_for_turn
+
+    corr = TraceCorrelation(audit_run_id="run_1")
+    corr.record("turn_1", "traceA")
+    store = SpanStore()
+    store.add({"span_id": "s1", "trace_id": "traceA", "name": "retriever", "attributes": {"openinference.span.kind": "RETRIEVER"}})
+    store.add({"span_id": "s2", "trace_id": "traceA", "name": "chain", "attributes": {"openinference.span.kind": "CHAIN"}})
+
+    spans = evidence_spans_for_turn(corr, store, "turn_1")
+    # RETRIEVER (evidence) is kept; CHAIN (noise) is dropped when evidence exists.
+    assert [s["span_id"] for s in spans] == ["s1"]
+    assert spans[0]["provenance"]["trace_id"] == "traceA"
+    assert spans[0]["provenance"]["span_id"] == "s1"
+
+
+def test_evidence_spans_for_turn_empty_when_no_traces():
+    from simpleaudit.tracing import evidence_spans_for_turn
+
+    corr = TraceCorrelation(audit_run_id="run_1")
+    store = SpanStore()
+    store.add({"span_id": "s1", "trace_id": "other", "name": "x", "attributes": {"openinference.span.kind": "LLM"}})
+    assert evidence_spans_for_turn(corr, store, "turn_1") == []
+
+
 # ---------------------------------------------------------------------------
 # store
 # ---------------------------------------------------------------------------

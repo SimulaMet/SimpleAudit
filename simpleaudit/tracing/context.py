@@ -94,3 +94,23 @@ class TraceCorrelation:
 
     def turns(self) -> List[TurnTraceLink]:
         return list(self._turns.values())
+
+    def spans_for_turn(
+        self, turn_id: str, store: "Any"
+    ) -> List[Dict[str, Any]]:
+        """Return all spans in ``store`` belonging to the traces of ``turn_id``.
+
+        ``store`` is anything with a ``by_trace(trace_id)`` method (e.g.
+        :class:`simpleaudit.tracing.store.SpanStore`). A turn may map to 0..N
+        traces (fan-out), so every linked trace's spans are collected.
+        """
+        spans: List[Dict[str, Any]] = []
+        seen: set = set()
+        for tid in self.trace_ids_for_turn(turn_id):
+            for span in store.by_trace(tid):
+                sid = span.get("span_id")
+                if sid in seen:
+                    continue
+                seen.add(sid)
+                spans.append(span)
+        return spans

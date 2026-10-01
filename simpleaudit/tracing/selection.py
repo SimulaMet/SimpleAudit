@@ -113,6 +113,37 @@ def select_spans(
     return result
 
 
+def evidence_spans_for_turn(
+    correlation: Any,
+    store: Any,
+    turn_id: str,
+    *,
+    evidence_kinds: Sequence[str] = DEFAULT_EVIDENCE_KINDS,
+    noise_kinds: Sequence[str] = DEFAULT_NOISE_KINDS,
+    token_budget: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Build judge-ready ``evidence_spans`` for one audit turn.
+
+    Pulls the turn's spans from ``store`` via ``correlation``, selects the
+    evidence-relevant ones, and returns them (with provenance) ready to pass
+    to ``run_async(..., evidence_spans=...)``.
+
+    This is the glue between trace ingestion (OTLP → SpanStore) and
+    judge-over-spans: the engine records ``turn_id → trace_id`` during the
+    run, spans arrive in the store, and this selects what the judge sees.
+    """
+    spans = correlation.spans_for_turn(turn_id, store)
+    if not spans:
+        return []
+    result = select_spans(
+        spans,
+        evidence_kinds=evidence_kinds,
+        noise_kinds=noise_kinds,
+        token_budget=token_budget,
+    )
+    return result.selected
+
+
 def summarize_for_judge(result: SelectionResult, *, max_chars_per_span: int = 2000) -> str:
     """Render selected spans into a compact text block for the judge prompt."""
     if not result.selected:

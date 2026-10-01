@@ -24,6 +24,7 @@ from .selection import (
     DEFAULT_EVIDENCE_KINDS,
     DEFAULT_NOISE_KINDS,
     SelectionResult,
+    evidence_spans_for_turn,
     select_spans,
     summarize_for_judge,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "OTLPTraceReceiver",
     "SelectionResult",
     "select_spans",
+    "evidence_spans_for_turn",
     "summarize_for_judge",
     "DEFAULT_EVIDENCE_KINDS",
     "DEFAULT_NOISE_KINDS",

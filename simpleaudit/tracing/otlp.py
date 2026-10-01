@@ -24,10 +24,11 @@ from typing import Any, Dict, List, Optional
 from .store import SpanStore, normalize_span
 
 
-def _proto_ts_to_unix(ns: int) -> Optional[float]:
+def _proto_ts_to_unix(ns: Any) -> Optional[float]:
     if ns is None:
         return None
-    return ns / 1e9
+    # ``MessageToDict`` renders int64 nanosecond timestamps as strings.
+    return int(ns) / 1e9
 
 
 def parse_otlp_json(payload: Any) -> List[Dict[str, Any]]:
@@ -380,37 +381,18 @@ class EphemeralOTLPGRPCReceiver:
 def _parse_otlp_grpc(request: Any) -> List[Dict[str, Any]]:
     """Parse an OTLP/gRPC ``ExportTraceServiceRequest`` into raw span dicts.
 
+    Delegates the wire-format decoding to ``opentelemetry-proto`` (the
+    canonical OTLP protobuf definitions) via ``json_format.MessageToDict``,
+    then maps the resulting dict to the store's raw-span schema. This keeps
+    the parsing spec-correct and avoids hand-rolling the protobuf decoding.
+
     Returns raw dicts (pre-normalization) so the caller can use
     ``SpanStore.add_many`` which normalizes internally.
     """
-    spans: List[Dict[str, Any]] = []
-    for resource_span in request.resource_spans:
-        service_name = ""
-        for attr in resource_span.resource.attributes:
-            if attr.key == "service.name":
-                service_name = attr.value.string_value
-                break
-        for scope_span in resource_span.scope_spans:
-            for span in scope_span.spans:
-                attrs: Dict[str, Any] = {}
-                for attr in span.attributes:
-                    attrs[attr.key] = _proto_attr_value(attr.value)
-                if service_name:
-                    attrs.setdefault("service.name", service_name)
-                spans.append(
-                    {
-                        "trace_id": _bytes_to_hex(span.trace_id),
-                        "span_id": _bytes_to_hex(span.span_id),
-                        "parent_span_id": _bytes_to_hex(span.parent_span_id) if span.parent_span_id else None,
-                        "name": span.name,
-                        "kind": span.kind,
-                        "start_time": _proto_ts_to_unix(span.start_time_unix_nano),
-                        "end_time": _proto_ts_to_unix(span.end_time_unix_nano),
-                        "attributes": attrs,
-                        "status": "OK" if span.status.code == 1 else "ERROR",
-                    }
-                )
-    return spans
+    from google.protobuf.json_format import MessageToDict
+
+    data = MessageToDict(request, preserving_proto_field_name=True)
+    return _spans_from_otlp_dict(data)
 
 
 def _parse_otlp_http_protobuf(body: bytes) -> List[Dict[str, Any]]:
@@ -422,23 +404,82 @@ def _parse_otlp_http_protobuf(body: bytes) -> List[Dict[str, Any]]:
     return _parse_otlp_grpc(req)
 
 
-def _bytes_to_hex(b: bytes) -> str:
-    return b.hex() if b else ""
+def _spans_from_otlp_dict(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Map an OTLP ``ExportTraceServiceRequest`` dict to raw span dicts.
+
+    ``data`` is the ``MessageToDict(..., preserving_proto_field_name=True)``
+    shape: snake_case field names, ``trace_id``/``span_id`` as base64 strings,
+    ``start_time_unix_nano``/``end_time_unix_nano`` as string nanoseconds,
+    ``kind`` as an enum name (e.g. ``SPAN_KIND_SERVER``), and ``attributes``
+    as a list of ``{"key": ..., "value": AnyValue}`` entries.
+    """
+    spans: List[Dict[str, Any]] = []
+    for rs in data.get("resource_spans") or []:
+        resource_attrs = _attrs_from_list((rs.get("resource") or {}).get("attributes"))
+        for ss in rs.get("scope_spans") or []:
+            for span in ss.get("spans") or []:
+                attrs = dict(resource_attrs)
+                attrs.update(_attrs_from_list(span.get("attributes")))
+                spans.append(
+                    {
+                        "trace_id": _b64_to_hex(span.get("trace_id")),
+                        "span_id": _b64_to_hex(span.get("span_id")),
+                        "parent_span_id": _b64_to_hex(span.get("parent_span_id")) or None,
+                        "name": span.get("name") or "span",
+                        "kind": span.get("kind"),
+                        "start_time": _proto_ts_to_unix(span.get("start_time_unix_nano")),
+                        "end_time": _proto_ts_to_unix(span.get("end_time_unix_nano")),
+                        "status": _status_from_dict(span.get("status")),
+                        "attributes": attrs,
+                    }
+                )
+    return spans
 
 
-def _proto_attr_value(value: Any) -> Any:
-    """Convert a proto AnyValue to a Python scalar."""
-    which = value.WhichOneof("value")
-    if which == "string_value":
-        return value.string_value
-    if which == "int_value":
-        return value.int_value
-    if which == "double_value":
-        return value.double_value
-    if which == "bool_value":
-        return value.bool_value
-    if which == "array_value":
-        return [_proto_attr_value(v) for v in value.array_value.values]
-    if which == "kvlist_value":
-        return {kv.key: _proto_attr_value(kv.value) for kv in value.kvlist_value.values}
+def _status_from_dict(status: Optional[Dict[str, Any]]) -> str:
+    """Map a ``MessageToDict`` status (code is an enum-name string) to OK/ERROR."""
+    if not status:
+        return "OK"
+    code = status.get("code")
+    if isinstance(code, str):
+        return "ERROR" if "ERROR" in code.upper() else "OK"
+    return _status_code(status)
+
+
+def _b64_to_hex(b64: Optional[str]) -> str:
+    """Decode a base64-encoded OTLP id (``MessageToDict`` form) to hex."""
+    if not b64:
+        return ""
+    import base64
+
+    try:
+        return base64.b64decode(b64).hex()
+    except Exception:
+        return b64
+
+
+def _attrs_from_list(attr_list: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    """Convert an OTLP attribute list (``[{"key", "value"}]``) to plain values."""
+    out: Dict[str, Any] = {}
+    for a in attr_list or []:
+        out[a.get("key")] = _any_value(a.get("value"))
+    return out
+
+
+def _any_value(v: Any) -> Any:
+    """Convert an OTLP ``AnyValue`` (snake_case dict form) to a Python scalar."""
+    if not isinstance(v, dict):
+        return v
+    if "string_value" in v:
+        return v["string_value"]
+    if "int_value" in v:
+        return int(v["int_value"])
+    if "double_value" in v:
+        return float(v["double_value"])
+    if "bool_value" in v:
+        return bool(v["bool_value"])
+    if "array_value" in v:
+        return [_any_value(x) for x in (v["array_value"].get("values") or [])]
+    if "kvlist_value" in v:
+        return _attrs_from_list(v["kvlist_value"].get("values"))
     return None

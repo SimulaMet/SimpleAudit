@@ -73,9 +73,19 @@ class HTTPAppTarget:
 
     def _build_body(self, user: str, history: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
         body = json.loads(json.dumps(self.request_template))  # deep copy
-        body[self.message_field] = user
-        if history is not None:
-            body.setdefault("history", history)
+        if self.message_field == "messages":
+            # OpenAI-style chat body: ``messages`` is a list of
+            # ``{"role", "content"}`` dicts. Append the current user turn,
+            # optionally preceded by prior conversation history.
+            messages: List[Dict[str, str]] = []
+            if history:
+                messages.extend(history)
+            messages.append({"role": "user", "content": user})
+            body["messages"] = messages
+        else:
+            body[self.message_field] = user
+            if history is not None:
+                body.setdefault("history", history)
         return body
 
     async def send(

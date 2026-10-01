@@ -198,6 +198,32 @@ async def test_http_target_no_tokens_when_absent():
     assert r.output_tokens is None
 
 
+def test_http_target_openai_style_messages_body():
+    """message_field='messages' produces an OpenAI-style messages list."""
+    t = HTTPAppTarget(
+        url="http://x/api/v1/chat/completions",
+        request_template={"model": "stm-radgiver"},
+        message_field="messages",
+    )
+    body = t._build_body("What is the capital of France?", None)
+    assert body["model"] == "stm-radgiver"
+    assert body["messages"] == [{"role": "user", "content": "What is the capital of France?"}]
+
+
+def test_http_target_openai_style_messages_with_history():
+    t = HTTPAppTarget(url="http://x", message_field="messages")
+    history = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+    ]
+    body = t._build_body("follow-up", history)
+    assert body["messages"] == [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "user", "content": "follow-up"},
+    ]
+
+
 # ---------------------------------------------------------------------------
 # ModelAuditor.target property + set_target
 # ---------------------------------------------------------------------------

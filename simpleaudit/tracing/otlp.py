@@ -191,9 +191,13 @@ class EphemeralOTLPReceiver:
     async def _handle_traces(self, request: Any) -> Any:
         from aiohttp import web
 
-        body = await request.text()
+        content_type = request.headers.get("Content-Type", "")
+        body_bytes = await request.read()
         try:
-            raw_spans = parse_otlp_json(body)
+            if "protobuf" in content_type:
+                raw_spans = _parse_otlp_http_protobuf(body_bytes)
+            else:
+                raw_spans = parse_otlp_json(body_bytes.decode("utf-8"))
             self.store.add_many(raw_spans)
         except Exception:
             # Never fail the export; ack with a rejection count so the target
@@ -258,6 +262,179 @@ class EphemeralOTLPReceiver:
 
     async def __aenter__(self) -> "EphemeralOTLPReceiver":
         return self.start()
+
+    async def __aexit__(self, *exc: Any) -> None:
+        self.stop()
+
+
+class EphemeralOTLPGRPCReceiver:
+    """A self-contained OTLP/gRPC trace receiver that lives for one audit.
+
+    Speaks the **OTLP/gRPC** protocol (``TraceService/Export``), which is
+    what ``OTEL_EXPORTER_OTLP_PROTOCOL=grpc`` (the default) selects on port
+    4317. Useful when the target (e.g. Open WebUI) exports over gRPC and you
+    want to capture spans without running a full OTel Collector.
+
+    Usage::
+
+        rx = EphemeralOTLPGRPCReceiver(port=4317).start()
+        # target's OTEL_EXPORTER_OTLP_ENDPOINT = http://127.0.0.1:4317
+        # ... run audit ...
+        rx.stop()
+
+    The gRPC server runs on a background thread. Port 0 binds an ephemeral
+    port. Spans are discarded on :meth:`stop` (ephemeral by design).
+    """
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 0, store: Optional[SpanStore] = None) -> None:
+        self.host = host
+        self.port = port
+        self.store = store or SpanStore()
+        self._server: Optional[Any] = None
+        self._thread: Optional[Any] = None
+        self._ready: Optional[Any] = None
+        self._actual_port: Optional[int] = None
+        self._closed = False
+
+    @property
+    def endpoint(self) -> str:
+        """The OTLP/gRPC endpoint to configure the target's exporter to."""
+        return f"http://{self.host}:{self._actual_port}"
+
+    @property
+    def actual_port(self) -> int:
+        return self._actual_port
+
+    def _make_servicer(self) -> Any:
+        from opentelemetry.proto.collector.trace.v1 import trace_service_pb2, trace_service_pb2_grpc
+
+        store = self.store
+
+        class _TraceServicer(trace_service_pb2_grpc.TraceServiceServicer):
+            def Export(self, request, context):
+                raw_spans = _parse_otlp_grpc(request)
+                store.add_many(raw_spans)
+                return trace_service_pb2.ExportTraceServiceResponse(
+                    partial_success=trace_service_pb2.ExportTracePartialSuccess(rejected_spans=0)
+                )
+
+        return _TraceServicer()
+
+    def _serve(self) -> None:
+        import grpc
+        from concurrent import futures
+        from opentelemetry.proto.collector.trace.v1 import trace_service_pb2_grpc
+
+        server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+        trace_service_pb2_grpc.add_TraceServiceServicer_to_server(self._make_servicer(), server)
+        self._actual_port = server.add_insecure_port(f"{self.host}:{self.port}")
+        server.start()
+        self._server = server
+        self._ready.set()
+        try:
+            server.wait_for_termination()
+        except Exception:
+            pass
+
+    def start(self) -> "EphemeralOTLPGRPCReceiver":
+        """Start the gRPC server on a background thread."""
+        import threading
+
+        if self._thread is not None:
+            return self
+        self._ready = threading.Event()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+        if not self._ready.wait(timeout=10):
+            raise RuntimeError("EphemeralOTLPGRPCReceiver failed to start within 10s")
+        return self
+
+    def stop(self) -> None:
+        """Stop the gRPC server and discard the in-memory spans."""
+        if self._closed:
+            return
+        self._closed = True
+        if self._server is not None:
+            self._server.stop(grace=2)
+            self._server = None
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+            self._thread = None
+        # Discard spans: ephemeral by design.
+        self.store = SpanStore()
+
+    def __enter__(self) -> "EphemeralOTLPGRPCReceiver":
+        return self.start()
+
+    def __exit__(self, *exc: Any) -> None:
+        self.stop()
+
+
+def _parse_otlp_grpc(request: Any) -> List[Dict[str, Any]]:
+    """Parse an OTLP/gRPC ``ExportTraceServiceRequest`` into raw span dicts.
+
+    Returns raw dicts (pre-normalization) so the caller can use
+    ``SpanStore.add_many`` which normalizes internally.
+    """
+    spans: List[Dict[str, Any]] = []
+    for resource_span in request.resource_spans:
+        service_name = ""
+        for attr in resource_span.resource.attributes:
+            if attr.key == "service.name":
+                service_name = attr.value.string_value
+                break
+        for scope_span in resource_span.scope_spans:
+            for span in scope_span.spans:
+                attrs: Dict[str, Any] = {}
+                for attr in span.attributes:
+                    attrs[attr.key] = _proto_attr_value(attr.value)
+                if service_name:
+                    attrs.setdefault("service.name", service_name)
+                spans.append(
+                    {
+                        "trace_id": _bytes_to_hex(span.trace_id),
+                        "span_id": _bytes_to_hex(span.span_id),
+                        "parent_span_id": _bytes_to_hex(span.parent_span_id) if span.parent_span_id else None,
+                        "name": span.name,
+                        "kind": span.kind,
+                        "start_time": _proto_ts_to_unix(span.start_time_unix_nano),
+                        "end_time": _proto_ts_to_unix(span.end_time_unix_nano),
+                        "attributes": attrs,
+                        "status": "OK" if span.status.code == 1 else "ERROR",
+                    }
+                )
+    return spans
+
+
+def _parse_otlp_http_protobuf(body: bytes) -> List[Dict[str, Any]]:
+    """Parse an OTLP/HTTP protobuf ``ExportTraceServiceRequest`` body."""
+    from opentelemetry.proto.collector.trace.v1 import trace_service_pb2
+
+    req = trace_service_pb2.ExportTraceServiceRequest()
+    req.ParseFromString(body)
+    return _parse_otlp_grpc(req)
+
+
+def _bytes_to_hex(b: bytes) -> str:
+    return b.hex() if b else ""
+
+
+def _proto_attr_value(value: Any) -> Any:
+    """Convert a proto AnyValue to a Python scalar."""
+    which = value.WhichOneof("value")
+    if which == "string_value":
+        return value.string_value
+    if which == "int_value":
+        return value.int_value
+    if which == "double_value":
+        return value.double_value
+    if which == "bool_value":
+        return value.bool_value
+    if which == "array_value":
+        return [_proto_attr_value(v) for v in value.array_value.values]
+    if which == "kvlist_value":
+        return {kv.key: _proto_attr_value(kv.value) for kv in value.kvlist_value.values}
+    return None
 
     async def __aexit__(self, *exc: Any) -> None:
         self.stop()

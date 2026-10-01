@@ -19,7 +19,7 @@ from .context import (
     new_span_id,
     new_trace_id,
 )
-from .otlp import EphemeralOTLPReceiver, OTLPTraceReceiver, parse_otlp_json
+from .otlp import EphemeralOTLPGRPCReceiver, EphemeralOTLPReceiver, OTLPTraceReceiver, parse_otlp_json
 from .provider import BuiltinOTLP, ExternalTraceProvider, TraceProvider, audit_with_tracing
 from .selection import (
     DEFAULT_EVIDENCE_KINDS,
@@ -42,6 +42,7 @@ __all__ = [
     "parse_otlp_json",
     "OTLPTraceReceiver",
     "EphemeralOTLPReceiver",
+    "EphemeralOTLPGRPCReceiver",
     "TraceProvider",
     "BuiltinOTLP",
     "ExternalTraceProvider",

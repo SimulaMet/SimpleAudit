@@ -35,6 +35,15 @@ except PackageNotFoundError:
 __author__ = "SimpleAudit Contributors"
 
 from .model_auditor import ModelAuditor
+from .auditor import Auditor
+from .targets import (
+    CallableTarget,
+    HTTPAppTarget,
+    ModelTarget,
+    Target,
+    TargetContext,
+    TargetResponse,
+)
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios, list_scenario_packs
 from .judges import build_judge, customize_judge, get_judge, list_judge_configs
@@ -75,6 +84,13 @@ from .perturbations import (
 
 __all__ = [
     "ModelAuditor",
+    "Auditor",
+    "Target",
+    "TargetContext",
+    "TargetResponse",
+    "ModelTarget",
+    "HTTPAppTarget",
+    "CallableTarget",
     "AuditResults",
     "AuditResult",
     "get_scenarios",

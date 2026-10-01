@@ -146,7 +146,8 @@ def test_ephemeral_receiver_binds_and_serves():
             async with httpx.AsyncClient(timeout=10) as client:
                 r = await client.post(rx.endpoint, json=_otlp_http_payload())
                 assert r.status_code == 200
-                assert r.json() == {"partialSuccess": {"rejectedSpans": 0}}
+                assert r.json()["partialSuccess"] == {"rejectedSpans": 0}
+                assert r.json()["authenticated"] is True
             assert len(rx.store) == 1
             spans = rx.store.by_trace("a" * 32)
             assert len(spans) == 1

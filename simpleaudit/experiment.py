@@ -328,18 +328,25 @@ class AuditExperiment:
         language: str,
         max_workers: int,
         on_turn: Optional[Callable[[int, int, str], None]] = None,
+        audit_run_id: Optional[str] = None,
+        trace_correlation: Optional[Any] = None,
     ) -> AuditResults:
         """Execute one rep with auto-retry on ERROR. Returns the final result."""
         attempts = 1 + self.max_retries_per_rep
         result: Optional[AuditResults] = None
         for attempt in range(attempts):
             auditor = ModelAuditor(**merged)
+            # trace_correlation may be a zero-arg callable (resolved per rep so
+            # the caller can swap in a fresh correlation at each rep boundary).
+            corr = trace_correlation() if callable(trace_correlation) else trace_correlation
             result = await auditor.run_async(
                 scenarios,
                 max_turns=max_turns,
                 language=language,
                 max_workers=max_workers,
                 on_turn=on_turn,
+                audit_run_id=audit_run_id,
+                trace_correlation=corr,
             )
             if not any(r.severity == "ERROR" for r in result):
                 break
@@ -360,6 +367,8 @@ class AuditExperiment:
         max_turns: Optional[int] = None,
         language: str = "English",
         on_turn: Optional[Callable[[int, int, str], None]] = None,
+        audit_run_id: Optional[str] = None,
+        trace_correlation: Optional[Any] = None,
     ) -> List[AuditResult]:
         """Run a single scenario N times for one model.
 
@@ -377,6 +386,11 @@ class AuditExperiment:
                 ``(turn_index, max_turns, role)`` where role is "auditor",
                 "target", or "judge". Called synchronously from within the
                 asyncio event loop.
+            audit_run_id: Optional run id propagated to each rep's
+                ``run_async`` for trace correlation.
+            trace_correlation: Optional :class:`TraceCorrelation` shared
+                across reps; each rep records its ``turn_id -> trace_id``
+                links so the caller can fetch per-rep trace evidence.
 
         Returns:
             List of :class:`AuditResult`, one per completed rep. May be
@@ -428,6 +442,8 @@ class AuditExperiment:
             rep_result = await self._run_single_rep(
                 merged, [scenario], max_turns, language, max_workers=1,
                 on_turn=on_turn,
+                audit_run_id=audit_run_id,
+                trace_correlation=trace_correlation,
             )
 
             # Persist

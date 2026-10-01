@@ -100,6 +100,242 @@ def test_evidence_spans_for_turn_empty_when_no_traces():
 
 
 # ---------------------------------------------------------------------------
+# EphemeralOTLPReceiver (Promptfoo-style built-in receiver)
+# ---------------------------------------------------------------------------
+
+def _otlp_http_payload(trace_id: str = "a" * 32, span_id: str = "b" * 16, name: str = "POST /chat") -> dict:
+    return {
+        "resourceSpans": [
+            {
+                "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "open-webui"}}]},
+                "scopeSpans": [
+                    {
+                        "spans": [
+                            {
+                                "traceId": trace_id,
+                                "spanId": span_id,
+                                "name": name,
+                                "kind": 2,
+                                "startTimeUnixNano": 1_000_000_000,
+                                "endTimeUnixNano": 2_000_000_000,
+                                "attributes": [
+                                    {"key": "http.url", "value": {"stringValue": "http://x/chat"}},
+                                    {"key": "http.method", "value": {"stringValue": "POST"}},
+                                ],
+                                "status": {"code": 1},
+                            }
+                        ]
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def test_ephemeral_receiver_binds_and_serves():
+    import asyncio
+    import httpx
+
+    from simpleaudit.tracing import EphemeralOTLPReceiver
+
+    async def _run():
+        rx = EphemeralOTLPReceiver().start()
+        try:
+            assert rx.endpoint.startswith("http://127.0.0.1:")
+            assert rx.actual_port > 0
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(rx.endpoint, json=_otlp_http_payload())
+                assert r.status_code == 200
+                assert r.json() == {"partialSuccess": {"rejectedSpans": 0}}
+            assert len(rx.store) == 1
+            spans = rx.store.by_trace("a" * 32)
+            assert len(spans) == 1
+            assert spans[0]["name"] == "POST /chat"
+            assert spans[0]["attributes"]["http.url"] == "http://x/chat"
+        finally:
+            rx.stop()
+        # Spans are discarded on stop (ephemeral by design).
+        assert len(rx.store) == 0
+
+    asyncio.run(_run())
+
+
+def test_ephemeral_receiver_context_manager():
+    import asyncio
+    import httpx
+
+    from simpleaudit.tracing import EphemeralOTLPReceiver
+
+    async def _run():
+        async with EphemeralOTLPReceiver() as rx:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(rx.endpoint, json=_otlp_http_payload())
+                assert r.status_code == 200
+            assert len(rx.store) == 1
+        # After the context exits, the store is cleared.
+        assert len(rx.store) == 0
+
+    asyncio.run(_run())
+
+
+def test_ephemeral_receiver_malformed_body_acks_rejection():
+    import asyncio
+    import httpx
+
+    from simpleaudit.tracing import EphemeralOTLPReceiver
+
+    async def _run():
+        rx = EphemeralOTLPReceiver().start()
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                # Not valid JSON -> parse fails -> rejectedSpans: 1, but HTTP 200.
+                r = await client.post(rx.endpoint, content=b"not json", headers={"Content-Type": "application/json"})
+                assert r.status_code == 200
+                assert r.json() == {"partialSuccess": {"rejectedSpans": 1}}
+            assert len(rx.store) == 0
+        finally:
+            rx.stop()
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# TraceProvider (BuiltinOTLP / ExternalTraceProvider)
+# ---------------------------------------------------------------------------
+
+def test_builtin_otlp_provider_lifecycle():
+    from simpleaudit.tracing import BuiltinOTLP
+
+    provider = BuiltinOTLP()
+    assert provider.endpoint is None  # not started
+    provider.start()
+    try:
+        assert provider.endpoint.startswith("http://127.0.0.1:")
+        assert provider.fetch("nope") == []
+    finally:
+        provider.stop()
+    assert provider.endpoint is None
+
+
+def test_external_trace_provider_requires_fetch():
+    from simpleaudit.tracing import ExternalTraceProvider
+
+    class _Stub(ExternalTraceProvider):
+        def _fetch_remote(self, trace_id):
+            return [{"span_id": "s", "trace_id": trace_id, "name": "x", "attributes": {}}]
+
+    p = _Stub()
+    assert p.fetch("t1") == [{"span_id": "s", "trace_id": "t1", "name": "x", "attributes": {}}]
+
+    class _Unimpl(ExternalTraceProvider):
+        pass
+
+    try:
+        _Unimpl().fetch("t1")
+        assert False, "expected NotImplementedError"
+    except NotImplementedError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# audit_with_tracing (Promptfoo-style one-call flow)
+# ---------------------------------------------------------------------------
+
+def test_audit_with_tracing_runs_and_attaches_evidence():
+    import asyncio
+
+    from simpleaudit.tracing import BuiltinOTLP, audit_with_tracing
+    from tests.fakes import fixed_probe_auditor, fixed_severity_judge, fixed_target, make_auditor
+
+    auditor = make_auditor(
+        target=fixed_target("ok"),
+        judge=fixed_severity_judge("pass"),
+        auditor=fixed_probe_auditor("probe"),
+        max_turns=1,
+        show_progress=False,
+    )
+
+    async def _run():
+        results = await audit_with_tracing(auditor, "safety", max_workers=2)
+        assert len(results) == 8
+        # The fake target emits no spans, so evidence_spans is not attached.
+        for r in results.results:
+            assert "evidence_spans" not in (r.judgment or {})
+
+    asyncio.run(_run())
+
+
+def test_audit_with_tracing_attaches_spans_when_target_emits():
+    import asyncio
+    import httpx
+
+    from simpleaudit.tracing import BuiltinOTLP, audit_with_tracing
+    from tests.fakes import fixed_probe_auditor, fixed_severity_judge, make_auditor
+
+    # A target that, on each send, POSTs an OTLP span to the provider endpoint.
+    class _EmittingTarget:
+        def __init__(self, endpoint: str, trace_id: str):
+            self.endpoint = endpoint
+            self.trace_id = trace_id
+
+        async def send(self, *, user, history=None, context=None, **kw):
+            from simpleaudit.targets.base import TargetResponse
+
+            # Emit a span for the trace the engine assigned to this turn.
+            tp = (context.trace_headers.get("traceparent") if context else "") or ""
+            tid = tp.split("-")[1] if tp and len(tp.split("-")) >= 2 else self.trace_id
+            payload = _otlp_http_payload(trace_id=tid, span_id="c" * 16, name="LLM call")
+            import json as _json
+
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(self.endpoint, json=payload)
+            return TargetResponse(content="ok")
+
+    async def _run():
+        provider = BuiltinOTLP()
+        provider.start()
+        try:
+            target = _EmittingTarget(provider.endpoint, "d" * 32)
+            auditor = make_auditor(
+                target=_fake_client_wrapper(target),
+                judge=fixed_severity_judge("pass"),
+                auditor=fixed_probe_auditor("probe"),
+                max_turns=1,
+                show_progress=False,
+            )
+            # Override the engine's target with our emitting target.
+            auditor.set_target(target)
+            results = await audit_with_tracing(auditor, "safety", provider=provider, max_workers=1)
+            # At least one result should have evidence_spans attached.
+            with_evidence = [r for r in results.results if (r.judgment or {}).get("evidence_spans")]
+            assert len(with_evidence) >= 1
+            # The attached spans carry provenance.
+            sample = with_evidence[0].judgment["evidence_spans"][0]
+            assert "provenance" in sample
+            assert sample["provenance"]["trace_id"]
+        finally:
+            provider.stop()
+
+    asyncio.run(_run())
+
+
+def _fake_client_wrapper(target):
+    """Wrap a Target in a minimal FakeClient-shaped object for make_auditor."""
+    from tests.fakes import FakeClient
+
+    class _Wrap(FakeClient):
+        def __init__(self, target):
+            super().__init__(lambda **kw: "ok")
+            self._target = target
+
+        async def acompletion(self, **kwargs):
+            resp = await self._target.send(user=kwargs.get("messages", [""])[-1] if kwargs.get("messages") else "")
+            return resp.content
+
+    return _Wrap(target)
+
+
+# ---------------------------------------------------------------------------
 # store
 # ---------------------------------------------------------------------------
 

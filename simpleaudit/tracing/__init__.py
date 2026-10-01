@@ -19,7 +19,8 @@ from .context import (
     new_span_id,
     new_trace_id,
 )
-from .otlp import OTLPTraceReceiver, parse_otlp_json
+from .otlp import EphemeralOTLPReceiver, OTLPTraceReceiver, parse_otlp_json
+from .provider import BuiltinOTLP, ExternalTraceProvider, TraceProvider, audit_with_tracing
 from .selection import (
     DEFAULT_EVIDENCE_KINDS,
     DEFAULT_NOISE_KINDS,
@@ -40,6 +41,11 @@ __all__ = [
     "normalize_span",
     "parse_otlp_json",
     "OTLPTraceReceiver",
+    "EphemeralOTLPReceiver",
+    "TraceProvider",
+    "BuiltinOTLP",
+    "ExternalTraceProvider",
+    "audit_with_tracing",
     "SelectionResult",
     "select_spans",
     "evidence_spans_for_turn",

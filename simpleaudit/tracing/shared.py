@@ -56,6 +56,11 @@ class TraceSession:
     Spans are routed here by ``trace_id``. The session expires after
     ``ttl`` seconds (checked lazily on access) or when :meth:`close` is
     called explicitly.
+
+    ``max_spans`` caps the number of spans retained for this session to
+    prevent a single audit from consuming unbounded memory under heavy
+    OTLP traffic. When the cap is hit, new spans are dropped (and counted
+    in :attr:`dropped`).
     """
 
     audit_id: str
@@ -63,8 +68,10 @@ class TraceSession:
     target_id: str = ""
     created_at: float = field(default_factory=time.time)
     ttl: float = 300.0  # seconds
+    max_spans: int = 10_000  # per-session cap
     _store: SpanStore = field(default_factory=SpanStore, repr=False)
     _closed: bool = field(default=False, repr=False)
+    _dropped: int = field(default=0, repr=False)
 
     @property
     def expired(self) -> bool:
@@ -74,9 +81,27 @@ class TraceSession:
     def store(self) -> SpanStore:
         return self._store
 
-    def add_many(self, spans: List[Dict[str, Any]]) -> None:
-        if not self.expired:
-            self._store.add_many(spans)
+    @property
+    def dropped(self) -> int:
+        """Number of spans dropped due to the per-session cap."""
+        return self._dropped
+
+    @property
+    def full(self) -> bool:
+        return len(self._store) >= self.max_spans
+
+    def add_many(self, spans: List[Dict[str, Any]]) -> int:
+        """Add spans; returns the number actually stored (vs dropped)."""
+        if self.expired:
+            return 0
+        stored = 0
+        for s in spans:
+            if self.full:
+                self._dropped += 1
+                continue
+            self._store.add(s)
+            stored += 1
+        return stored
 
     def spans_for_trace(self, trace_id: str) -> List[Dict[str, Any]]:
         if self.expired:
@@ -107,12 +132,45 @@ class TraceSessionManager:
     span arrives, it can be routed to the right audit's buffer.
 
     Sessions are cleaned up lazily (on access) and via :meth:`sweep`.
+
+    Heavy-traffic protections:
+    - **Early rejection**: if no sessions are active, :meth:`route_spans`
+      returns immediately without touching the spans (zero-cost drop).
+    - **Per-session cap**: each :class:`TraceSession` has a ``max_spans``
+      limit; excess spans are dropped and counted.
+    - **Global cap**: ``max_total_spans`` limits the total spans across all
+      active sessions; when hit, new spans are dropped globally.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, max_total_spans: int = 200_000) -> None:
         self._sessions: Dict[str, TraceSession] = {}  # audit_id → session
         self._trace_index: Dict[str, str] = {}  # trace_id → audit_id
         self._lock = threading.Lock()
+        self._max_total_spans = max_total_spans
+        self._dropped_no_session: int = 0
+        self._dropped_global_cap: int = 0
+
+    @property
+    def dropped_no_session(self) -> int:
+        """Spans dropped because no session was active (early rejection)."""
+        return self._dropped_no_session
+
+    @property
+    def dropped_global_cap(self) -> int:
+        """Spans dropped because the global span cap was hit."""
+        return self._dropped_global_cap
+
+    @property
+    def total_spans(self) -> int:
+        """Total spans across all active sessions."""
+        with self._lock:
+            return sum(len(s) for s in self._sessions.values() if not s.expired)
+
+    @property
+    def has_active_sessions(self) -> bool:
+        """Quick check: is there at least one non-expired session?"""
+        with self._lock:
+            return any(not s.expired for s in self._sessions.values())
 
     def create(
         self,
@@ -121,6 +179,7 @@ class TraceSessionManager:
         execution_id: str = "",
         target_id: str = "",
         ttl: float = 300.0,
+        max_spans: int = 10_000,
     ) -> TraceSession:
         """Create a new trace session for an audit run."""
         session = TraceSession(
@@ -128,6 +187,7 @@ class TraceSessionManager:
             execution_id=execution_id,
             target_id=target_id,
             ttl=ttl,
+            max_spans=max_spans,
         )
         with self._lock:
             self._sessions[audit_id] = session
@@ -143,9 +203,18 @@ class TraceSessionManager:
 
         Spans whose ``trace_id`` is not registered are dropped (they belong
         to a non-audit flow or an expired session).
+
+        Heavy-traffic optimizations:
+        - If no sessions are active, returns immediately (zero-cost drop).
+        - Global span cap prevents unbounded memory growth.
         """
         if not spans:
             return
+        # Early rejection: no active sessions → drop everything.
+        if not self.has_active_sessions:
+            self._dropped_no_session += len(spans)
+            return
+
         # Group spans by trace_id for efficient lookup.
         by_trace: Dict[str, List[Dict[str, Any]]] = {}
         for s in spans:
@@ -154,6 +223,7 @@ class TraceSessionManager:
                 by_trace.setdefault(tid, []).append(s)
 
         with self._lock:
+            current_total = sum(len(s) for s in self._sessions.values() if not s.expired)
             for tid, trace_spans in by_trace.items():
                 audit_id = self._trace_index.get(tid)
                 if audit_id is None:
@@ -161,7 +231,12 @@ class TraceSessionManager:
                 session = self._sessions.get(audit_id)
                 if session is None or session.expired:
                     continue
-                session.add_many(trace_spans)
+                # Global cap check.
+                if current_total >= self._max_total_spans:
+                    self._dropped_global_cap += len(trace_spans)
+                    continue
+                stored = session.add_many(trace_spans)
+                current_total += stored
 
     def get(self, audit_id: str) -> Optional[TraceSession]:
         with self._lock:
@@ -239,11 +314,14 @@ class SharedOTLPReceiver:
         *,
         session_ttl: float = 300.0,
         sweep_interval: float = 60.0,
+        max_total_spans: int = 200_000,
+        max_spans_per_session: int = 10_000,
     ) -> None:
         self.host = host
         self.port = port
         self.session_ttl = session_ttl
-        self.sessions = TraceSessionManager()
+        self.sessions = TraceSessionManager(max_total_spans=max_total_spans)
+        self.max_spans_per_session = max_spans_per_session
         self._receiver: Optional[EphemeralOTLPReceiver] = None
         self._sweep_interval = sweep_interval
         self._sweep_thread: Optional[threading.Thread] = None
@@ -259,6 +337,33 @@ class SharedOTLPReceiver:
     @property
     def actual_port(self) -> int:
         return self._receiver.actual_port if self._receiver else self.port
+
+    @property
+    def stats(self) -> Dict[str, int]:
+        """Drop counters and totals for observability."""
+        return {
+            "active_sessions": len(self.sessions),
+            "total_spans": self.sessions.total_spans,
+            "dropped_no_session": self.sessions.dropped_no_session,
+            "dropped_global_cap": self.sessions.dropped_global_cap,
+        }
+
+    def create_session(
+        self,
+        audit_id: str,
+        *,
+        execution_id: str = "",
+        target_id: str = "",
+        ttl: Optional[float] = None,
+    ) -> TraceSession:
+        """Create a trace session with the receiver's configured defaults."""
+        return self.sessions.create(
+            audit_id,
+            execution_id=execution_id,
+            target_id=target_id,
+            ttl=ttl if ttl is not None else self.session_ttl,
+            max_spans=self.max_spans_per_session,
+        )
 
     def _on_spans(self, spans: List[Dict[str, Any]]) -> None:
         """Callback invoked by the receiver when spans arrive."""

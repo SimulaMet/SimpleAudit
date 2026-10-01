@@ -707,3 +707,95 @@ def test_shared_receiver_parallel_audits():
             shared.stop()
 
     asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Heavy-traffic protections
+# ---------------------------------------------------------------------------
+
+def test_session_max_spans_cap():
+    from simpleaudit.tracing import TraceSession
+
+    s = TraceSession(audit_id="a1", ttl=60, max_spans=5)
+    stored = s.add_many([{"trace_id": "t1", "span_id": f"s{i}", "name": f"span{i}"} for i in range(10)])
+    assert stored == 5
+    assert len(s) == 5
+    assert s.full
+    assert s.dropped == 5
+    # More spans are still dropped.
+    stored2 = s.add_many([{"trace_id": "t1", "span_id": "s99", "name": "extra"}])
+    assert stored2 == 0
+    assert s.dropped == 6
+
+
+def test_manager_early_rejection_no_sessions():
+    from simpleaudit.tracing import TraceSessionManager
+
+    mgr = TraceSessionManager()
+    # No sessions → spans are dropped immediately.
+    mgr.route_spans([{"trace_id": "t1", "span_id": "s1", "name": "x"}] * 100)
+    assert mgr.dropped_no_session == 100
+    assert mgr.total_spans == 0
+
+
+def test_manager_global_cap():
+    from simpleaudit.tracing import TraceSessionManager
+
+    mgr = TraceSessionManager(max_total_spans=10)
+    s1 = mgr.create("a1", ttl=60, max_spans=100)
+    s2 = mgr.create("a2", ttl=60, max_spans=100)
+    mgr.register_trace("a1", "t1")
+    mgr.register_trace("a2", "t2")
+
+    # Fill up to the global cap.
+    mgr.route_spans([{"trace_id": "t1", "span_id": f"s{i}", "name": f"x{i}"} for i in range(10)])
+    assert mgr.total_spans == 10
+    assert mgr.dropped_global_cap == 0
+
+    # More spans → dropped by global cap.
+    mgr.route_spans([{"trace_id": "t2", "span_id": "s99", "name": "y"}])
+    assert mgr.total_spans == 10
+    assert mgr.dropped_global_cap == 1
+
+
+def test_shared_receiver_stats():
+    import asyncio
+    import httpx
+    from simpleaudit.tracing import SharedOTLPReceiver
+
+    async def _run():
+        shared = SharedOTLPReceiver(host="127.0.0.1", port=0, max_total_spans=5).start()
+        try:
+            # No session → early rejection.
+            payload = {
+                "resourceSpans": [{
+                    "resource": {"attributes": []},
+                    "scopeSpans": [{"spans": [{
+                        "traceId": "a" * 32, "spanId": "b" * 16, "name": "orphan",
+                        "kind": 2, "startTimeUnixNano": 1000000000, "endTimeUnixNano": 2000000000,
+                        "attributes": [], "status": {"code": 1},
+                    }]}],
+                }]
+            }
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(shared.endpoint, json=payload)
+                assert r.status_code == 200
+            stats = shared.stats
+            assert stats["dropped_no_session"] >= 1
+            assert stats["total_spans"] == 0
+
+            # Create a session and send spans up to the cap.
+            session = shared.create_session("audit_1")
+            shared.sessions.register_trace("audit_1", "a" * 32)
+            for i in range(10):
+                p = dict(payload)
+                p["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["spanId"] = f"{'c' * 14}{i:02x}"
+                async with httpx.AsyncClient(timeout=10) as client:
+                    await client.post(shared.endpoint, json=p)
+            stats = shared.stats
+            assert stats["total_spans"] == 5  # capped at max_total_spans=5
+            assert stats["dropped_global_cap"] >= 5
+        finally:
+            shared.stop()
+
+    asyncio.run(_run())

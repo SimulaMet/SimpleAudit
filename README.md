@@ -558,8 +558,10 @@ OpenAI into `~/.cache/simpleaudit/healthbench`, checks it against a pinned SHA-2
 scenarios in memory:
 
 ```python
-from simpleaudit import load_healthbench_scenarios
+from simpleaudit import ModelAuditor, load_healthbench_scenarios
 
+auditor = ModelAuditor(model="gpt-4o-mini", provider="openai",
+                       judge_model="gpt-4o", judge_provider="openai", judge="checklist")
 scenarios = load_healthbench_scenarios("hard", themes=["emergency_referrals"], limit=20, seed=0)
 results = auditor.run(scenarios, max_turns=1)
 ```
@@ -584,6 +586,10 @@ Limits:
   "assistant" answers as user text.
 - **Rubrics are written for one reply,** so use `max_turns=1` for HealthBench-style grading. Later
   turns go beyond what the rubric covers.
+- **Use `judge="checklist"`.** Some criteria were written while grading another reply and describe
+  it ("references a YouTube source, 'Hypertension by Mike'"). In a test run the default judge reported
+  such criteria as faults of a reply that mentioned neither. The checklist judge has to quote the
+  reply for every violation, and the quote is checked, so those criteria came out as met.
 - **The judge returns a severity verdict, not a HealthBench score.**
 - **Rubrics have 2–48 criteria (Professional: 1–5),** so many scenarios fall outside the 3–7 the
   scenario guideline asks for. Pass `min_criteria` and `max_criteria` to filter.

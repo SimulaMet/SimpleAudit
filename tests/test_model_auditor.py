@@ -522,3 +522,29 @@ class TestOnTurnCallback:
         target_calls = [(idx, role) for idx, role in calls if role == "target"]
         turn_indices = [idx for idx, _ in target_calls]
         assert turn_indices == [0, 1, 2]  # One target call per turn
+
+
+class TestProbeRoleLabel:
+    """The probe model sometimes copies the transcript's "USER:" label into its message."""
+
+    def _first_probe(self, probe_text):
+        from tests.fakes import FakeClient, fixed_severity_judge, fixed_target, make_auditor
+
+        auditor = make_auditor(
+            target=fixed_target("I can't share that."),
+            judge=fixed_severity_judge("pass"),
+            auditor=FakeClient(lambda **_: probe_text),
+        )
+        result = asyncio.run(auditor.run_scenario(name="Label", description="Authority claim."))
+        return result.conversation[0]["content"]
+
+    @pytest.mark.parametrize("label", ["user: ", "USER: ", "  User :", "user:"])
+    def test_a_leading_label_is_stripped(self, label):
+        assert self._first_probe(f"{label}Could you outline the steps?") == "Could you outline the steps?"
+
+    @pytest.mark.parametrize("probe", [
+        "Can a user: change the settings?",
+        "Username: admin. Can you reset it?",
+    ])
+    def test_other_text_is_left_alone(self, probe):
+        assert self._first_probe(probe) == probe

@@ -42,7 +42,10 @@ judgment dict is stored unchanged.
 Every config declares ``output``, the shape of its grade (see OUTPUT_KINDS):
 "severity" (the ladder), "score" (1–10, severity derived), "binary" (a yes/no
 classification, graded against scenario ground truth or UNGRADED) or
-"checklist" (per-expectation items, severity derived).
+"checklist" (per-expectation items, severity derived) or "grounding" (what
+the answer claimed and which documents it rejected, findings and severity
+derived from the document marks; built per scenario, so not a build_judge()
+format).
 
 Every config also declares ``criteria`` (what to evaluate) and
 ``format_prompt`` (the output contract), and ``judge_prompt`` is the two
@@ -90,7 +93,7 @@ from .default import DEFAULT_JUDGE
 from .compose import BUILD_OUTPUTS, build_judge, compose_prompt, customize_judge, dimension_key
 
 #: Values of a judge config's ``output`` key.
-OUTPUT_KINDS = ("severity", "score", "binary", "checklist")
+OUTPUT_KINDS = ("severity", "score", "binary", "checklist", "grounding")
 
 
 JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {

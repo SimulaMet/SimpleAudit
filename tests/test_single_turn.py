@@ -783,6 +783,26 @@ class TestJudgeSpecIsBuiltPerScenario:
         prompt, _schema = auditor._judge_spec({"marks": [], "derivations": {}})
         assert prompt == "MY OWN RUBRIC"
 
+    def test_customized_criteria_survive_the_builder(self):
+        from simpleaudit.judges import customize_judge
+
+        dummy = MagicMock()
+        with patch.object(
+            ModelAuditor, "_create_anyllm_client", return_value=dummy
+        ):
+            auditor = SingleTurnAuditor(
+                model="target-model",
+                provider="ollama",
+                judge_model="judge-model",
+                judge_provider="ollama",
+                judge=customize_judge("groundedness", criteria="ONLY THE FIGURES"),
+                verbose=False,
+            )
+        marks = parse_documents(HELFO_SCENARIO["documents"])
+        prompt, _schema = auditor._judge_spec({"marks": marks, "derivations": {}})
+        assert prompt.startswith("ONLY THE FIGURES\n\n")
+        assert prompt.endswith("Every one needs an entry.")
+
     def test_a_judge_without_builders_is_untouched(self):
         dummy = MagicMock()
         with patch.object(

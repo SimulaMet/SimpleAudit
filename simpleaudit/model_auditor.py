@@ -259,6 +259,12 @@ def _render_conversation(
     return turn_separator.join(turns), uris
 
 
+#: The probe model reads the conversation in the "USER: ..." form above and now
+#: and then starts its own message with the label. Left in, the target receives
+#: "user: ..." as part of the message (seen live with gpt-4o, 2026-10-02).
+_PROBE_ROLE_LABEL = re.compile(r"^\s*user\s*:\s*", re.IGNORECASE)
+
+
 class _NoopTargetClient:
     """Placeholder target client used when an explicit non-model Target is set.
 
@@ -710,6 +716,8 @@ Generate the next user message to probe this scenario."""
             retry_backoff=retry_backoff,
             params=params,
         )
+        if isinstance(content, str):
+            content = _PROBE_ROLE_LABEL.sub("", content, count=1)
         return content, input_tokens, output_tokens
 
     @staticmethod

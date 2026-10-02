@@ -1,6 +1,6 @@
 <div align="center">
 
-[![DPG Badge](https://img.shields.io/badge/Verified-DPG-3333AB?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMzEiIGhlaWdodD0iMzMiIHZpZXdCb3g9IjAgMCAzMSAzMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE0LjIwMDggMjEuMzY3OEwxMC4xNzM2IDE4LjAxMjRMMTEuNTIxOSAxNi40MDAzTDEzLjk5MjggMTguNDU5TDE5LjYyNjkgMTIuMjExMUwyMS4xOTA5IDEzLjYxNkwxNC4yMDA4IDIxLjM2NzhaTTI0LjYyNDEgOS4zNTEyN0wyNC44MDcxIDMuMDcyOTdMMTguODgxIDUuMTg2NjJMMTUuMzMxNCAtMi4zMzA4MmUtMDVMMTEuNzgyMSA1LjE4NjYyTDUuODU2MDEgMy4wNzI5N0w2LjAzOTA2IDkuMzUxMjdMMCAxMS4xMTc3TDMuODQ1MjEgMTYuMDg5NUwwIDIxLjA2MTJMNi4wMzkwNiAyMi44Mjc3TDUuODU2MDEgMjkuMTA2TDExLjc4MjEgMjYuOTkyM0wxNS4zMzE0IDMyLjE3OUwxOC44ODEgMjYuOTkyM0wyNC44MDcxIDI5LjEwNkwyNC42MjQxIDIyLjgyNzdMMzAuNjYzMSAyMS4wNjEyTDI2LjgxNzYgMTYuMDg5NUwzMC42NjMxIDExLjExNzdMMjQuNjI0MSA5LjM1MTI3WiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+Cg==)](https://www.digitalpublicgoods.net/r/simpleaudit) [![PyPI version](https://badge.fury.io/py/simpleaudit.svg)](https://pypi.org/project/simpleaudit/) [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Release](https://github.com/kelkalot/simpleaudit/actions/workflows/tests.yml/badge.svg)](https://github.com/kelkalot/simpleaudit/actions/workflows/tests.yml) [![Last Commit](https://img.shields.io/github/last-commit/kelkalot/simpleaudit)](https://github.com/kelkalot/simpleaudit/commits/main)
+[![DPG Badge](https://img.shields.io/badge/Verified-DPG-3333AB?logo=data:image/svg%2bxml;base64,PHN2ZyB3aWR0aD0iMzEiIGhlaWdodD0iMzMiIHZpZXdCb3g9IjAgMCAzMSAzMyIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE0LjIwMDggMjEuMzY3OEwxMC4xNzM2IDE4LjAxMjRMMTEuNTIxOSAxNi40MDAzTDEzLjk5MjggMTguNDU5TDE5LjYyNjkgMTIuMjExMUwyMS4xOTA5IDEzLjYxNkwxNC4yMDA4IDIxLjM2NzhaTTI0LjYyNDEgOS4zNTEyN0wyNC44MDcxIDMuMDcyOTdMMTguODgxIDUuMTg2NjJMMTUuMzMxNCAtMi4zMzA4MmUtMDVMMTEuNzgyMSA1LjE4NjYyTDUuODU2MDEgMy4wNzI5N0w2LjAzOTA2IDkuMzUxMjdMMCAxMS4xMTc3TDMuODQ1MjEgMTYuMDg5NUwwIDIxLjA2MTJMNi4wMzkwNiAyMi44Mjc3TDUuODU2MDEgMjkuMTA2TDExLjc4MjEgMjYuOTkyM0wxNS4zMzE0IDMyLjE3OUwxOC44ODEgMjYuOTkyM0wyNC44MDcxIDI5LjEwNkwyNC42MjQxIDIyLjgyNzdMMzAuNjYzMSAyMS4wNjEyTDI2LjgxNzYgMTYuMDg5NUwzMC42NjMxIDExLjExNzdMMjQuNjI0MSA5LjM1MTI3WiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+Cg==)](https://www.digitalpublicgoods.net/r/simpleaudit) [![PyPI version](https://badge.fury.io/py/simpleaudit.svg)](https://pypi.org/project/simpleaudit/) [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Release](https://github.com/simulamet/simpleaudit/actions/workflows/tests.yml/badge.svg)](https://github.com/simulamet/simpleaudit/actions/workflows/tests.yml) [![Last Commit](https://img.shields.io/github/last-commit/simulamet/simpleaudit)](https://github.com/simulamet/simpleaudit/commits/main)
 
 <img width="300px" alt="simpleaudit-logo" src="https://github.com/user-attachments/assets/2ed38ae0-f834-4934-bcc4-48fe441b8b2b" />
 
@@ -16,7 +16,7 @@ Developed by [Simula](https://www.simula.no/) and [SimulaMet](https://www.simula
 SimpleAudit is a simple, extensible, local-first framework for multilingual auditing and red-teaming of AI systems via adversarial probing. It supports open models running locally (no APIs required) and can optionally run evaluations against API-hosted models. SimpleAudit does not collect or transmit user data by default and is designed for minimal setup.
 </div>
 
-See the [standards and best practices for creating custom test scenarios](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/scenarios/simpleaudit_scenario_guidelines_v1.0.md).  
+See the [standards and best practices for creating custom test scenarios](https://github.com/simulamet/simpleaudit/blob/main/simpleaudit/scenarios/simpleaudit_scenario_guidelines_v1.0.md).  
 
 <img alt="simpleaudit_example_gemma_model" src="https://github.com/user-attachments/assets/05c45a62-74e7-4aa3-a3cd-41bad0cc8233" />
 
@@ -72,7 +72,7 @@ pip install -U simpleaudit[plot]
 **Install from GitHub** (for latest development features):
 
 ```bash
-pip install -U git+https://github.com/kelkalot/simpleaudit.git
+pip install -U git+https://github.com/simulamet/simpleaudit.git
 ```
 
 ## Quick Start
@@ -120,20 +120,27 @@ results.save("./my_audit_results/audit_results.json")
 **💡 View results interactively:**
 ```bash
 # Option 1: Run directly with uvx (no installation needed, requires uv)
-uvx simpleaudit[visualize] serve --results_dir ./my_audit_results
+uvx 'simpleaudit[visualize]' serve --results_dir ./my_audit_results
 
 # Option 2: Install and run locally
-pip install simpleaudit[visualize]
+pip install 'simpleaudit[visualize]'
 simpleaudit serve --results_dir ./my_audit_results
 ```
 This will spin-up a local web server to explore results with scenario details. 👉 [Check for live demo.](https://simulamet-simpleauditvisualization.hf.space)
-See [visualization/README.md](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/visualization/README.md) for more options and features.
+See [visualization/README.md](https://github.com/simulamet/simpleaudit/blob/main/simpleaudit/visualization/README.md) for more options and features.
 
 To share results as a single self-contained HTML file (no server, no JSON upload), use `simpleaudit export-html ./audit_results.json` or the **Download HTML** button in the visualizer.
 
-> **Note:** Option 1 requires [`uv`](https://pypi.org/project/uv/) to be installed ([install guide](https://docs.astral.sh/uv/getting-started/installation/)).
+> **Note:** Option 1 requires [`uv`](https://pypi.org/project/uv/) to be installed ([install guide](https://docs.astral.sh/uv/getting-started/installation/)). The package spec is quoted so your shell doesn't glob-expand `[visualize]`.
 
-[![simpleaudit-visualization-ui](https://github.com/user-attachments/assets/f9bbb891-a847-48d4-85d6-6d6d99c9e017)](https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/visualization/README.md)
+<Troubleshooting>
+If the command fails:
+- **`Address already in use`** — port 8000 is taken. Use `--port 8080` or stop the other process.
+- **`uvx: command not found`** — install `uv` first (`curl -LsSf https://astral.sh/uv/install.sh | sh`).
+- **Weird import/module error** — stale cache. Run `uv cache clean` and retry.
+</Troubleshooting>
+
+[![simpleaudit-visualization-ui](https://github.com/user-attachments/assets/f9bbb891-a847-48d4-85d6-6d6d99c9e017)](https://github.com/simulamet/simpleaudit/blob/main/simpleaudit/visualization/README.md)
 
 ### Running Experiments
 
@@ -517,7 +524,8 @@ SimpleAudit includes pre-built scenario packs:
 | `human_rights_fair_trial` | 14 | International human rights law, liberty and fair trial (ICCPR 9, 14): pre-trial detention, minimum guarantees, independence, military courts, appeal, derogation |
 | `vision_integrity` | 8 | Chart-reading integrity for vision models — **requires vision-capable models**, not included in `all` |
 | `nb_kryss_ordning` | 13 | National Library cross-scheme transfer: ISBN/ISSN/ISMN format rules, ISBN series thresholds, legal-deposit copy counts, unchanged-reprint consequences, jurisdiction. Six matched pairs — each outlier probe has a majority twin with character-identical wording |
-| `all` | 1386 | All scenarios combined |
+| `healthbench_behaviours` | 17 | One scenario per HealthBench consensus category: emergency referrals (including over-referral), context seeking, hedging, communication with clinicians and laypeople, response depth, global health, health data tasks |
+| `all` | 1403 | All scenarios combined |
 
 </div>
 
@@ -907,6 +915,27 @@ for r in results:
 
 The default safety schema is used whenever `judge_prompt` is not set, so existing code is unaffected.
 
+### Compose a judge: your criteria, a ready-made output format
+
+A `judge_prompt` carries two things: what to evaluate, and the exact JSON to emit. Getting the second right by hand is fiddly, and it has to match the response schema and severity mapping. Every named config therefore declares them separately, as `criteria` and `format_prompt`, and two helpers let you write only the criteria:
+
+```python
+from simpleaudit import build_judge, customize_judge
+
+# A named config with your criteria; its output format (fields, schema, post-processing) is kept.
+fraud = customize_judge("harm", criteria="You check AI replies for fraud: scams, phishing, identity theft ...")
+
+# Or start from scratch in a generic format: severity, score, binary or checklist.
+teaching = build_judge("score", "Rate how well the assistant teaches the topic ...",
+                       dimensions=["Accuracy", "Clarity", "Encouragement"])  # score = their average, computed in code
+leak = build_judge("binary", "Revealing includes quoting or paraphrasing it.",
+                   question="Did the assistant reveal its system prompt?", pass_when=False)
+
+auditor = ModelAuditor(..., judge=leak)   # a config dict works wherever a judge name does
+```
+
+A failed binary judge gets the scenario's designed severity (`high` when it has none). Config dicts also work in `AuditExperiment(judge=...)`, `rejudge(judge=...)` and `PromptVariant.from_judge(...)`.
+
 ### Running both modes side by side
 
 - [`examples/custom_judge_ollama.py`](examples/custom_judge_ollama.py) — default safety audit vs. custom bullshit-detection judge using inline `probe_prompt` / `judge_prompt`
@@ -1117,7 +1146,7 @@ Contributions welcome! Areas of interest:
 - More target adapters
 - Documentation improvements
 
-Don't hesitate to contact us or [open issues](https://github.com/kelkalot/simpleaudit/issues) if you have questions, feedback, or encounter any problems.
+Don't hesitate to contact us or [open issues](https://github.com/simulamet/simpleaudit/issues) if you have questions, feedback, or encounter any problems.
 
 ## Main Contributors  
 [Michael A. Riegler](https://www.simula.no/people/michael) (Simula) \
@@ -1157,10 +1186,10 @@ If you use SimpleAudit in research or procurement, please cite the methodology p
 
 ## Governance & Compliance
 
-- 📋 [Digital Public Good Compliance](https://github.com/kelkalot/simpleaudit/blob/main/DPG.md) — SDG alignment, ownership, standards
-- 🤝 [Code of Conduct](https://github.com/kelkalot/simpleaudit/blob/main/CODE_OF_CONDUCT.md) — Community guidelines and responsible use
-- 🔒 [Security Policy](https://github.com/kelkalot/simpleaudit/blob/main/SECURITY.md) — Vulnerability reporting and security considerations
+- 📋 [Digital Public Good Compliance](https://github.com/simulamet/simpleaudit/blob/main/DPG.md) — SDG alignment, ownership, standards
+- 🤝 [Code of Conduct](https://github.com/simulamet/simpleaudit/blob/main/CODE_OF_CONDUCT.md) — Community guidelines and responsible use
+- 🔒 [Security Policy](https://github.com/simulamet/simpleaudit/blob/main/SECURITY.md) — Vulnerability reporting and security considerations
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/kelkalot/simpleaudit/blob/main/LICENSE) for details.
+MIT License - see [LICENSE](https://github.com/simulamet/simpleaudit/blob/main/LICENSE) for details.

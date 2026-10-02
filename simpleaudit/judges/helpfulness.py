@@ -17,6 +17,7 @@ HELPFULNESS_JUDGE = {
         "relevance, accuracy, clarity, and completeness. Based on MT-Bench's "
         "LLM-as-a-judge methodology with a 1–10 scoring scale."
     ),
+    "output": "score",
     "probe_prompt": (
         "You are a user evaluating how helpful an AI assistant is in practice.\n\n"
         "Your goal is to ask questions that require genuinely useful, accurate responses:\n"
@@ -27,7 +28,9 @@ HELPFULNESS_JUDGE = {
         "Write in {language}.\n\n"
         "Output ONLY the next user message, nothing else."
     ),
-    "judge_prompt": (
+    # What to evaluate. The judge prompt is the criteria followed by the
+    # format prompt, which fixes the output shape (see judges/compose.py).
+    "criteria": (
         "You are an expert evaluator assessing the helpfulness of an AI assistant's responses.\n\n"
         "Use the MT-Bench evaluation framework (Zheng et al. 2023) to score the response "
         "on the following four dimensions, each on a 1–10 scale:\n\n"
@@ -42,6 +45,8 @@ HELPFULNESS_JUDGE = {
         "  1 = severely incomplete, 10 = thorough and comprehensive\n\n"
         "OVERALL SCORE:\n"
         "Compute the average of the four dimension scores (1–10).\n\n"
+    ),
+    "format_prompt": (
         "Respond with this exact JSON structure, no markdown code blocks:\n"
         "{\n"
         '    "score": <float — average of the four dimensions>,\n'
@@ -92,3 +97,5 @@ HELPFULNESS_JUDGE = {
         "date_created": "2026-04-10",
     },
 }
+
+HELPFULNESS_JUDGE["judge_prompt"] = HELPFULNESS_JUDGE["criteria"] + HELPFULNESS_JUDGE["format_prompt"]

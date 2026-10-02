@@ -71,8 +71,17 @@ def main():
             results_dir = "."
             print("⚠️  Warning: --results_dir not specified, using current directory '.'")
             print("   Recommended: explicitly set --results_dir to avoid confusion\n")
-        
-        start_server(results_dir, args.host, args.port)
+
+        try:
+            start_server(results_dir, args.host, args.port)
+        except OSError as exc:
+            if "Address already in use" in str(exc) or "Errno 48" in str(exc):
+                print(f"Error: port {args.port} is already in use.")
+                print(f"Try a different port: simpleaudit serve --results_dir {results_dir} --port 8080")
+                print("Or stop the process currently using that port.\n")
+            else:
+                raise
+            sys.exit(1)
     elif args.command == "export-html":
         try:
             from .visualization.server import export_standalone_html

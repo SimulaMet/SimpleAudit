@@ -12,7 +12,7 @@ This usually happens if you are using a proxy (e.g., Cloudflare or a corporate f
 - Point `base_url` (target), `judge_base_url` (judge), or `auditor_base_url` (auditor) at a local gateway or reverse proxy that injects the headers your infrastructure requires (e.g. nginx with `proxy_set_header User-Agent "SimpleAudit-test/1.0";`).
 - Switch `provider` / `judge_provider` to a provider whose requests your proxy accepts — any provider supported by any-llm works.
 
-If you need native header overrides, please [open an issue](https://github.com/kelkalot/simpleaudit/issues).
+If you need native header overrides, please [open an issue](https://github.com/simulamet/simpleaudit/issues).
 
 ## Customization
 

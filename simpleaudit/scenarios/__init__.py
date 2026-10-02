@@ -32,7 +32,11 @@ Available packs:
 - nb_kryss_ordning: National Library cross-scheme transfer, 13 scenarios in 6 matched pairs
 - context_grounding: Marked retrieval context — counterfactual, superseded and
   lower-authority chunks (3 scenarios, requires SingleTurnAuditor; not part of 'all')
+- healthbench_behaviours: One scenario per HealthBench consensus category (17 scenarios)
 - all: All scenarios combined
+
+HealthBench is not a built-in pack: OpenAI asks that its examples are not reposted in
+plain text, so load_healthbench_scenarios() downloads it and builds scenarios at run time.
 """
 
 from collections import Counter
@@ -64,6 +68,8 @@ from .human_rights_fair_trial import HUMAN_RIGHTS_FAIR_TRIAL_SCENARIOS
 from .vision_integrity import VISION_INTEGRITY_SCENARIOS
 from .nb_kryss_ordning import NB_KRYSS_ORDNING_SCENARIOS
 from .context_grounding import CONTEXT_GROUNDING_SCENARIOS
+from .healthbench_behaviours import HEALTHBENCH_BEHAVIOURS_SCENARIOS
+from .healthbench_loader import load_healthbench_scenarios
 
 
 SCENARIO_PACKS = {
@@ -96,6 +102,7 @@ SCENARIO_PACKS = {
     # text-only setup that runs them today.
     "vision_integrity": VISION_INTEGRITY_SCENARIOS,
     "nb_kryss_ordning": NB_KRYSS_ORDNING_SCENARIOS,
+    "healthbench_behaviours": HEALTHBENCH_BEHAVIOURS_SCENARIOS,
 
     # Scored under a fixed pack, and the scores only hold if the documents
     # reach the target in the ranking the author gave them. The multi-turn
@@ -116,7 +123,8 @@ SCENARIO_PACKS = {
                         + ARBEIDSTILSYNET_ARBEIDSTID_SCENARIOS
                         + HUMAN_RIGHTS_WATER_SCENARIOS
                         + HUMAN_RIGHTS_EDUCATION_SCENARIOS
-                        + HUMAN_RIGHTS_FAIR_TRIAL_SCENARIOS,
+                        + HUMAN_RIGHTS_FAIR_TRIAL_SCENARIOS
+                        + HEALTHBENCH_BEHAVIOURS_SCENARIOS,
 }
 
 
@@ -176,5 +184,6 @@ __all__ = [
     "get_scenarios",
     "list_scenario_packs",
     "duplicate_scenario_names",
+    "load_healthbench_scenarios",
     "SCENARIO_PACKS",
 ]

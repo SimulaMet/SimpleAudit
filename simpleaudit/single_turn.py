@@ -38,7 +38,7 @@ Usage::
 
 import asyncio
 from datetime import date
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from tqdm.auto import tqdm
 
@@ -49,6 +49,8 @@ from .context_marks import DocumentMark, parse_as_of, parse_documents, render_do
 from .judges import get_judge
 from .model_auditor import ModelAuditor
 from .results import AuditResult, AuditResults
+from .targets.base import TargetContext
+from .tracing.context import make_traceparent, new_trace_id
 from .utils import SEVERITY_ORDER, image_data_uri, normalize_severity, severity_from_score
 
 #: Groundedness findings a provenance judgment may carry (True when they fired).
@@ -232,7 +234,9 @@ class SingleTurnAuditor(ModelAuditor):
 
         build_prompt = config.get("build_judge_prompt")
         if build_prompt is not None and judge_prompt == config.get("judge_prompt"):
-            judge_prompt, _active = build_prompt(context)
+            # The config's criteria ride along, so a judge made with
+            # customize_judge() keeps them and only the format is rebuilt.
+            judge_prompt, _active = build_prompt({**context, "criteria": config.get("criteria")})
 
         build_schema = config.get("build_response_schema")
         # judge_fields is a deliberate caller-side restriction of the output and
@@ -246,13 +250,28 @@ class SingleTurnAuditor(ModelAuditor):
 
         return judge_prompt, response_schema
 
-    async def _run_one_scenario(self, scenario: Dict[str, Any]) -> AuditResult:
+    async def _run_one_scenario(
+        self,
+        scenario: Dict[str, Any],
+        *,
+        params: Optional[Dict[str, Any]] = None,
+        target_params: Optional[Dict[str, Any]] = None,
+        judge_params: Optional[Dict[str, Any]] = None,
+        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        evidence_spans: Optional[List[Dict[str, Any]]] = None,
+        audit_run_id: Optional[str] = None,
+        trace_correlation: Optional[Any] = None,
+    ) -> AuditResult:
         """Run one scenario as a single exchange and judge the result.
 
         Args:
             scenario: A scenario dict. ``test_prompt`` is required — it is the
                 probe, and there is no auditor model to write one instead.
                 ``documents``, ``as_of`` and ``file_uri`` are optional.
+            params, target_params, judge_params, on_turn, evidence_spans,
+            audit_run_id, trace_correlation: As for
+                ``ModelAuditor.run_scenario``. The exchange is reported to
+                ``on_turn`` as turn 0 of 1.
 
         Returns:
             An AuditResult whose conversation is the two messages that were
@@ -283,6 +302,16 @@ class SingleTurnAuditor(ModelAuditor):
         as_of = parse_as_of(scenario)
         derivations = derive_all(marks, as_of)
 
+        # Same layering as ModelAuditor.run_scenario: construction-time params,
+        # then per-call ones, with the role-specific dict over the shared one.
+        base = {**(self.params or {}), **(params or {})}
+        effective_target = {**base, **(self.target_params or {}), **(target_params or {})}
+        effective_judge = {**base, **(self.judge_params or {}), **(judge_params or {})}
+        effective_on_turn = on_turn if on_turn is not None else self.on_turn
+        scenario_run_id = f"scen_{new_trace_id()[:12]}"
+        scenario_trace_id = new_trace_id()
+        turn_id = f"{scenario_run_id}_t1"
+
         self._log(f"--- Started Scenario (single-turn): {name} ---")
         prompt_preview = test_prompt[:80] + "..." if len(test_prompt) > 80 else test_prompt
         self._log(f"PROMPT: {prompt_preview}", name=name)
@@ -305,17 +334,28 @@ class SingleTurnAuditor(ModelAuditor):
         # result rather than an exception that discards the whole batch.
         error: Optional[str] = None
         try:
-            response, target_input_tokens, target_output_tokens = await self._call_async(
-                self.target_client,
-                self.target_model,
-                self.system_prompt,
-                test_prompt,
+            # Through self.target, not target_client: an explicit Target (an
+            # HTTP app, a callable) replaces the model client, and the context
+            # carries the traceparent an instrumented target propagates.
+            target_resp = await self.target.send(
+                system=self.system_prompt,
+                user=test_prompt,
                 file_uri=file_uri,
                 documents=documents,
-                max_retries=self.max_retries,
-                retry_backoff=self.retry_backoff,
+                params=effective_target or None,
+                context=TargetContext(
+                    audit_run_id=audit_run_id,
+                    scenario_run_id=scenario_run_id,
+                    turn_id=turn_id,
+                    trace_headers={"traceparent": make_traceparent(scenario_trace_id)},
+                ),
             )
-            response = ModelAuditor.strip_thinking(response)
+            if trace_correlation is not None:
+                trace_correlation.record(turn_id, scenario_trace_id)
+            target_input_tokens = target_resp.input_tokens or 0
+            target_output_tokens = target_resp.output_tokens or 0
+            response = ModelAuditor.strip_thinking(target_resp.content)
+            self._fire_on_turn(0, 1, "target", effective_on_turn)
             response_preview = response[:80] + "..." if len(response) > 80 else response
             self._log(f"TARGET: {response_preview}", name=name)
             conversation.append({"role": "assistant", "content": response})
@@ -351,6 +391,8 @@ class SingleTurnAuditor(ModelAuditor):
                     judge_fields=self.judge_fields,
                     max_retries=self.max_retries,
                     retry_backoff=self.retry_backoff,
+                    params=effective_judge or None,
+                    evidence_spans=evidence_spans,
                 )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out
@@ -391,6 +433,7 @@ class SingleTurnAuditor(ModelAuditor):
                         judge_input_tokens += c_in
                         judge_output_tokens += c_out
                         judgment = combine_judgments(judgment, correctness)
+                self._fire_on_turn(0, 1, "judge", effective_on_turn)
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
                 self._log(f"--- Judging FAILED: {name} [{error}] ---")
@@ -439,6 +482,14 @@ class SingleTurnAuditor(ModelAuditor):
         max_turns: Optional[int] = None,
         language: str = "English",
         max_workers: int = 1,
+        params: Optional[Dict[str, Any]] = None,
+        target_params: Optional[Dict[str, Any]] = None,
+        judge_params: Optional[Dict[str, Any]] = None,
+        auditor_params: Optional[Dict[str, Any]] = None,
+        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        evidence_spans: Optional[List[Dict[str, Any]]] = None,
+        audit_run_id: Optional[str] = None,
+        trace_correlation: Optional[Any] = None,
     ) -> AuditResults:
         """Run every scenario single-turn and collect the results.
 
@@ -454,6 +505,10 @@ class SingleTurnAuditor(ModelAuditor):
                 AuditExperiment, and ignored — there is exactly one turn.
             language: Likewise ignored; there is no probe to write.
             max_workers: Scenarios run concurrently up to this many at a time.
+            params, target_params, judge_params, on_turn, evidence_spans,
+            audit_run_id, trace_correlation: As for ``ModelAuditor.run_async``.
+            auditor_params: Accepted for the same drop-in reason and ignored —
+                there is no auditor call.
 
         Returns:
             AuditResults over every scenario, in the order they were given.
@@ -463,6 +518,7 @@ class SingleTurnAuditor(ModelAuditor):
                 f"max_workers must be >= 1, got {max_workers} "
                 "(a semaphore of 0 permits would deadlock the run)"
             )
+        audit_run_id = audit_run_id or f"audit_{new_trace_id()[:12]}"
         # Cached on URI alone, so a file regenerated between two audits in one
         # process would otherwise be replayed from its old bytes.
         image_data_uri.cache_clear()
@@ -490,7 +546,16 @@ class SingleTurnAuditor(ModelAuditor):
         async def _run_one(scenario: Dict) -> AuditResult:
             async with semaphore:
                 try:
-                    result = await self._run_one_scenario(scenario)
+                    result = await self._run_one_scenario(
+                        scenario,
+                        params=params,
+                        target_params=target_params,
+                        judge_params=judge_params,
+                        on_turn=on_turn,
+                        evidence_spans=evidence_spans,
+                        audit_run_id=audit_run_id,
+                        trace_correlation=trace_correlation,
+                    )
                 except Exception as exc:
                     # Don't let one failing scenario abort the whole batch and
                     # discard every other (possibly expensive) result. Record an

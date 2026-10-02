@@ -1,14 +1,49 @@
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Union
 import asyncio
 import hashlib
+import inspect
 import json
 from collections import Counter
 
 from tqdm.auto import tqdm
-from simpleaudit.results import AuditResults
+from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.repeated_results import RepeatedExperimentResults
+
+
+@dataclass
+class ExperimentEvent:
+    """Typed event yielded by :meth:`AuditExperiment.run_streamed`.
+
+    Attributes:
+        type: One of ``"rep_started"``, ``"rep_done"``, ``"model_done"``,
+            ``"cancelled"``.
+        model: Model label the event belongs to.
+        rep_index: Zero-based rep index (``-1`` for non-rep events).
+        total_reps: Total reps planned for this model.
+        scenario_name: Set for scenario-level events.
+        result: The :class:`AuditResults` for the full rep (set on ``rep_done``).
+        partial: Partial :class:`RepeatedExperimentResults` (set on ``model_done``).
+    """
+
+    type: str
+    model: str
+    rep_index: int = -1
+    total_reps: int = 0
+    scenario_name: Optional[str] = None
+    result: Optional[AuditResults] = None
+    partial: Optional["RepeatedExperimentResults"] = None
+
+
+def _fingerprint_default(value: Any) -> str:
+    """JSON fallback for fingerprints: callables (a composed judge's
+    post-processor) by name, since their repr carries a memory address that
+    changes between processes."""
+    if callable(value):
+        return f"{getattr(value, '__module__', '')}.{getattr(value, '__qualname__', type(value).__name__)}"
+    return str(value)
 
 
 class AuditExperiment:
@@ -23,10 +58,14 @@ class AuditExperiment:
         auditor_provider: Optional[str] = None,
         auditor_api_key: Optional[str] = None,
         auditor_base_url: Optional[str] = None,
-        judge: Optional[str] = None,
+        judge: Optional[Union[str, Dict[str, Any]]] = None,
         probe_prompt: Optional[str] = None,
         judge_prompt: Optional[str] = None,
         judge_response_schema: Optional[Dict[str, Any]] = None,
+        judge_kwargs: Optional[Dict[str, Any]] = None,
+        auditor_kwargs: Optional[Dict[str, Any]] = None,
+        judge_params: Optional[Dict[str, Any]] = None,
+        auditor_params: Optional[Dict[str, Any]] = None,
         json_format: bool = True,
         verbose: bool = False,
         show_progress: bool = True,
@@ -34,6 +73,11 @@ class AuditExperiment:
         adaptive_reruns: Optional[Dict[str, Any]] = None,
         save_dir: Optional[str] = None,
         on_model_done: Optional[Callable[[str, "RepeatedExperimentResults"], None]] = None,
+        on_rep_done: Optional[Callable[..., Any]] = None,
+        cancel_event: Optional[asyncio.Event] = None,
+        max_retries_per_rep: int = 0,
+        rep_is_done: Optional[Callable[..., Any]] = None,
+        max_error_reps: int = 3,
     ):
         if not models or any("model" not in m for m in models):
             raise ValueError("Models must be dicts with a 'model' key.")
@@ -82,6 +126,12 @@ class AuditExperiment:
         self.probe_prompt = probe_prompt
         self.judge_prompt = judge_prompt
         self.judge_response_schema = judge_response_schema
+        # Judge / auditor client kwargs and per-request params shared by every
+        # model; a model entry's own values win (see _merge_common).
+        self.judge_kwargs = judge_kwargs
+        self.auditor_kwargs = auditor_kwargs
+        self.judge_params = judge_params
+        self.auditor_params = auditor_params
         self.json_format = json_format
         self.verbose = verbose
         self.show_progress = show_progress
@@ -89,6 +139,13 @@ class AuditExperiment:
         self.adaptive_reruns = adaptive_reruns
         self.save_dir = Path(save_dir) if save_dir else None
         self.on_model_done = on_model_done
+        self.on_rep_done = on_rep_done
+        self.cancel_event = cancel_event
+        if max_retries_per_rep < 0:
+            raise ValueError("max_retries_per_rep must be >= 0")
+        self.max_retries_per_rep = max_retries_per_rep
+        self.rep_is_done = rep_is_done
+        self.max_error_reps = max_error_reps
 
     def _make_label(self, model_info: Dict[str, Any]) -> str:
         return model_info.get("label") or model_info["model"]
@@ -123,6 +180,9 @@ class AuditExperiment:
             merged["json_format"] = self.json_format
         if merged.get("judge_response_schema") is None and self.judge_response_schema is not None:
             merged["judge_response_schema"] = self.judge_response_schema
+        for key in ("judge_kwargs", "auditor_kwargs", "judge_params", "auditor_params"):
+            if merged.get(key) is None and getattr(self, key) is not None:
+                merged[key] = getattr(self, key)
         if merged.get("verbose") is None:
             merged["verbose"] = self.verbose
         if merged.get("show_progress") is None:
@@ -165,7 +225,7 @@ class AuditExperiment:
             "language": language,
         }
         digest = hashlib.sha256(
-            json.dumps(source, sort_keys=True, default=str).encode("utf-8")
+            json.dumps(source, sort_keys=True, default=_fingerprint_default).encode("utf-8")
         ).hexdigest()
         return {"fingerprint": digest, "source": source}
 
@@ -207,41 +267,221 @@ class AuditExperiment:
     def _load_cached_runs(self, label: str) -> Dict[int, AuditResults]:
         """Return {index: AuditResults} for every reusable run_N.json on disk.
 
-        Runs containing an ERROR result (a scenario that failed to complete,
-        e.g. a transient API error) are treated as not-yet-cached so they are
-        re-attempted on resume rather than baked permanently into the
-        aggregates. The stale file is overwritten when the run re-executes.
+        Per-rep invalidation: only the specific rep slots containing an ERROR
+        result are re-run; clean reps are preserved. If more than
+        ``max_error_reps`` reps contain errors, the entire model's cache is
+        invalidated (the configuration is likely fundamentally broken).
         """
         cached: Dict[int, AuditResults] = {}
+        error_count = 0
         for i in range(self.n_repetitions):
             path = self._run_path(label, i)
             if path.exists():
                 try:
                     results = AuditResults.load(str(path))
                 except (ValueError, KeyError, TypeError) as exc:
-                    # A truncated or schema-incompatible file must not kill
-                    # the resume it exists to enable — treat the slot as
-                    # uncached and re-run it (the file is overwritten then).
-                    # ValueError covers both JSONDecodeError and the
-                    # UnicodeDecodeError a partially-written binary file
-                    # produces.
                     tqdm.write(
                         f"  Warning: ignoring unreadable cached run {path} "
                         f"({type(exc).__name__}: {exc}) — this run will be re-executed"
                     )
                     continue
                 if any(r.severity == "ERROR" for r in results):
+                    error_count += 1
                     continue
                 cached[i] = results
+        # If too many reps are broken, invalidate everything.
+        if error_count > self.max_error_reps:
+            tqdm.write(
+                f"  Warning: {error_count}/{self.n_repetitions} cached runs for "
+                f"{label!r} contain errors (threshold {self.max_error_reps}) — "
+                "invalidating full cache."
+            )
+            return {}
         return cached
 
-    async def run_async(
+    # ------------------------------------------------------------------
+    # Internal helpers for the fine-grained execution path
+    # ------------------------------------------------------------------
+
+    async def _call_rep_is_done(self, label: str, rep_index: int) -> bool:
+        """Check the external idempotency hook. Returns True if the slot is done."""
+        if self.rep_is_done is None:
+            return False
+        result = self.rep_is_done(label, rep_index)
+        if inspect.iscoroutine(result):
+            result = await result
+        return bool(result)
+
+    async def _call_on_rep_done(self, label: str, rep_index: int, result: AuditResults) -> None:
+        """Invoke the on_rep_done callback (sync or async)."""
+        if self.on_rep_done is None:
+            return
+        cb = self.on_rep_done(label, rep_index, self.n_repetitions, result)
+        if inspect.iscoroutine(cb):
+            await cb
+
+    async def _run_single_rep(
+        self,
+        merged: Dict[str, Any],
+        scenarios: Union[str, List[Dict]],
+        max_turns: Optional[int],
+        language: str,
+        max_workers: int,
+        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        audit_run_id: Optional[str] = None,
+        trace_correlation: Optional[Any] = None,
+    ) -> AuditResults:
+        """Execute one rep with auto-retry on ERROR. Returns the final result."""
+        attempts = 1 + self.max_retries_per_rep
+        result: Optional[AuditResults] = None
+        for attempt in range(attempts):
+            auditor = ModelAuditor(**merged)
+            # trace_correlation may be a zero-arg callable (resolved per rep so
+            # the caller can swap in a fresh correlation at each rep boundary).
+            corr = trace_correlation() if callable(trace_correlation) else trace_correlation
+            result = await auditor.run_async(
+                scenarios,
+                max_turns=max_turns,
+                language=language,
+                max_workers=max_workers,
+                on_turn=on_turn,
+                audit_run_id=audit_run_id,
+                trace_correlation=corr,
+            )
+            if not any(r.severity == "ERROR" for r in result):
+                break
+            if attempt < attempts - 1:
+                tqdm.write(
+                    f"  Rep returned ERROR (attempt {attempt + 1}/{attempts}) — retrying"
+                )
+        return result  # type: ignore[return-value]
+
+    # ------------------------------------------------------------------
+    # Public: single-scenario, multi-rep execution
+    # ------------------------------------------------------------------
+
+    async def run_scenario_reps(
+        self,
+        model_index: int,
+        scenario: Dict[str, Any],
+        max_turns: Optional[int] = None,
+        language: str = "English",
+        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        audit_run_id: Optional[str] = None,
+        trace_correlation: Optional[Any] = None,
+    ) -> List[AuditResult]:
+        """Run a single scenario N times for one model.
+
+        Builds a fresh :class:`ModelAuditor` per rep (independent
+        conversations). Respects ``n_repetitions``, ``cancel_event``,
+        ``on_rep_done``, ``max_retries_per_rep``, ``rep_is_done``, and the
+        disk cache (per-rep files under ``save_dir``).
+
+        Args:
+            model_index: Index into ``self.models``.
+            scenario: A single scenario dict.
+            max_turns: Override for max conversation turns.
+            language: Language for probe generation.
+            on_turn: Optional callback fired at each phase boundary with
+                ``(turn_index, max_turns, role)`` where role is "auditor",
+                "target", or "judge". Called synchronously from within the
+                asyncio event loop.
+            audit_run_id: Optional run id propagated to each rep's
+                ``run_async`` for trace correlation.
+            trace_correlation: Optional :class:`TraceCorrelation` shared
+                across reps; each rep records its ``turn_id -> trace_id``
+                links so the caller can fetch per-rep trace evidence.
+
+        Returns:
+            List of :class:`AuditResult`, one per completed rep. May be
+            shorter than ``n_repetitions`` if cancellation occurred.
+        """
+        model_info = self.models[model_index]
+        label = self._make_label(model_info)
+        merged = self._merge_common(model_info)
+        results: List[AuditResult] = []
+
+        for i in range(self.n_repetitions):
+            # Cancellation check
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                break
+
+            # External idempotency: skip if caller says this slot is done
+            if await self._call_rep_is_done(label, i):
+                continue
+
+            # Disk cache: only reuse if the file was produced for THIS scenario
+            # under the same configuration (fingerprint check).
+            if self.save_dir:
+                run_path = self._run_path(label, i)
+                if run_path.exists():
+                    try:
+                        cached = AuditResults.load(str(run_path))
+                        # Validate: must contain exactly this scenario, no errors
+                        if (
+                            len(cached) == 1
+                            and cached[0].scenario_name == scenario["name"]
+                            and not any(r.severity == "ERROR" for r in cached)
+                        ):
+                            # Verify config fingerprint matches
+                            fingerprint = self._config_fingerprint(
+                                merged, [scenario], max_turns, language
+                            )
+                            config_path = self._config_path(label)
+                            if config_path.exists():
+                                with open(config_path, "r", encoding="utf-8") as f:
+                                    stored = json.load(f)
+                                if stored.get("fingerprint") == fingerprint["fingerprint"]:
+                                    results.extend(cached)
+                                    continue
+                            # Fingerprint mismatch or missing: fall through and re-run
+                    except (ValueError, KeyError, TypeError):
+                        pass  # fall through and re-run
+
+            # Execute with auto-retry
+            rep_result = await self._run_single_rep(
+                merged, [scenario], max_turns, language, max_workers=1,
+                on_turn=on_turn,
+                audit_run_id=audit_run_id,
+                trace_correlation=trace_correlation,
+            )
+
+            # Persist
+            if self.save_dir:
+                run_path = self._run_path(label, i)
+                run_path.parent.mkdir(parents=True, exist_ok=True)
+                rep_result.save(str(run_path))
+                # Write fingerprint for this single-scenario config
+                fingerprint = self._config_fingerprint(merged, [scenario], max_turns, language)
+                self._check_run_config(label, fingerprint)
+
+            results.extend(rep_result)
+
+            # Callback
+            await self._call_on_rep_done(label, i, rep_result)
+
+        return results
+
+    # ------------------------------------------------------------------
+    # Public: streaming async generator
+    # ------------------------------------------------------------------
+
+    async def run_streamed(
         self,
         scenarios: Union[str, List[Dict]],
         max_turns: Optional[int] = None,
         language: str = "English",
         max_workers: int = 1,
-    ) -> RepeatedExperimentResults:
+    ) -> AsyncIterator[ExperimentEvent]:
+        """Execute the experiment, yielding typed events as progress is made.
+
+        This is the core execution loop. :meth:`run_async` is a thin wrapper
+        that consumes this generator and returns the final result.
+
+        Yields:
+            ExperimentEvent with type in {"rep_started", "rep_done",
+            "model_done", "cancelled"}.
+        """
         judge_info = {
             k: v for k, v in {
                 "judge_model": self.judge_model,
@@ -251,6 +491,8 @@ class AuditExperiment:
         } or None
 
         runs_by_model: Dict[str, List[AuditResults]] = {}
+        cancelled = False
+
         with tqdm(
             total=len(self.models),
             desc="Models",
@@ -262,8 +504,7 @@ class AuditExperiment:
                 label = self._make_label(model_info)
                 merged = self._merge_common(model_info)
 
-                # Load any runs already saved to disk — but only if they were
-                # produced under the same configuration as this call.
+                # Load cached runs
                 cached: Dict[int, AuditResults] = {}
                 if self.save_dir:
                     fingerprint = self._config_fingerprint(
@@ -281,36 +522,62 @@ class AuditExperiment:
                     leave=False,
                     disable=(not self.show_progress or self.n_repetitions == 1),
                 ) as pbar_reps:
-                    # Fast-forward the bar for already-completed runs
                     pbar_reps.update(len(cached))
 
                     runs_ordered: Dict[int, AuditResults] = dict(cached)
                     for i in range(self.n_repetitions):
+                        # Cancellation
+                        if self.cancel_event is not None and self.cancel_event.is_set():
+                            yield ExperimentEvent(
+                                type="cancelled", model=label,
+                                rep_index=i, total_reps=self.n_repetitions,
+                            )
+                            cancelled = True
+                            break
+
+                        # External idempotency
+                        if await self._call_rep_is_done(label, i):
+                            pbar_reps.update(1)
+                            continue
+
                         if i in cached:
                             continue
-                        auditor = ModelAuditor(**merged)
-                        result = await auditor.run_async(
-                            scenarios,
-                            max_turns=max_turns,
-                            language=language,
-                            max_workers=max_workers,
+
+                        # Yield rep_started
+                        yield ExperimentEvent(
+                            type="rep_started", model=label,
+                            rep_index=i, total_reps=self.n_repetitions,
                         )
+
+                        # Execute with auto-retry
+                        result = await self._run_single_rep(
+                            merged, scenarios, max_turns, language, max_workers
+                        )
+
+                        # Persist
                         if self.save_dir:
                             run_path = self._run_path(label, i)
                             run_path.parent.mkdir(parents=True, exist_ok=True)
                             result.save(str(run_path))
+
                         runs_ordered[i] = result
                         pbar_reps.update(1)
 
-                runs_list = [runs_ordered[i] for i in range(self.n_repetitions)]
+                        # Callback + yield rep_done (full AuditResults)
+                        await self._call_on_rep_done(label, i, result)
+                        yield ExperimentEvent(
+                            type="rep_done", model=label,
+                            rep_index=i, total_reps=self.n_repetitions,
+                            result=result,
+                        )
 
-                # Adaptive reruns: spend extra budget on scenarios whose
-                # modal-verdict share is below the agreement target.
-                if self.adaptive_reruns:
+                runs_list = [runs_ordered[i] for i in range(self.n_repetitions) if i in runs_ordered]
+
+                # Adaptive reruns (routed through the same event/callback path)
+                if self.adaptive_reruns and not cancelled and runs_list:
                     target = self.adaptive_reruns["agreement_target"]
                     max_extra = self.adaptive_reruns.get("max_extra", 5)
                     for extra in range(max_extra):
-                        # Compute per-scenario agreement from current runs
                         scenario_severities: Dict[str, List[str]] = {}
                         for run in runs_list:
                             for r in run:
@@ -325,44 +592,91 @@ class AuditExperiment:
                             f"  Adaptive rerun {extra + 1}/{max_extra} for {label}: "
                             f"{len(below_target)} scenario(s) below agreement target {target}"
                         )
-                        # Run only the fragile scenarios
                         fragile_scenarios = [
                             s for s in (scenarios if isinstance(scenarios, list) else [])
                             if s.get("name") in below_target
                         ]
                         if not fragile_scenarios:
                             break
-                        auditor = ModelAuditor(**merged)
-                        result = await auditor.run_async(
-                            fragile_scenarios,
-                            max_turns=max_turns,
-                            language=language,
-                            max_workers=max_workers,
-                        )
-                        # Merge: replace the last run's results for these scenarios
-                        # with the new results (the new run is the most recent)
                         new_index = len(runs_list)
+                        yield ExperimentEvent(
+                            type="rep_started", model=label,
+                            rep_index=new_index, total_reps=self.n_repetitions,
+                        )
+                        result = await self._run_single_rep(
+                            merged, fragile_scenarios, max_turns, language, max_workers
+                        )
                         if self.save_dir:
                             run_path = self._run_path(label, new_index)
                             run_path.parent.mkdir(parents=True, exist_ok=True)
                             result.save(str(run_path))
                         runs_list.append(result)
                         runs_ordered[new_index] = result
+                        await self._call_on_rep_done(label, new_index, result)
+                        yield ExperimentEvent(
+                            type="rep_done", model=label,
+                            rep_index=new_index, total_reps=self.n_repetitions,
+                            result=result,
+                        )
 
+                # Skip models with zero runs (e.g. pre-cancelled)
+                if not runs_list:
+                    continue
                 runs_by_model[label] = runs_list
+
+                # model_done event (only for models that have runs)
+                partial = RepeatedExperimentResults(
+                    {label: runs_by_model[label]}, judge=judge_info, cancelled=cancelled
+                )
                 if self.on_model_done:
-                    partial = RepeatedExperimentResults(
-                        {label: runs_by_model[label]}, judge=judge_info
-                    )
                     self.on_model_done(label, partial)
+                yield ExperimentEvent(
+                    type="model_done", model=label,
+                    total_reps=self.n_repetitions, partial=partial,
+                )
                 pbar_models.update(1)
 
-        experiment_results = RepeatedExperimentResults(runs_by_model, judge=judge_info)
-
+        # Final save
         if self.save_dir:
             self.save_dir.mkdir(parents=True, exist_ok=True)
-            experiment_results.save(str(self.save_dir / "experiment_results.json"))
+            final = RepeatedExperimentResults(runs_by_model, judge=judge_info, cancelled=cancelled)
+            final.save(str(self.save_dir / "experiment_results.json"))
 
+    # ------------------------------------------------------------------
+    # Public: batch execution (backward-compatible)
+    # ------------------------------------------------------------------
+
+    async def run_async(
+        self,
+        scenarios: Union[str, List[Dict]],
+        max_turns: Optional[int] = None,
+        language: str = "English",
+        max_workers: int = 1,
+    ) -> RepeatedExperimentResults:
+        """Run the full experiment. Thin wrapper over :meth:`run_streamed`."""
+        judge_info = {
+            k: v for k, v in {
+                "judge_model": self.judge_model,
+                "judge_base_url": self.judge_base_url,
+                "judge_provider": self.judge_provider,
+            }.items() if v is not None
+        } or None
+
+        runs_by_model: Dict[str, List[AuditResults]] = {}
+        cancelled = False
+
+        async for event in self.run_streamed(
+            scenarios, max_turns=max_turns, language=language, max_workers=max_workers
+        ):
+            if event.type == "model_done" and event.partial is not None:
+                for label, runs in event.partial.all_runs().items():
+                    runs_by_model[label] = runs
+            if event.type == "cancelled":
+                cancelled = True
+
+        experiment_results = RepeatedExperimentResults(
+            runs_by_model, judge=judge_info, cancelled=cancelled
+        )
         return experiment_results
 
     def run(

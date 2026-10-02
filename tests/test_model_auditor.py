@@ -6,7 +6,7 @@ Run with: pytest tests/test_model_auditor.py -v
 
 import asyncio
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 from simpleaudit import ModelAuditor, get_scenarios, list_scenario_packs
 # Check for optional provider dependencies
@@ -354,3 +354,171 @@ def test_model_auditor_judge_fields_none_keeps_default():
         )
         assert auditor.judge_fields is None
         assert auditor.judge_response_schema is None  # no explicit schema set
+
+
+# ---------------------------------------------------------------------------
+# on_turn callback
+# ---------------------------------------------------------------------------
+
+class TestOnTurnCallback:
+    """Tests for the on_turn callback in run_scenario."""
+
+    def _make_auditor(self, **kwargs):
+        """Create a ModelAuditor with mocked LLM clients."""
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()):
+            return ModelAuditor(
+                model="test-model",
+                provider="openai",
+                judge_model="judge-model",
+                judge_provider="openai",
+                api_key="test-key",
+                show_progress=False,
+                verbose=False,
+                **kwargs,
+            )
+
+    def test_on_turn_called_at_each_phase_exact_sequence(self):
+        """on_turn fires in the exact phase order with correct turn indices.
+
+        With a test_prompt, turn 0 skips probe generation (auditor), so the
+        sequence is: turn0 target -> turn1 auditor -> turn1 target -> judge.
+        The judge runs once after all turns, reported against the final index.
+        """
+        calls = []
+
+        def on_turn(turn_index, max_turns, role):
+            calls.append((turn_index, max_turns, role))
+
+        auditor = self._make_auditor()
+
+        with patch.object(ModelAuditor, "_generate_probe_async", new_callable=AsyncMock) as mock_probe, \
+             patch.object(ModelAuditor, "_call_async", new_callable=AsyncMock) as mock_call, \
+             patch.object(ModelAuditor, "_judge_conversation_async", new_callable=AsyncMock) as mock_judge:
+
+            mock_probe.return_value = ("probe text", 10, 20)
+            mock_call.return_value = ("response text", 30, 40)
+            mock_judge.return_value = ({"severity": "pass"}, 50, 60)
+
+            asyncio.run(auditor.run_scenario(
+                name="test-scenario",
+                description="test description",
+                expected_behavior=["should do X"],
+                test_prompt="initial prompt",
+                max_turns=2,
+                language="English",
+                on_turn=on_turn,
+            ))
+
+        assert calls == [
+            (0, 2, "target"),   # turn 0: test_prompt sent verbatim, no probe
+            (1, 2, "auditor"),  # turn 1: probe generated
+            (1, 2, "target"),   # turn 1: target responds
+            (1, 2, "judge"),    # judge runs once after all turns
+        ]
+
+    def test_on_turn_set_in_init_fires_without_per_call_arg(self):
+        """A callback set at construction time must fire even when run_scenario
+        is called without an explicit on_turn argument (regression: the local
+        param previously shadowed self.on_turn, so init-set callbacks never ran)."""
+        calls = []
+
+        def on_turn(turn_index, max_turns, role):
+            calls.append((turn_index, max_turns, role))
+
+        auditor = self._make_auditor(on_turn=on_turn)
+
+        with patch.object(ModelAuditor, "_generate_probe_async", new_callable=AsyncMock) as mock_probe, \
+             patch.object(ModelAuditor, "_call_async", new_callable=AsyncMock) as mock_call, \
+             patch.object(ModelAuditor, "_judge_conversation_async", new_callable=AsyncMock) as mock_judge:
+
+            mock_probe.return_value = ("probe", 10, 20)
+            mock_call.return_value = ("response", 30, 40)
+            mock_judge.return_value = ({"severity": "pass"}, 50, 60)
+
+            # No on_turn passed here — it must come from __init__.
+            asyncio.run(auditor.run_scenario(
+                name="test",
+                description="desc",
+                max_turns=1,
+                language="English",
+            ))
+
+        assert len(calls) >= 1
+        assert any(role == "target" for _, _, role in calls)
+
+    def test_on_turn_per_call_overrides_init(self):
+        """A per-call on_turn takes precedence over the construction-time one."""
+        init_calls = []
+        call_calls = []
+
+        auditor = self._make_auditor(on_turn=lambda *a: init_calls.append(a))
+
+        with patch.object(ModelAuditor, "_generate_probe_async", new_callable=AsyncMock) as mock_probe, \
+             patch.object(ModelAuditor, "_call_async", new_callable=AsyncMock) as mock_call, \
+             patch.object(ModelAuditor, "_judge_conversation_async", new_callable=AsyncMock) as mock_judge:
+
+            mock_probe.return_value = ("probe", 10, 20)
+            mock_call.return_value = ("response", 30, 40)
+            mock_judge.return_value = ({"severity": "pass"}, 50, 60)
+
+            asyncio.run(auditor.run_scenario(
+                name="test",
+                description="desc",
+                max_turns=1,
+                language="English",
+                on_turn=lambda *a: call_calls.append(a),
+            ))
+
+        assert len(call_calls) >= 1
+        assert init_calls == []  # init callback must NOT fire when per-call given
+
+    def test_on_turn_not_called_when_none(self):
+        """When on_turn is None, no callback should fire (no error)."""
+        auditor = self._make_auditor()
+
+        with patch.object(ModelAuditor, "_generate_probe_async", new_callable=AsyncMock) as mock_probe, \
+             patch.object(ModelAuditor, "_call_async", new_callable=AsyncMock) as mock_call, \
+             patch.object(ModelAuditor, "_judge_conversation_async", new_callable=AsyncMock) as mock_judge:
+
+            mock_probe.return_value = ("probe", 10, 20)
+            mock_call.return_value = ("response", 30, 40)
+            mock_judge.return_value = ({"severity": "pass"}, 50, 60)
+
+            # Should not raise
+            result = asyncio.run(auditor.run_scenario(
+                name="test",
+                description="desc",
+                max_turns=1,
+                language="English",
+                on_turn=None,
+            ))
+
+    def test_on_turn_receives_correct_turn_index(self):
+        """turn_index should increment correctly across turns."""
+        calls = []
+
+        def on_turn(turn_index, max_turns, role):
+            calls.append((turn_index, role))
+
+        auditor = self._make_auditor()
+
+        with patch.object(ModelAuditor, "_generate_probe_async", new_callable=AsyncMock) as mock_probe, \
+             patch.object(ModelAuditor, "_call_async", new_callable=AsyncMock) as mock_call, \
+             patch.object(ModelAuditor, "_judge_conversation_async", new_callable=AsyncMock) as mock_judge:
+
+            mock_probe.return_value = ("probe", 10, 20)
+            mock_call.return_value = ("response", 30, 40)
+            mock_judge.return_value = ({"severity": "pass"}, 50, 60)
+
+            asyncio.run(auditor.run_scenario(
+                name="test",
+                description="desc",
+                max_turns=3,
+                language="English",
+                on_turn=on_turn,
+            ))
+
+        # Extract turn indices for target calls
+        target_calls = [(idx, role) for idx, role in calls if role == "target"]
+        turn_indices = [idx for idx, _ in target_calls]
+        assert turn_indices == [0, 1, 2]  # One target call per turn

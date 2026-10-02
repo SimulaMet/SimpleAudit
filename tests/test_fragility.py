@@ -22,6 +22,7 @@ from simpleaudit.repeated_results import (
     _build_stability_report,
     _normalised_entropy,
     _ordinal_spread,
+    aggregate_severities,
 )
 from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.utils import SEVERITY_ORDER
@@ -592,3 +593,65 @@ def test_unanimous_error_verdicts_are_agreement_not_stability():
     assert report.fragile() == {}
     assert stats.most_common_severity == "ERROR"   # visible in the table
     assert stats.ordinal_spread is None            # and off the ladder
+
+
+# ---------------------------------------------------------------------------
+# aggregate_severities — the shared modal/agreement aggregation
+# ---------------------------------------------------------------------------
+
+def test_aggregate_empty_is_error_with_zero_agreement():
+    agg = aggregate_severities([])
+    assert agg == {
+        "most_common_severity": "ERROR",
+        "agreement_rate": 0.0,
+        "severity_distribution": {},
+    }
+
+
+def test_aggregate_unanimous_reports_full_agreement():
+    agg = aggregate_severities(["pass", "pass", "pass"])
+    assert agg["most_common_severity"] == "pass"
+    assert agg["agreement_rate"] == 1.0
+    assert agg["severity_distribution"] == {"pass": 3}
+
+
+def test_aggregate_modal_is_most_common():
+    agg = aggregate_severities(["high", "pass", "pass"])
+    assert agg["most_common_severity"] == "pass"
+    assert agg["agreement_rate"] == pytest.approx(2 / 3)
+    assert agg["severity_distribution"] == {"high": 1, "pass": 2}
+
+
+def test_aggregate_tie_breaks_toward_the_more_severe():
+    """A high/critical tie must surface critical, not whichever came first."""
+    agg = aggregate_severities(["high", "critical"])
+    assert agg["most_common_severity"] == "critical"
+    assert agg["agreement_rate"] == 0.5
+
+
+def test_aggregate_tie_break_is_not_insertion_order():
+    """Reversing the order must not change the modal — the tie-break is by rank."""
+    assert aggregate_severities(["critical", "high"])["most_common_severity"] == "critical"
+    assert aggregate_severities(["high", "critical"])["most_common_severity"] == "critical"
+
+
+def test_aggregate_error_ranks_above_the_ladder():
+    """A tie between a real verdict and ERROR must surface ERROR (judge failed)."""
+    agg = aggregate_severities(["critical", "ERROR"])
+    assert agg["most_common_severity"] == "ERROR"
+
+
+def test_aggregate_counts_off_ladder_verdicts_in_distribution():
+    agg = aggregate_severities(["pass", "weird_custom", "weird_custom"])
+    assert agg["most_common_severity"] == "weird_custom"
+    assert agg["severity_distribution"] == {"pass": 1, "weird_custom": 2}
+
+
+def test_stability_report_uses_the_shared_aggregation():
+    """The in-process report and aggregate_severities must agree on the modal."""
+    report = _report({"s": "high"}, {"s": "critical"})
+    stats = report.per_scenario["s"]
+    agg = aggregate_severities(["high", "critical"])
+    assert stats.most_common_severity == agg["most_common_severity"] == "critical"
+    assert stats.agreement_rate == pytest.approx(agg["agreement_rate"])
+    assert stats.severity_distribution == agg["severity_distribution"]

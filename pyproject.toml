@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simpleaudit"
-version = "0.1.12"
+version = "0.3.1"
 description = "Lightweight AI Safety Auditing Framework"
 readme = "README.md"
 license = {text = "MIT"}
@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Testing",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "any-llm-sdk>=1.14.0",
     "fsspec>=2023.1.0",
@@ -34,25 +34,38 @@ dependencies = [
 simpleaudit = "simpleaudit.cli:main"
 
 [project.optional-dependencies]
+# OTLP trace ingestion (simpleaudit.tracing). The core audit engine works with
+# no tracing; install this extra to run the builtin OTLP receiver (HTTP-JSON
+# and gRPC) that captures spans from instrumented targets.
+tracing = [
+    "aiohttp>=3.9",
+    "grpcio>=1.60",
+    "opentelemetry-proto>=1.20",
+]
 plot = ["matplotlib>=3.5.0"]
 visualize = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
 ]
 dev = [
-    "pytest>=7.0.0",
+    # pytest is pinned <9 because pytest-testmon 2.x is not yet compatible with
+    # pytest 9 (same pin as Studio).
+    "pytest>=8,<9",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
+    # xdist is pinned <3.8 because 3.8+ pulls in `greenlet` (same pin as Studio).
+    "pytest-xdist>=3.6,<3.8",
+    "pytest-testmon>=2,<3",
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
 all = ["simpleaudit[plot,visualize,dev]"]
 
 [project.urls]
-Homepage = "https://github.com/kelkalot/simpleaudit"
-Documentation = "https://github.com/kelkalot/simpleaudit#readme"
-Repository = "https://github.com/kelkalot/simpleaudit"
-Issues = "https://github.com/kelkalot/simpleaudit/issues"
+Homepage = "https://github.com/simulamet/simpleaudit"
+Documentation = "https://github.com/simulamet/simpleaudit#readme"
+Repository = "https://github.com/simulamet/simpleaudit"
+Issues = "https://github.com/simulamet/simpleaudit/issues"
 PyPI = "https://pypi.org/project/simpleaudit/"
 
 [tool.setuptools.packages.find]

@@ -123,15 +123,19 @@ class PromptVariant:
     requires_expected_behavior: bool = False
 
     @classmethod
-    def from_judge(cls, name: str, label: Optional[str] = None, **overrides: Any) -> "PromptVariant":
-        """A variant carrying a registry judge's prompt, schema and hooks.
+    def from_judge(
+        cls, name: Union[str, Dict[str, Any]], label: Optional[str] = None, **overrides: Any
+    ) -> "PromptVariant":
+        """A variant carrying a judge's prompt, schema and hooks.
+
+        ``name`` is a registry name or a config dict (see judges/compose.py).
 
         ``overrides`` are any other field (``judge_model``, ``judge_client``,
         ``transform``, ...) and win over the config's values.
         """
         config = get_judge(name)
         fields: Dict[str, Any] = {
-            "label": label or name,
+            "label": label or (config.get("name") or "custom judge" if isinstance(name, dict) else name),
             "judge_prompt": config["judge_prompt"],
             "response_schema": config.get("response_schema"),
             "postprocess": config.get("postprocess"),
@@ -1056,7 +1060,7 @@ async def rejudge_async(
     max_retries: int = 0,
     retry_backoff: float = 0.5,
     max_concurrency: int = 1,
-    judge: Optional[str] = None,
+    judge: Optional[Union[str, Dict[str, Any]]] = None,
     postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
     scenario_severities: Optional[Mapping[str, str]] = None,
 ) -> AuditResults:
@@ -1190,7 +1194,7 @@ def rejudge(
     max_retries: int = 0,
     retry_backoff: float = 0.5,
     max_concurrency: int = 1,
-    judge: Optional[str] = None,
+    judge: Optional[Union[str, Dict[str, Any]]] = None,
     postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
     scenario_severities: Optional[Mapping[str, str]] = None,
 ) -> AuditResults:

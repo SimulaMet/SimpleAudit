@@ -40,10 +40,10 @@ simpleaudit serve --results_dir ./results --port 8080 --host 0.0.0.0
 **Or run directly with uv (no installation needed):**
 ```bash
 # Run directly using uvx
-uvx simpleaudit[visualize] serve --results_dir ./my_audit_results
+uvx 'simpleaudit[visualize]' serve --results_dir ./my_audit_results
 
 # With custom port and host
-uvx simpleaudit[visualize] serve --results_dir ./results --port 8080 --host 0.0.0.0
+uvx 'simpleaudit[visualize]' serve --results_dir ./results --port 8080 --host 0.0.0.0
 ```
 
 > **Note:** `uvx` requires `uv` to be installed on your system. Install it with:
@@ -51,6 +51,14 @@ uvx simpleaudit[visualize] serve --results_dir ./results --port 8080 --host 0.0.
 > pip install uv
 > # or see https://docs.astral.sh/uv/getting-started/installation/
 > ```
+> The package spec is quoted so your shell doesn't glob-expand `[visualize]`.
+
+<Troubleshooting>
+If the command fails:
+- **`Address already in use`** — port 8000 is taken. Use `--port 8080` or stop the other process.
+- **`uvx: command not found`** — install `uv` first (`curl -LsSf https://astral.sh/uv/install.sh | sh`).
+- **Weird import/module error** — stale cache. Run `uv cache clean` and retry.
+</Troubleshooting>
 
 **Features:**
 - 📁 Browse nested folder structures
@@ -73,7 +81,7 @@ Open a single HTML file directly in your browser and upload JSON files.
 
 1. **Download the file:**
    - Get `scenario_viewer.html` from `simpleaudit/visualization/`
-   - Or from: https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/visualization/scenario_viewer.html
+   - Or from: https://github.com/simulamet/simpleaudit/blob/main/simpleaudit/visualization/scenario_viewer.html
 
 2. **Open in browser:**
    - Double-click `scenario_viewer.html` or
@@ -305,15 +313,15 @@ simpleaudit serve --results_dir ./results --port 8001
 
 ## 📚 Related Documentation
 
-- [Main README](https://github.com/kelkalot/simpleaudit/blob/main/README.md) - SimpleAudit overview
-- [Example Notebooks](https://github.com/kelkalot/simpleaudit/blob/main/examples/) - Usage examples
+- [Main README](https://github.com/simulamet/simpleaudit/blob/main/README.md) - SimpleAudit overview
+- [Example Notebooks](https://github.com/simulamet/simpleaudit/blob/main/examples/) - Usage examples
 - [PyPI Package](https://pypi.org/project/simpleaudit/) - Installation
 
 ---
 
 ## 🤝 Contributing
 
-Found a bug or have a feature request? Open an issue on [GitHub](https://github.com/kelkalot/simpleaudit/issues).
+Found a bug or have a feature request? Open an issue on [GitHub](https://github.com/simulamet/simpleaudit/issues).
 
 ---
 

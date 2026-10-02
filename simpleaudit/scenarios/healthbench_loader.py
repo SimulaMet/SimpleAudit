@@ -11,8 +11,16 @@ examples into v2 scenarios in memory.
 
     from simpleaudit import ModelAuditor, load_healthbench_scenarios
 
+    auditor = ModelAuditor(..., judge="checklist")
     scenarios = load_healthbench_scenarios("hard", themes=["emergency_referrals"], limit=20)
     results = auditor.run(scenarios, max_turns=1)
+
+Use the checklist judge. It must quote the reply for every criterion it marks as
+violated, and the quote is checked against the transcript. That matters here because
+some criteria describe a different reply ("references a YouTube source ..."). In a
+test run (2026-10-02, gpt-4o judging gpt-4o-mini) the default judge reported such
+criteria as faults of replies that did not contain them, also with a judge note
+telling it not to; the checklist judge marked them met.
 
 Subsets: "main" (5,000 examples), "hard" (1,000), "consensus" (3,671, rubrics hold only
 the shared consensus criteria) and "professional" (525 clinician chats).

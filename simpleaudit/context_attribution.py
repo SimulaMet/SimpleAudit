@@ -21,6 +21,20 @@ turister" — and an exact-match rule would score that as no attribution at all.
 The score is the share of the CLAIM found in the document, not the similarity
 of the two strings: see ATTRIBUTION_THRESHOLD for why the symmetric measure
 was measured and rejected.
+
+What it does not separate, seen in live runs on 2026-10-02:
+
+- A restatement inside a longer sentence of the answer's own reasoning — "Siden
+  hun er 16 år, må hun betale egenandel, ettersom aldersfritaket gjelder for barn
+  under 16 år i dag" — stays under the threshold for every document. Scoring
+  clauses separately would catch it, but would also attribute correct answers
+  that explain a change ("tidligere under 16 år, nå under 18 år") to the
+  superseded document.
+- Two documents that differ in målform and one word, like the planted ISSN chunk
+  and the ISBN page it was made from, cannot be told apart by their words.
+
+Whether the answer was right is graded separately: SingleTurnAuditor pairs this
+judge with the checklist judge.
 """
 
 import difflib
@@ -64,6 +78,10 @@ MIN_ATTRIBUTABLE_CHARS = 25
 #: margin the winner would be whichever document sorted first. Calibrated over
 #: the pack: 0.05-0.15 all score the same, so 0.10 is the middle of the range
 #: that works.
+#:
+#: A tie on words is then broken on word order (see `word_order_overlap`), with
+#: the same margin. An amendment repeats the rule it replaces, so the old rule's
+#: words are all in the new document too, but not in the old sentence's order.
 ATTRIBUTION_MARGIN = 0.10
 
 _PUNCTUATION = re.compile(r"[^\w\s]", re.UNICODE)
@@ -124,6 +142,34 @@ def best_overlap(span: str, document_text: str) -> float:
     return sum(1 for word in needle if _same_word(word, haystack)) / len(needle)
 
 
+def word_order_overlap(span: str, document_text: str) -> float:
+    """Share of the claim's adjacent word pairs that appear, in order, in the document.
+
+    Only consulted when two documents tie on `best_overlap`. A live gpt-4o-mini
+    answer copied the superseded helfo chunk and added a few words of its own —
+    "Aldersfritaket for egenandel gjelder for barn under 16 år, og datteren din
+    er 16." — and scored 0.71 against both chunks, because the amendment repeats
+    every word of the old rule except "gjelder" and "barn", and its "og" and "er"
+    matched the answer's own words. In order, the claim follows the old chunk:
+    0.62 of its word pairs are there against 0.31 in the amendment.
+
+    Words are compared with the same fuzzy rule as `best_overlap`.
+
+    Returns 0.0 when either side has fewer than two words.
+    """
+    needle = normalise(span).split()
+    haystack = normalise(document_text).split()
+    pairs = list(zip(needle, needle[1:]))
+    doc_pairs = list(zip(haystack, haystack[1:]))
+    if not pairs or not doc_pairs:
+        return 0.0
+    found = sum(
+        1 for first, second in pairs
+        if any(_same_word(first, [a]) and _same_word(second, [b]) for a, b in doc_pairs)
+    )
+    return found / len(pairs)
+
+
 def _found_in(span: str, response: str) -> bool:
     """Is this span actually in the response, ignoring whitespace differences?"""
     return bool(normalise(span)) and normalise(span) in normalise(response)
@@ -156,9 +202,10 @@ def attribute_span(
     """Which document a single claim came from, and its overlap with each.
 
     Returns ``(index_or_None, ratios)``. The index is None when the claim is
-    too short to attribute, when nothing clears the threshold, or when the two
-    best documents are within `ATTRIBUTION_MARGIN` of each other — a claim
-    that fits two sources equally is evidence about neither.
+    too short to attribute, when nothing clears the threshold, or when the
+    best documents are within `ATTRIBUTION_MARGIN` of each other on words AND
+    on word order — a claim that fits two sources equally is evidence about
+    neither.
     """
     ratios = {
         index: best_overlap(span, mark.text)
@@ -170,9 +217,21 @@ def attribute_span(
     ranked = sorted(ratios.items(), key=lambda kv: kv[1], reverse=True)
     best_index, best_score = ranked[0]
     runner_up = ranked[1][1] if len(ranked) > 1 else 0.0
-    if best_score < threshold or (best_score - runner_up) < ATTRIBUTION_MARGIN:
+    if best_score < threshold:
         return None, ratios
-    return best_index, ratios
+    if best_score - runner_up >= ATTRIBUTION_MARGIN:
+        return best_index, ratios
+
+    tied = [index for index, score in ranked if best_score - score < ATTRIBUTION_MARGIN]
+    ordered = sorted(
+        ((index, word_order_overlap(span, marks[index - 1].text)) for index in tied),
+        key=lambda kv: kv[1],
+        reverse=True,
+    )
+    leader, leader_order = ordered[0]
+    if leader_order - ordered[1][1] < ATTRIBUTION_MARGIN or ratios[leader] < threshold:
+        return None, ratios
+    return leader, ratios
 
 
 def attribution_ratios(

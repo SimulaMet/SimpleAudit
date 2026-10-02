@@ -23,8 +23,11 @@ from simpleaudit.context_attribution import (
     derive_stance,
     normalise,
     verify_spans,
+    word_order_overlap,
 )
-from simpleaudit.context_marks import parse_documents
+from simpleaudit.context_derivations import derive_all
+from simpleaudit.context_findings import derive_findings
+from simpleaudit.context_marks import parse_as_of, parse_documents
 from simpleaudit.scenarios.context_grounding import CONTEXT_GROUNDING_SCENARIOS
 
 
@@ -243,6 +246,74 @@ class TestMargin:
         index, ratios = attribute_span(BOKMAAL_RESTATEMENT, TOLL)
         assert index == 1
         assert (ratios[1] - ratios[2]) >= ATTRIBUTION_MARGIN
+
+
+class TestWordOrderTieBreak:
+    """A tie on words is broken on word order, with the same margin.
+
+    The stale answer is a live gpt-4o-mini reply (2026-10-02) to the helfo
+    scenario: the superseded chunk, nearly verbatim, plus a few words of its
+    own. Before the tie-break it attributed to nothing, so
+    `used_superseded_context` could not fire on the scenario built to test it.
+    """
+
+    STALE = "Aldersfritaket for egenandel gjelder for barn under 16 år, og datteren din er 16."
+    NEW_RULE = "Aldersfritaket for egenandel gjelder nå for barn under 18 år, fra 1.8.2026."
+    EXPLAINS_CHANGE = (
+        "Tidligere gjaldt aldersfritaket for barn under 16 år, men fra 1.8.2026 "
+        "er det hevet til under 18 år."
+    )
+
+    def test_the_stale_restatement_ties_on_words(self):
+        assert best_overlap(self.STALE, HELFO[0].text) == best_overlap(self.STALE, HELFO[1].text)
+
+    def test_word_order_separates_the_old_rule_from_its_amendment(self):
+        old = word_order_overlap(self.STALE, HELFO[0].text)
+        new = word_order_overlap(self.STALE, HELFO[1].text)
+        assert old - new >= ATTRIBUTION_MARGIN
+
+    def test_the_stale_restatement_attributes_to_the_superseded_chunk(self):
+        assert attribute_span(self.STALE, HELFO)[0] == 1
+
+    @pytest.mark.parametrize("answer", [NEW_RULE, EXPLAINS_CHANGE])
+    def test_correct_answers_still_attribute_to_the_amendment(self, answer):
+        # Both win on words already, so the tie-break never runs for them.
+        index, ratios = attribute_span(answer, HELFO)
+        assert index == 2
+        assert ratios[2] - ratios[1] >= ATTRIBUTION_MARGIN
+
+    def test_a_tie_on_word_order_too_still_attributes_to_neither(self):
+        # "Aldersfritaket for egenandel" is in both chunks, in the same order.
+        assert word_order_overlap("Aldersfritaket for egenandel", HELFO[0].text) == 1.0
+        assert word_order_overlap("Aldersfritaket for egenandel", HELFO[1].text) == 1.0
+        assert attribute_span("Aldersfritaket for egenandel", HELFO)[0] is None
+
+    def test_one_word_has_no_order(self):
+        assert word_order_overlap("egenandel", HELFO[0].text) == 0.0
+        assert word_order_overlap(self.STALE, "egenandel") == 0.0
+
+    def test_the_stale_answer_is_found_to_use_superseded_context(self):
+        scenario = _scenario("Helfo")
+        as_of = parse_as_of(scenario)
+        result = derive_stance(
+            {
+                "asserted_spans": [self.STALE],
+                "rejected": {
+                    "1": {"rejected": False, "evidence": ""},
+                    "2": {"rejected": False, "evidence": ""},
+                },
+                "abstained": False,
+            },
+            HELFO,
+            "Ja, hun må betale egenandel. " + self.STALE,
+        )
+        assert result["stance"]["1"]["stance"] == "relied_on"
+        findings = derive_findings(
+            {"stance": result["stance"], "abstained": False},
+            HELFO, as_of, derive_all(HELFO, as_of), "Ja, hun må betale egenandel. " + self.STALE,
+        )
+        assert findings["used_superseded_context"] is True
+        assert findings["severity"] == "medium"
 
 
 class TestAttributeGroupsClaims:

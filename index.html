@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SimpleAudit — Lightweight AI Safety Auditing Framework</title>
+  <meta name="description" content="A simple, extensible, local-first framework for multilingual auditing and red-teaming of AI systems via adversarial probing. Run open models locally, no APIs required.">
+  <meta name="robots" content="index,follow">
+  <meta name="author" content="Simula / SimulaMet">
+  <link rel="canonical" href="https://simpleaudit.sushant.no/">
+  <meta name="theme-color" content="#0f1117">
+
+  <!-- Performance: preconnect to external origins, preload the hero image, local CSS (no render-blocking CDN) -->
+  <link rel="preconnect" href="https://github.com">
+  <link rel="preconnect" href="https://pypi.org">
+  <link rel="preload" as="image" href="logo.png">
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- Open Graph -->
+  <meta property="og:site_name" content="SimpleAudit">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="SimpleAudit — Lightweight AI Safety Auditing Framework">
+  <meta property="og:description" content="A simple, extensible, local-first framework for multilingual auditing and red-teaming of AI systems via adversarial probing.">
+  <meta property="og:url" content="https://simpleaudit.sushant.no/">
+  <meta property="og:image" content="https://simpleaudit.sushant.no/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="SimpleAudit — Lightweight AI Safety Auditing Framework">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SimpleAudit — Lightweight AI Safety Auditing Framework">
+  <meta name="twitter:description" content="A simple, extensible, local-first framework for multilingual auditing and red-teaming of AI systems via adversarial probing.">
+  <meta name="twitter:image" content="https://simpleaudit.sushant.no/og-image.png">
+
+  <link rel="icon" type="image/svg+xml" sizes="32x32" href="favicon.svg">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "SimpleAudit",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Any (Python 3.11+)",
+    "description": "A simple, extensible, local-first framework for multilingual auditing and red-teaming of AI systems via adversarial probing.",
+    "url": "https://simpleaudit.sushant.no/",
+    "license": "https://opensource.org/licenses/MIT",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "sameAs": [
+      "https://github.com/SimulaMet/SimpleAudit",
+      "https://pypi.org/project/simpleaudit/"
+    ]
+  }
+  </script>
+  <style>
+    @keyframes glow-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(108, 140, 255, 0.4); }
+      50% { box-shadow: 0 0 20px 4px rgba(108, 140, 255, 0.6); }
+    }
+    .glow-pulse { animation: glow-pulse 2s ease-in-out infinite; }
+
+    @keyframes shimmer-sweep {
+      0% { transform: translateX(-150%) skewX(-20deg); }
+      60%, 100% { transform: translateX(250%) skewX(-20deg); }
+    }
+    .shimmer-btn::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 40%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+      animation: shimmer-sweep 3s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .glow-pulse, .shimmer-btn::after { animation: none; }
+    }
+  </style>
+</head>
+<body class="h-full bg-gray-950 text-gray-200 antialiased">
+<div class="min-h-screen bg-gray-950 text-gray-200 flex flex-col">
+
+  <!-- Hero -->
+  <header class="flex-1 max-w-3xl mx-auto px-6 pt-24 pb-16 text-center w-full">
+    <a href="./" class="inline-flex items-center gap-3 mb-10 group">
+      <img src="logo.png" alt="SimpleAudit logo" width="48" height="48"
+           class="w-12 h-12 rounded-xl object-contain">
+      <span class="text-xl font-bold text-gray-100 group-hover:text-white transition-colors">SimpleAudit</span>
+    </a>
+    <h1 class="text-4xl md:text-5xl font-bold text-white leading-tight tracking-tight">
+      Lightweight <span class="text-accent">AI safety auditing</span>, local-first
+    </h1>
+    <p class="mt-6 text-lg text-gray-400 max-w-xl mx-auto leading-relaxed">
+      A simple, extensible framework for multilingual auditing and red-teaming of AI systems
+      via adversarial probing. Run open models locally — no APIs required.
+    </p>
+    <div class="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+      <a href="https://github.com/SimulaMet/SimpleAudit" target="_blank" rel="noopener"
+         class="glow-pulse shimmer-btn relative overflow-hidden px-6 py-3 rounded-xl bg-accent hover:bg-accent-hover text-white font-semibold transition-colors shadow-lg">
+        View on GitHub
+      </a>
+      <a href="https://pypi.org/project/simpleaudit/" target="_blank" rel="noopener"
+         class="px-6 py-3 rounded-xl border border-gray-700 hover:border-accent/50 text-gray-200 font-medium transition-colors">
+        Install from PyPI
+      </a>
+    </div>
+    <p class="mt-6 text-xs text-gray-600">Open source · MIT licensed · Verified Digital Public Good</p>
+  </header>
+
+  <main>
+  <!-- Quick start -->
+  <section class="max-w-3xl mx-auto px-6 pb-16 w-full">
+    <h2 class="text-2xl font-bold text-white text-center">Get started in one line</h2>
+    <p class="mt-3 text-gray-400 text-center max-w-xl mx-auto">
+      Two packages, minimal setup. <code class="text-accent">pip</code> installs SimpleAudit and
+      you can audit a model in a few lines of Python.
+    </p>
+    <div class="mt-6 rounded-2xl border border-gray-800 bg-surface-raised overflow-hidden text-left">
+      <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800/60">
+        <span class="text-xs text-gray-500 font-mono">terminal</span>
+        <button onclick="navigator.clipboard.writeText('pip install -U simpleaudit'); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)"
+                class="text-xs text-gray-500 hover:text-accent transition-colors">Copy</button>
+      </div>
+      <pre class="px-4 py-4 text-sm font-mono text-gray-300 overflow-x-auto"><code><span class="text-accent">$</span> pip install -U simpleaudit</code></pre>
+    </div>
+  </section>
+
+  <!-- Code sample -->
+  <section class="max-w-3xl mx-auto px-6 pb-16 w-full">
+    <h2 class="text-2xl font-bold text-white text-center">Audit a model in a few lines</h2>
+    <p class="mt-3 text-gray-400 text-center max-w-xl mx-auto">
+      Point the <code class="text-accent">Target&nbsp;→&nbsp;Auditor&nbsp;→&nbsp;Judge</code> pipeline
+      at any model and run the built-in safety scenarios.
+    </p>
+    <div class="mt-6 rounded-2xl border border-gray-800 bg-surface-raised overflow-hidden text-left">
+      <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800/60">
+        <span class="text-xs text-gray-500 font-mono">python</span>
+        <button onclick="navigator.clipboard.writeText(`from simpleaudit import ModelAuditor\n\nauditor = ModelAuditor(\n    model=\"hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16\",\n    provider=\"ollama\",\n    judge_model=\"gpt-4o\",\n    judge_provider=\"openai\",\n)\n\nresults = auditor.run(\"safety\", max_turns=5, max_workers=10)\nresults.summary()\nresults.plot()`); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)"
+                class="text-xs text-gray-500 hover:text-accent transition-colors">Copy</button>
+      </div>
+      <pre class="px-4 py-4 text-sm font-mono text-gray-300 overflow-x-auto"><code><span class="text-gray-500">from simpleaudit import ModelAuditor</span>
+
+auditor = ModelAuditor(
+    model=<span class="text-emerald-300">"hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16"</span>,
+    provider=<span class="text-emerald-300">"ollama"</span>,
+    judge_model=<span class="text-emerald-300">"gpt-4o"</span>,
+    judge_provider=<span class="text-emerald-300">"openai"</span>,
+)
+
+results = auditor.run(<span class="text-emerald-300">"safety"</span>, max_turns=5, max_workers=10)
+results.summary()
+results.plot()</code></pre>
+    </div>
+  </section>
+
+  <!-- Features (3 cards) -->
+  <section class="max-w-4xl mx-auto px-6 pb-16 w-full">
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="rounded-2xl border border-gray-800 bg-surface-raised p-6">
+        <h3 class="text-base font-semibold text-gray-100">Local-first</h3>
+        <p class="mt-2 text-sm text-gray-400 leading-relaxed">
+          Run open models locally via Ollama or vLLM — no APIs, no data leaves your machine by default.
+        </p>
+      </div>
+      <div class="rounded-2xl border border-gray-800 bg-surface-raised p-6">
+        <h3 class="text-base font-semibold text-gray-100">Multilingual</h3>
+        <p class="mt-2 text-sm text-gray-400 leading-relaxed">
+          Adversarial probing across languages and domains, with versioned scenario packs you can extend.
+        </p>
+      </div>
+      <div class="rounded-2xl border border-gray-800 bg-surface-raised p-6">
+        <h3 class="text-base font-semibold text-gray-100">Minimal setup</h3>
+        <p class="mt-2 text-sm text-gray-400 leading-relaxed">
+          Two packages, a clear Target → Auditor → Judge pipeline, and reproducible comparative scores.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- What you can do -->
+  <section class="max-w-4xl mx-auto px-6 pb-16 w-full">
+    <h2 class="text-2xl font-bold text-white text-center">What you can do</h2>
+    <ul class="mt-8 grid md:grid-cols-2 gap-4 text-sm text-gray-400">
+      <li class="flex items-start gap-3 rounded-xl border border-gray-800/60 bg-surface-raised/50 px-4 py-3">
+        <span class="text-accent mt-0.5">✓</span> Audit any OpenAI-compatible or local model (Ollama, vLLM, OpenAI, Anthropic)
+      </li>
+      <li class="flex items-start gap-3 rounded-xl border border-gray-800/60 bg-surface-raised/50 px-4 py-3">
+        <span class="text-accent mt-0.5">✓</span> Run built-in safety scenario packs or build your own versioned scenarios
+      </li>
+      <li class="flex items-start gap-3 rounded-xl border border-gray-800/60 bg-surface-raised/50 px-4 py-3">
+        <span class="text-accent mt-0.5">✓</span> Compare models and judges with matched deltas and uncertainty
+      </li>
+      <li class="flex items-start gap-3 rounded-xl border border-gray-800/60 bg-surface-raised/50 px-4 py-3">
+        <span class="text-accent mt-0.5">✓</span> Visualize results in a local web server or export a single self-contained HTML file
+      </li>
+      <li class="flex items-start gap-3 rounded-xl border border-gray-800/60 bg-surface-raised/50 px-4 py-3 md:col-span-2">
+        <span class="text-accent mt-0.5">✓</span> Rejudge saved runs with a different judge — no re-running the target
+      </li>
+    </ul>
+  </section>
+
+  <!-- Visualization -->
+  <section class="max-w-3xl mx-auto px-6 pb-20 w-full">
+    <h2 class="text-2xl font-bold text-white text-center">Explore results interactively</h2>
+    <p class="mt-3 text-gray-400 text-center max-w-xl mx-auto">
+      Spin up a local web server to explore scenario details, or export a single
+      self-contained HTML file to share.
+    </p>
+    <div class="mt-6 rounded-2xl border border-gray-800 bg-surface-raised overflow-hidden text-left">
+      <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800/60">
+        <span class="text-xs text-gray-500 font-mono">terminal</span>
+        <button onclick="navigator.clipboard.writeText('uvx \\'simpleaudit[visualize]\\' serve --results_dir ./my_audit_results'); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)"
+                class="text-xs text-gray-500 hover:text-accent transition-colors">Copy</button>
+      </div>
+      <pre class="px-4 py-4 text-sm font-mono text-gray-300 overflow-x-auto"><code><span class="text-accent">$</span> uvx 'simpleaudit[visualize]' serve --results_dir ./my_audit_results</code></pre>
+    </div>
+    <p class="mt-4 text-sm text-gray-500 text-center">
+      See the <a href="https://github.com/SimulaMet/SimpleAudit/blob/main/simpleaudit/visualization/README.md" target="_blank" rel="noopener" class="text-accent hover:underline">visualization guide</a> for more options.
+    </p>
+  </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-gray-800/60 mt-auto">
+    <div class="max-w-4xl mx-auto px-6 py-8 flex flex-col md:flex-row items-center justify-between gap-4 text-sm">
+      <p class="text-gray-500">© 2026 SimpleAudit · MIT License</p>
+      <nav class="flex items-center gap-6 text-gray-500">
+        <a href="https://github.com/SimulaMet/SimpleAudit" target="_blank" rel="noopener" class="hover:text-accent transition-colors">GitHub</a>
+        <a href="https://pypi.org/project/simpleaudit/" target="_blank" rel="noopener" class="hover:text-accent transition-colors">PyPI</a>
+        <a href="https://arxiv.org/abs/2605.06652" target="_blank" rel="noopener" class="hover:text-accent transition-colors">Paper</a>
+        <a href="https://github.com/SimulaMet/SimpleAuditStudio" target="_blank" rel="noopener" class="hover:text-accent transition-colors">SimpleAudit Studio</a>
+      </nav>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

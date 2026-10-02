@@ -1,0 +1,50 @@
+# Deploy the static marketing site (gh-pages branch) to GitHub Pages.
+#
+# The site lives on the `gh-pages` branch (index.html, styles.css, logo.png,
+# CNAME, robots.txt, sitemap.xml) and is served at
+# https://simpleaudit.sushant.no via the CNAME. This workflow is the
+# "GitHub default" Pages deploy job (actions/deploy-pages): push to `gh-pages`
+# and the site updates.
+name: Deploy Pages site
+
+on:
+  push:
+    branches: [gh-pages]
+  # Allow a manual re-deploy of the current gh-pages branch without a new commit.
+  workflow_dispatch:
+
+# Cancel superseded runs for the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 1
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # The whole branch root is the site (index.html at the top level).
+          path: .
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

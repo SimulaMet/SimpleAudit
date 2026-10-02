@@ -35,17 +35,28 @@ except PackageNotFoundError:
 __author__ = "SimpleAudit Contributors"
 
 from .model_auditor import ModelAuditor
+from .auditor import Auditor
+from .targets import (
+    CallableTarget,
+    HTTPAppTarget,
+    ModelTarget,
+    Target,
+    TargetContext,
+    TargetResponse,
+)
 from .results import AuditResults, AuditResult
-from .scenarios import get_scenarios, list_scenario_packs
-from .judges import get_judge, list_judge_configs
-from .experiment import AuditExperiment
+from .scenarios import get_scenarios, list_scenario_packs, load_healthbench_scenarios
+from .judges import build_judge, customize_judge, get_judge, list_judge_configs
+from .experiment import AuditExperiment, ExperimentEvent
 from .repeated_results import (
     FRAGILE_THRESHOLD_DEFAULT,
     ModelStabilityReport,
     RepeatedExperimentResults,
     ScenarioStats,
+    aggregate_severities,
 )
 from .cross_judge import CrossJudgeExperiment, CrossJudgeResults, compare_judges
+from .stats import DEFAULT_Z, two_proportion_z, wilson_interval
 from .reframing import (
     PanelResults,
     PanelVerdict,
@@ -75,17 +86,32 @@ from .perturbations import (
 
 __all__ = [
     "ModelAuditor",
+    "Auditor",
+    "Target",
+    "TargetContext",
+    "TargetResponse",
+    "ModelTarget",
+    "HTTPAppTarget",
+    "CallableTarget",
     "AuditResults",
     "AuditResult",
     "get_scenarios",
     "list_scenario_packs",
+    "load_healthbench_scenarios",
     "get_judge",
+    "build_judge",
+    "customize_judge",
     "list_judge_configs",
     "AuditExperiment",
+    "ExperimentEvent",
     "RepeatedExperimentResults",
     "ModelStabilityReport",
     "ScenarioStats",
     "FRAGILE_THRESHOLD_DEFAULT",
+    "aggregate_severities",
+    "wilson_interval",
+    "two_proportion_z",
+    "DEFAULT_Z",
     "CrossJudgeExperiment",
     "CrossJudgeResults",
     "compare_judges",

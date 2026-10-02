@@ -36,15 +36,20 @@ def test_model_auditor_with_custom_base_url():
         # Verify configuration
         assert auditor.target_model == "default"
 
-        # base_url must be translated to any-llm's api_base kwarg for the
-        # target client (the first AnyLLM.create call).
-        target_args, target_kwargs = mock_anyllm.create.call_args_list[0]
+        # The header-support probe (api_key="probe") is an internal
+        # AnyLLM.create call that precedes the real clients, so select the
+        # target/judge clients by their credentials rather than by position.
+        real_calls = [
+            c for c in mock_anyllm.create.call_args_list
+            if c.kwargs.get("api_key") != "probe"
+        ]
+        target_args, target_kwargs = real_calls[0]
         assert target_args == ("openai",)
         assert target_kwargs["api_base"] == "http://localhost:8000/v1"
         assert target_kwargs["api_key"] == "mock-key"
 
         # The judge got no explicit credentials, so none are forwarded.
-        judge_args, judge_kwargs = mock_anyllm.create.call_args_list[1]
+        judge_args, judge_kwargs = real_calls[1]
         assert judge_args == ("openai",)
         assert "api_base" not in judge_kwargs
         assert "api_key" not in judge_kwargs
@@ -66,9 +71,16 @@ def test_model_auditor_api_key_handling():
 
         assert auditor.target_model == "gpt-4"
 
+        # The header-support probe (api_key="probe") is an internal
+        # AnyLLM.create call that precedes the real clients, so select the
+        # target client by its credentials rather than by position.
+        real_calls = [
+            c for c in mock_anyllm.create.call_args_list
+            if c.kwargs.get("api_key") != "probe"
+        ]
         # The target client must be created with the explicit key; no
         # base_url was given, so api_base must not be forwarded.
-        target_args, target_kwargs = mock_anyllm.create.call_args_list[0]
+        target_args, target_kwargs = real_calls[0]
         assert target_args == ("openai",)
         assert target_kwargs["api_key"] == "test-key"
         assert "api_base" not in target_kwargs

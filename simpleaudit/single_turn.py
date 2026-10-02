@@ -136,7 +136,9 @@ class SingleTurnAuditor(ModelAuditor):
 
         build_prompt = config.get("build_judge_prompt")
         if build_prompt is not None and judge_prompt == config.get("judge_prompt"):
-            judge_prompt, _active = build_prompt(context)
+            # The config's criteria ride along, so a judge made with
+            # customize_judge() keeps them and only the format is rebuilt.
+            judge_prompt, _active = build_prompt({**context, "criteria": config.get("criteria")})
 
         build_schema = config.get("build_response_schema")
         # judge_fields is a deliberate caller-side restriction of the output and

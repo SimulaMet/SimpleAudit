@@ -20,6 +20,7 @@ import asyncio
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from simpleaudit._event_loop import run_sync
 from simpleaudit.experiment import AuditExperiment
 from simpleaudit.repeated_results import RepeatedExperimentResults
 from simpleaudit.utils import SEVERITY_ORDER, severity_direction
@@ -354,7 +355,7 @@ class CrossJudgeExperiment:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(
+            return run_sync(
                 self.run_async(
                     scenarios=scenarios,
                     max_turns=max_turns,

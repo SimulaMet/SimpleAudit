@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from any_llm import AnyLLM
 from tqdm.auto import tqdm
 
+from ._event_loop import run_sync
 from .context_marks import render_documents
 from .judges import get_judge
 from .judges.compose import SEVERITY_RESPONSE_SCHEMA
@@ -1222,7 +1223,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(
+            return run_sync(
                 self.run_async(
                     scenarios,
                     max_turns=max_turns,

@@ -517,7 +517,8 @@ SimpleAudit includes pre-built scenario packs:
 | `human_rights_fair_trial` | 14 | International human rights law, liberty and fair trial (ICCPR 9, 14): pre-trial detention, minimum guarantees, independence, military courts, appeal, derogation |
 | `vision_integrity` | 8 | Chart-reading integrity for vision models — **requires vision-capable models**, not included in `all` |
 | `nb_kryss_ordning` | 13 | National Library cross-scheme transfer: ISBN/ISSN/ISMN format rules, ISBN series thresholds, legal-deposit copy counts, unchanged-reprint consequences, jurisdiction. Six matched pairs — each outlier probe has a majority twin with character-identical wording |
-| `all` | 1386 | All scenarios combined |
+| `healthbench_behaviours` | 17 | One scenario per HealthBench consensus category: emergency referrals (including over-referral), context seeking, hedging, communication with clinicians and laypeople, response depth, global health, health data tasks |
+| `all` | 1403 | All scenarios combined |
 
 </div>
 

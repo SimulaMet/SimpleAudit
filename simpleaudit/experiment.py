@@ -8,6 +8,7 @@ import json
 from collections import Counter
 
 from tqdm.auto import tqdm
+from simpleaudit._event_loop import run_sync
 from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.repeated_results import RepeatedExperimentResults
@@ -689,7 +690,7 @@ class AuditExperiment:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(
+            return run_sync(
                 self.run_async(
                     scenarios,
                     max_turns=max_turns,

@@ -62,10 +62,10 @@ dev = [
 all = ["simpleaudit[plot,visualize,dev]"]
 
 [project.urls]
-Homepage = "https://github.com/kelkalot/simpleaudit"
-Documentation = "https://github.com/kelkalot/simpleaudit#readme"
-Repository = "https://github.com/kelkalot/simpleaudit"
-Issues = "https://github.com/kelkalot/simpleaudit/issues"
+Homepage = "https://github.com/simulamet/simpleaudit"
+Documentation = "https://github.com/simulamet/simpleaudit#readme"
+Repository = "https://github.com/simulamet/simpleaudit"
+Issues = "https://github.com/simulamet/simpleaudit/issues"
 PyPI = "https://pypi.org/project/simpleaudit/"
 
 [tool.setuptools.packages.find]

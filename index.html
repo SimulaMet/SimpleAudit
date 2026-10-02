@@ -181,8 +181,7 @@
     <div class="mt-6 rounded-2xl border border-gray-800 bg-surface-raised overflow-hidden text-left">
       <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800/60">
         <span class="text-xs text-gray-500 font-mono">terminal</span>
-        <button onclick="navigator.clipboard.writeText('pip install -U simpleaudit'); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)"
-                class="text-xs text-gray-500 hover:text-accent transition-colors">Copy</button>
+        <button class="copy-btn text-xs text-gray-500 hover:text-accent transition-colors" data-copy="pip install -U simpleaudit">Copy</button>
       </div>
       <pre class="px-4 py-4 text-sm font-mono text-gray-300 overflow-x-auto"><code><span class="text-accent">$</span> pip install -U simpleaudit</code></pre>
     </div>
@@ -198,8 +197,18 @@
     <div class="mt-6 rounded-2xl border border-gray-800 bg-surface-raised overflow-hidden text-left">
       <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800/60">
         <span class="text-xs text-gray-500 font-mono">python</span>
-        <button onclick="navigator.clipboard.writeText(`from simpleaudit import ModelAuditor\n\nauditor = ModelAuditor(\n    model=\"hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16\",\n    provider=\"ollama\",\n    judge_model=\"gpt-4o\",\n    judge_provider=\"openai\",\n)\n\nresults = auditor.run(\"safety\", max_turns=5, max_workers=10)\nresults.summary()\nresults.plot()`); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)"
-                class="text-xs text-gray-500 hover:text-accent transition-colors">Copy</button>
+        <button class="copy-btn text-xs text-gray-500 hover:text-accent transition-colors" data-copy="from simpleaudit import ModelAuditor
+
+auditor = ModelAuditor(
+    model=&quot;hf.co/NbAiLab/borealis-4b-instruct-preview-gguf:BF16&quot;,
+    provider=&quot;ollama&quot;,
+    judge_model=&quot;gpt-4o&quot;,
+    judge_provider=&quot;openai&quot;,
+)
+
+results = auditor.run(&quot;safety&quot;, max_turns=5, max_workers=10)
+results.summary()
+results.plot()">Copy</button>
       </div>
       <pre class="px-4 py-4 text-sm font-mono text-gray-300 overflow-x-auto"><code><span class="text-gray-500">from simpleaudit import ModelAuditor</span>
 
@@ -272,8 +281,7 @@ results.plot()</code></pre>
     <div class="mt-6 rounded-2xl border border-gray-800 bg-surface-raised overflow-hidden text-left">
       <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800/60">
         <span class="text-xs text-gray-500 font-mono">terminal</span>
-        <button onclick="navigator.clipboard.writeText('uvx \\'simpleaudit[visualize]\\' serve --results_dir ./my_audit_results'); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500)"
-                class="text-xs text-gray-500 hover:text-accent transition-colors">Copy</button>
+        <button class="copy-btn text-xs text-gray-500 hover:text-accent transition-colors" data-copy="uvx 'simpleaudit[visualize]' serve --results_dir ./my_audit_results">Copy</button>
       </div>
       <pre class="px-4 py-4 text-sm font-mono text-gray-300 overflow-x-auto"><code><span class="text-accent">$</span> uvx 'simpleaudit[visualize]' serve --results_dir ./my_audit_results</code></pre>
     </div>
@@ -297,5 +305,16 @@ results.plot()</code></pre>
     </div>
   </footer>
 </div>
+<script>
+document.querySelectorAll('.copy-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var text = this.getAttribute('data-copy');
+    navigator.clipboard.writeText(text).then(function() {
+      btn.textContent = 'Copied!';
+      setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+    });
+  });
+});
+</script>
 </body>
 </html>

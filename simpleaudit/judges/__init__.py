@@ -39,6 +39,25 @@ judgment dict is stored unchanged.
                 `requires_expected_behavior` (scenarios without expectations
                 fall back to the default judge).
 
+Every config declares ``output``, the shape of its grade (see OUTPUT_KINDS):
+"severity" (the ladder), "score" (1–10, severity derived), "binary" (a yes/no
+classification, graded against scenario ground truth or UNGRADED) or
+"checklist" (per-expectation items, severity derived) or "grounding" (what
+the answer claimed and which documents it rejected, findings and severity
+derived from the document marks; built per scenario, so not a build_judge()
+format).
+
+Every config also declares ``criteria`` (what to evaluate) and
+``format_prompt`` (the output contract), and ``judge_prompt`` is the two
+joined. customize_judge() swaps a config's criteria and keeps its format;
+build_judge() writes new criteria in a generic severity, score, binary or
+checklist format. Both return config dicts accepted wherever a judge name is
+(see judges/compose.py).
+
+DEFAULT_JUDGE describes what grades a run when no config is named (it is not
+registered in JUDGE_CONFIGS: passing its prompts explicitly would take the
+custom-prompt path, which formats the judge call differently).
+
 A config may carry two optional hooks read by ModelAuditor and the judge-only
 paths in reframing: `postprocess(judgment, *, conversation, expected_behavior,
 scenario_meta)` transforms the parsed judge output, and
@@ -58,7 +77,7 @@ Usage:
     auditor = ModelAuditor(..., judge_prompt="You are a custom judge...")
 """
 
-from typing import Dict, Any
+from typing import Any, Dict, Union
 
 from .safety import SAFETY_JUDGE
 from .abstention import ABSTENTION_JUDGE
@@ -70,6 +89,11 @@ from .helsedir_sexhealth_no_rag import HELSEDIR_SEXHEALTH_NO_RAG_JUDGE
 from .binary_abstention import BINARY_ABSTENTION_JUDGE
 from .checklist import CHECKLIST_JUDGE
 from .groundedness import GROUNDEDNESS_JUDGE
+from .default import DEFAULT_JUDGE
+from .compose import BUILD_OUTPUTS, build_judge, compose_prompt, customize_judge, dimension_key
+
+#: Values of a judge config's ``output`` key.
+OUTPUT_KINDS = ("severity", "score", "binary", "checklist", "grounding")
 
 
 JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
@@ -86,19 +110,27 @@ JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def get_judge(name: str) -> Dict[str, Any]:
+def get_judge(name: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Get a built-in judge configuration by name.
+    Get a judge configuration: a built-in by name, or a config dict as given.
 
     Args:
-        name: Judge config name (e.g. "safety", "helpfulness")
+        name: Judge config name (e.g. "safety", "helpfulness"), or a config
+            dict such as one from build_judge() or customize_judge()
 
     Returns:
         Judge config dict with probe_prompt, judge_prompt, output_schema, source
 
     Raises:
-        ValueError: If name is not recognised
+        ValueError: If name is not recognised, or a dict has no judge prompt
     """
+    if isinstance(name, dict):
+        config = dict(name)
+        if "judge_prompt" not in config:
+            if "criteria" not in config or "format_prompt" not in config:
+                raise ValueError("A judge config needs judge_prompt, or criteria and format_prompt.")
+            config["judge_prompt"] = compose_prompt(config["criteria"], config["format_prompt"])
+        return config
     if name not in JUDGE_CONFIGS:
         available = ", ".join(JUDGE_CONFIGS.keys())
         raise ValueError(f"Unknown judge config '{name}'. Available: {available}")
@@ -117,4 +149,7 @@ def list_judge_configs() -> Dict[str, str]:
     return {name: config["description"] for name, config in JUDGE_CONFIGS.items()}
 
 
-__all__ = ["get_judge", "list_judge_configs", "JUDGE_CONFIGS"]
+__all__ = [
+    "get_judge", "list_judge_configs", "JUDGE_CONFIGS", "DEFAULT_JUDGE", "OUTPUT_KINDS",
+    "build_judge", "customize_judge", "compose_prompt", "dimension_key", "BUILD_OUTPUTS",
+]

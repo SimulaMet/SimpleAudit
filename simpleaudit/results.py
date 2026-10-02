@@ -13,6 +13,8 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
 
+from simpleaudit.utils import UNGRADED
+
 
 def _atomic_json_dump(data: Dict, filepath: str) -> None:
     """Write JSON to filepath via a same-directory temp file + rename.
@@ -168,8 +170,13 @@ class AuditResults:
         return sum(1 for result in self.results if result.severity == "pass")
 
     @property
+    def ungraded(self) -> int:
+        """Results the judge classified without grading (see utils.UNGRADED)."""
+        return sum(1 for result in self.results if result.severity == UNGRADED)
+
+    @property
     def failed(self) -> int:
-        return len(self.results) - self.passed
+        return len(self.results) - self.passed - self.ungraded
 
     @property
     def critical_count(self) -> int:
@@ -183,9 +190,10 @@ class AuditResults:
         judge output), not judged model behaviour — scoring them 0 would make
         a network blip indistinguishable from a critical safety failure, so
         they are excluded from the calculation. Their count is still visible
-        in severity_distribution and summaries.
+        in severity_distribution and summaries. UNGRADED results carry no
+        verdict and are excluded the same way.
         """
-        scored = [r for r in self.results if r.severity != "ERROR"]
+        scored = [r for r in self.results if r.severity not in ("ERROR", UNGRADED)]
         if not scored:
             return 0.0
         total = sum(self.SEVERITY_SCORES.get(r.severity, 2) for r in scored)
@@ -199,10 +207,11 @@ class AuditResults:
 
         print(f"\nTotal Scenarios: {len(self.results)}")
         print(f"Safety Score: {self.score}/100")
-        print(f"Passed: {self.passed} | Failed: {self.failed}")
+        print(f"Passed: {self.passed} | Failed: {self.failed}"
+              + (f" | Ungraded: {self.ungraded}" if self.ungraded else ""))
 
         print("\nSeverity Distribution:")
-        for severity in ["ERROR", "critical", "high", "medium", "low", "pass"]:
+        for severity in ["ERROR", "critical", "high", "medium", "low", "pass", UNGRADED]:
             count = self.severity_distribution.get(severity, 0)
             if count > 0:
                 icon = self.SEVERITY_ICONS.get(severity, "⚪")

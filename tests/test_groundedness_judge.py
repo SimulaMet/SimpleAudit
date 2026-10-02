@@ -42,6 +42,7 @@ import pytest
 from simpleaudit.context_derivations import derive_all
 from simpleaudit.context_findings import FINDING_SEVERITY
 from simpleaudit.context_marks import DocumentMark, parse_documents
+from simpleaudit.judges import BUILD_OUTPUTS, OUTPUT_KINDS
 from simpleaudit.judges.binary_abstention import BINARY_ABSTENTION_JUDGE
 from simpleaudit.judges.groundedness import (
     FIELD_ORDER,
@@ -659,6 +660,30 @@ def test_config_builders_are_the_module_level_functions():
     the static prompt and ask for a `rejected` object of unknown size."""
     assert GROUNDEDNESS_JUDGE["build_judge_prompt"] is build_groundedness_prompt
     assert GROUNDEDNESS_JUDGE["build_response_schema"] is build_groundedness_schema
+
+
+def test_config_declares_grounding_output_outside_build_judge():
+    """Its schema depends on the document count, so build_judge() cannot make
+    one; the kind exists for configs, not as a generic format."""
+    assert GROUNDEDNESS_JUDGE["output"] == "grounding"
+    assert GROUNDEDNESS_JUDGE["output"] in OUTPUT_KINDS
+    assert GROUNDEDNESS_JUDGE["output"] not in BUILD_OUTPUTS
+
+
+def test_built_prompt_is_the_criteria_then_the_per_document_format():
+    prompt, _ = build_groundedness_prompt({"marks": parse_documents(DOCS)})
+    assert prompt.startswith(GROUNDEDNESS_JUDGE["criteria"])
+    assert prompt.endswith(f"There are {len(DOCS)} documents. Every one needs an entry.")
+
+
+def test_criteria_in_the_context_replace_the_default_criteria():
+    """How a customize_judge() copy keeps its criteria: the runner passes the
+    config's criteria to the builder, which rebuilds only the format."""
+    prompt, _ = build_groundedness_prompt(
+        {"marks": parse_documents(DOCS), "criteria": "Only check the figures."}
+    )
+    assert prompt.startswith("Only check the figures.\n\nOUTPUT")
+    assert GROUNDEDNESS_JUDGE["criteria"] not in prompt
 
 
 def test_config_response_schema_is_the_permissive_no_context_form():

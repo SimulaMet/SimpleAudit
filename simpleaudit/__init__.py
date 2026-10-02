@@ -45,7 +45,7 @@ from .targets import (
     TargetResponse,
 )
 from .results import AuditResults, AuditResult
-from .scenarios import get_scenarios, list_scenario_packs
+from .scenarios import get_scenarios, list_scenario_packs, load_healthbench_scenarios
 from .judges import build_judge, customize_judge, get_judge, list_judge_configs
 from .experiment import AuditExperiment, ExperimentEvent
 from .repeated_results import (
@@ -97,6 +97,7 @@ __all__ = [
     "AuditResult",
     "get_scenarios",
     "list_scenario_packs",
+    "load_healthbench_scenarios",
     "get_judge",
     "build_judge",
     "customize_judge",

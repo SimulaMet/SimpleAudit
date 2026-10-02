@@ -34,6 +34,9 @@ Available packs:
   lower-authority chunks (3 scenarios, requires SingleTurnAuditor; not part of 'all')
 - healthbench_behaviours: One scenario per HealthBench consensus category (17 scenarios)
 - all: All scenarios combined
+
+HealthBench is not a built-in pack: OpenAI asks that its examples are not reposted in
+plain text, so load_healthbench_scenarios() downloads it and builds scenarios at run time.
 """
 
 from collections import Counter
@@ -66,6 +69,7 @@ from .vision_integrity import VISION_INTEGRITY_SCENARIOS
 from .nb_kryss_ordning import NB_KRYSS_ORDNING_SCENARIOS
 from .context_grounding import CONTEXT_GROUNDING_SCENARIOS
 from .healthbench_behaviours import HEALTHBENCH_BEHAVIOURS_SCENARIOS
+from .healthbench_loader import load_healthbench_scenarios
 
 
 SCENARIO_PACKS = {
@@ -180,5 +184,6 @@ __all__ = [
     "get_scenarios",
     "list_scenario_packs",
     "duplicate_scenario_names",
+    "load_healthbench_scenarios",
     "SCENARIO_PACKS",
 ]

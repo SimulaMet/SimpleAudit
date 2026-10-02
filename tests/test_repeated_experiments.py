@@ -105,6 +105,54 @@ class TestAuditExperimentRepetitions:
 # RepeatedExperimentResults — dict backward compatibility
 # ---------------------------------------------------------------------------
 
+class TestRunScenarioRepsTracing:
+    """run_scenario_reps forwards audit_run_id + per-rep trace_correlation."""
+
+    def test_forwards_audit_run_id_and_per_rep_correlation(self):
+        captured: list = []
+        exp = _make_experiment(n_repetitions=2)
+        # A callable that returns a different correlation each call proves the
+        # correlation is resolved per rep (not captured once up front).
+        first = object()
+        second = object()
+        seq = iter([first, second])
+
+        async def fake_run_async(self_a, scenarios, **kwargs):
+            captured.append(kwargs)
+            return _make_results(["pass"])
+
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()), \
+             patch.object(ModelAuditor, "run_async", new=fake_run_async):
+            asyncio.run(exp.run_scenario_reps(
+                model_index=0, scenario={"name": "s1", "description": "d1"},
+                audit_run_id="audit_abc",
+                trace_correlation=lambda: next(seq),
+            ))
+
+        assert len(captured) == 2
+        assert all(c["audit_run_id"] == "audit_abc" for c in captured)
+        assert captured[0]["trace_correlation"] is first
+        assert captured[1]["trace_correlation"] is second
+
+    def test_static_correlation_forwarded_to_all_reps(self):
+        captured: list = []
+        shared = object()
+
+        async def fake_run_async(self_a, scenarios, **kwargs):
+            captured.append(kwargs)
+            return _make_results(["pass"])
+
+        exp = _make_experiment(n_repetitions=2)
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()), \
+             patch.object(ModelAuditor, "run_async", new=fake_run_async):
+            asyncio.run(exp.run_scenario_reps(
+                model_index=0, scenario={"name": "s1", "description": "d1"},
+                audit_run_id="audit_abc",
+                trace_correlation=shared,
+            ))
+        assert all(c["trace_correlation"] is shared for c in captured)
+
+
 class TestBackwardCompatDictInterface:
     def _make(self) -> RepeatedExperimentResults:
         r1 = _make_results(["critical"])

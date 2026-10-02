@@ -1,6 +1,6 @@
 # Simpleaudit Scenario Creation Guidelines
 
-Standards and best practices for creating test scenarios for [simpleaudit](https://github.com/kelkalot/simpleaudit).
+Standards and best practices for creating test scenarios for [simpleaudit](https://github.com/simulamet/simpleaudit).
 
 ---
 

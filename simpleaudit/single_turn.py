@@ -177,12 +177,17 @@ class SingleTurnAuditor(ModelAuditor):
         conversation: List[Dict[str, Any]],
         expected_behavior: List[str],
         scenario: Dict[str, Any],
+        *,
+        params: Optional[Dict[str, Any]] = None,
+        evidence_spans: Optional[List[Dict[str, Any]]] = None,
     ) -> tuple:
         """Grade the same exchange against the scenario's expectations.
 
         The correctness judge is shown the expectations on purpose: they are
         its rubric. It is never shown the marks; the conversation entry carries
         no ``documents`` key, and the description is the scenario's own.
+        ``params`` and ``evidence_spans`` are the ones the groundedness call
+        gets, so judge params apply to both halves.
         """
         config = get_judge(self.correctness_judge)
         return await self._judge_conversation_async(
@@ -202,6 +207,8 @@ class SingleTurnAuditor(ModelAuditor):
                 "category": scenario.get("category"),
                 "metadata": scenario.get("metadata") or {},
             },
+            params=params,
+            evidence_spans=evidence_spans,
         )
 
     def _judge_spec(self, context: Dict[str, Any]) -> tuple:
@@ -428,7 +435,9 @@ class SingleTurnAuditor(ModelAuditor):
                     # judge on the same exchange and keep both.
                     if expected_behavior and self.correctness_judge:
                         correctness, c_in, c_out = await self._judge_correctness(
-                            description, conversation, expected_behavior, scenario
+                            description, conversation, expected_behavior, scenario,
+                            params=effective_judge or None,
+                            evidence_spans=evidence_spans,
                         )
                         judge_input_tokens += c_in
                         judge_output_tokens += c_out

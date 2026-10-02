@@ -203,6 +203,20 @@ def test_unknown_correctness_judge_fails_at_construction():
         _build("x", FakeClient(lambda **_: "x"), correctness_judge="nonexistent")
 
 
+def test_judge_params_reach_both_halves_and_on_turn_reports_one_judgment():
+    judge = RoutingJudge(_groundedness([STALE_ANSWER]), _checklist("met", "x"))
+    sta = _build(STALE_ANSWER, judge)
+    events = []
+    asyncio.run(sta.run_async(
+        [dict(HELFO_SCENARIO, severity="medium")],
+        judge_params={"temperature": 0.0},
+        on_turn=lambda *e: events.append(e),
+    ))
+    assert len(judge.calls) == 2
+    assert [c.get("temperature") for c in judge.calls] == [0.0, 0.0]
+    assert events == [(0, 1, "target"), (0, 1, "judge")]
+
+
 # ---------------------------------------------------------------------------
 # combine_judgments on its own
 # ---------------------------------------------------------------------------

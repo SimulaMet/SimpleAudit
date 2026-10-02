@@ -359,6 +359,81 @@ class TestEntryPoints:
             asyncio.run(sta.run_async([HELFO_SCENARIO], max_workers=0))
 
 
+# --- run arguments shared with ModelAuditor ---------------------------------
+
+
+class _AppTarget:
+    """A non-model Target that records what it was sent."""
+
+    def __init__(self) -> None:
+        self.sent = []
+
+    async def send(self, **kwargs):
+        from simpleaudit.targets.base import TargetResponse
+
+        self.sent.append(kwargs)
+        return TargetResponse(content=TARGET_ANSWER)
+
+
+class _Correlation:
+    def __init__(self) -> None:
+        self.records = []
+
+    def record(self, turn_id, trace_id):
+        self.records.append((turn_id, trace_id))
+
+
+class TestRunArguments:
+    """What ModelAuditor.run_async accepts must reach the single exchange too,
+    or AuditExperiment, Auditor and the tracing helpers silently lose it."""
+
+    def test_params_reach_the_target_and_the_judge(self):
+        target_calls, judge_calls = [], []
+        sta = make_single_turn_auditor(
+            target=FakeClient(lambda **kw: target_calls.append(kw) or TARGET_ANSWER),
+            judge=FakeClient(lambda **kw: judge_calls.append(kw) or JUDGE_JSON),
+            params={"top_p": 0.5},
+        )
+        asyncio.run(sta.run_async(
+            [HELFO_SCENARIO],
+            target_params={"temperature": 0.7},
+            judge_params={"temperature": 0.0},
+        ))
+        assert (target_calls[0]["temperature"], target_calls[0]["top_p"]) == (0.7, 0.5)
+        assert (judge_calls[0]["temperature"], judge_calls[0]["top_p"]) == (0.0, 0.5)
+
+    def test_on_turn_reports_the_target_then_the_judge(self, wired):
+        sta, _, _, _ = wired
+        events = []
+        asyncio.run(sta.run_async([HELFO_SCENARIO], on_turn=lambda *e: events.append(e)))
+        assert events == [(0, 1, "target"), (0, 1, "judge")]
+
+    def test_an_explicit_target_replaces_the_model_client(self, wired):
+        sta, target, _, _ = wired
+        app = _AppTarget()
+        sta.set_target(app)
+        result = asyncio.run(sta._run_one_scenario(HELFO_SCENARIO))
+        assert len(app.sent) == 1
+        assert len(target) == 0
+        assert app.sent[0]["user"] == HELFO_SCENARIO["test_prompt"]
+        assert app.sent[0]["documents"] == HELFO_SCENARIO["documents"]
+        assert result.conversation[1]["content"] == TARGET_ANSWER
+
+    def test_the_exchange_carries_and_records_its_trace_context(self, wired):
+        sta, _, _, _ = wired
+        app = _AppTarget()
+        sta.set_target(app)
+        correlation = _Correlation()
+        asyncio.run(sta.run_async(
+            [HELFO_SCENARIO], audit_run_id="audit_x", trace_correlation=correlation,
+        ))
+        context = app.sent[0]["context"]
+        [(turn_id, trace_id)] = correlation.records
+        assert context.audit_run_id == "audit_x"
+        assert context.turn_id == turn_id
+        assert context.trace_headers["traceparent"].startswith(f"00-{trace_id}-")
+
+
 # --- token accounting -------------------------------------------------------
 
 
@@ -707,6 +782,26 @@ class TestJudgeSpecIsBuiltPerScenario:
             )
         prompt, _schema = auditor._judge_spec({"marks": [], "derivations": {}})
         assert prompt == "MY OWN RUBRIC"
+
+    def test_customized_criteria_survive_the_builder(self):
+        from simpleaudit.judges import customize_judge
+
+        dummy = MagicMock()
+        with patch.object(
+            ModelAuditor, "_create_anyllm_client", return_value=dummy
+        ):
+            auditor = SingleTurnAuditor(
+                model="target-model",
+                provider="ollama",
+                judge_model="judge-model",
+                judge_provider="ollama",
+                judge=customize_judge("groundedness", criteria="ONLY THE FIGURES"),
+                verbose=False,
+            )
+        marks = parse_documents(HELFO_SCENARIO["documents"])
+        prompt, _schema = auditor._judge_spec({"marks": marks, "derivations": {}})
+        assert prompt.startswith("ONLY THE FIGURES\n\n")
+        assert prompt.endswith("Every one needs an entry.")
 
     def test_a_judge_without_builders_is_untouched(self):
         dummy = MagicMock()

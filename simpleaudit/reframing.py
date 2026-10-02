@@ -75,6 +75,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Union
 
+from simpleaudit._event_loop import run_sync
 from simpleaudit.judges import get_judge
 from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.repeated_results import (
@@ -1005,7 +1006,7 @@ def _run_sync(coro_factory: Callable[[], Any], name: str) -> Any:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(coro_factory())
+        return run_sync(coro_factory())
     raise RuntimeError(
         f"{name}() cannot be called from an active event loop. "
         f"Use await {name}_async() instead."

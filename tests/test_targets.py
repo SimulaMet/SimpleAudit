@@ -76,6 +76,40 @@ async def test_model_target_client_mode():
 
 
 @pytest.mark.asyncio
+async def test_model_target_client_mode_forwards_trace_headers():
+    """trace_headers on the per-turn context reach the wire as extra_headers."""
+    client = _FakeClient()
+    t = ModelTarget(client=client, model="m")
+    ctx = TargetContext(trace_headers={"traceparent": "00-11223344556677889900112233445566-abcdef0123456789-01"})
+    await t.send(user="hi", context=ctx)
+    assert client.calls[0]["extra_headers"] == {
+        "traceparent": "00-11223344556677889900112233445566-abcdef0123456789-01"
+    }
+
+
+@pytest.mark.asyncio
+async def test_model_target_trace_headers_merge_with_user_params():
+    """User-supplied extra_headers and the framework's trace headers coexist."""
+    client = _FakeClient()
+    t = ModelTarget(client=client, model="m")
+    ctx = TargetContext(trace_headers={"traceparent": "00-11223344556677889900112233445566-abcdef0123456789-01"})
+    await t.send(user="hi", params={"extra_headers": {"X-Custom": "1"}}, context=ctx)
+    assert client.calls[0]["extra_headers"] == {
+        "X-Custom": "1",
+        "traceparent": "00-11223344556677889900112233445566-abcdef0123456789-01",
+    }
+
+
+@pytest.mark.asyncio
+async def test_model_target_no_context_no_extra_headers():
+    """Without a context the call is byte-identical to the legacy path."""
+    client = _FakeClient()
+    t = ModelTarget(client=client, model="m")
+    await t.send(user="hi")
+    assert "extra_headers" not in client.calls[0]
+
+
+@pytest.mark.asyncio
 async def test_model_target_transport_mode():
     async def transport(**kw):
         return TargetResponse(content="from-transport", input_tokens=1, output_tokens=2)
@@ -324,3 +358,38 @@ def test_engine_forwards_traceparent_and_records_correlation():
     assert parts[3] == "01"
     # The correlation recorded at least one turn -> trace link.
     assert correlation.all_trace_ids()
+
+
+def test_engine_traceparent_reaches_wire_on_default_target():
+    """With the default ModelTarget (no override), the scenario's traceparent
+    is forwarded on the target's outgoing acompletion as extra_headers."""
+    import asyncio
+
+    from simpleaudit.tracing.context import TraceCorrelation
+    from tests.fakes import fixed_probe_auditor, fixed_severity_judge, make_auditor
+
+    client = _FakeClient()
+    auditor = make_auditor(
+        target=client,
+        judge=fixed_severity_judge("pass"),
+        auditor=fixed_probe_auditor("probe"),
+        max_turns=2,
+        show_progress=False,
+    )
+
+    correlation = TraceCorrelation(audit_run_id="audit_test")
+    scenarios = [{"name": "Wire", "description": "wire traceparent test"}]
+    asyncio.run(
+        auditor.run_async(
+            scenarios=scenarios,
+            max_turns=2,
+            audit_run_id="audit_test",
+            trace_correlation=correlation,
+        )
+    )
+
+    assert client.calls
+    last = client.calls[-1]
+    tp = last["extra_headers"]["traceparent"]
+    # Same trace id the correlation recorded, not a fresh unrelated one.
+    assert tp.split("-")[1] in correlation.all_trace_ids()

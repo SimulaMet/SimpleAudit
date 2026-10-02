@@ -81,7 +81,7 @@ Open a single HTML file directly in your browser and upload JSON files.
 
 1. **Download the file:**
    - Get `scenario_viewer.html` from `simpleaudit/visualization/`
-   - Or from: https://github.com/kelkalot/simpleaudit/blob/main/simpleaudit/visualization/scenario_viewer.html
+   - Or from: https://github.com/simulamet/simpleaudit/blob/main/simpleaudit/visualization/scenario_viewer.html
 
 2. **Open in browser:**
    - Double-click `scenario_viewer.html` or
@@ -313,15 +313,15 @@ simpleaudit serve --results_dir ./results --port 8001
 
 ## 📚 Related Documentation
 
-- [Main README](https://github.com/kelkalot/simpleaudit/blob/main/README.md) - SimpleAudit overview
-- [Example Notebooks](https://github.com/kelkalot/simpleaudit/blob/main/examples/) - Usage examples
+- [Main README](https://github.com/simulamet/simpleaudit/blob/main/README.md) - SimpleAudit overview
+- [Example Notebooks](https://github.com/simulamet/simpleaudit/blob/main/examples/) - Usage examples
 - [PyPI Package](https://pypi.org/project/simpleaudit/) - Installation
 
 ---
 
 ## 🤝 Contributing
 
-Found a bug or have a feature request? Open an issue on [GitHub](https://github.com/kelkalot/simpleaudit/issues).
+Found a bug or have a feature request? Open an issue on [GitHub](https://github.com/simulamet/simpleaudit/issues).
 
 ---
 

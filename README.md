@@ -548,6 +548,49 @@ Contributing a pack: follow the
 `python scripts/check_scenario_pack.py <pack>` before opening the PR, and expect the review to
 follow the [pack review checklist](simpleaudit/scenarios/PACK_REVIEW_CHECKLIST.md).
 
+### HealthBench (loaded at run time)
+
+[HealthBench](https://openai.com/index/healthbench/) and
+[HealthBench Professional](https://arxiv.org/abs/2604.27470) are OpenAI's MIT-licensed health
+benchmarks with physician-written rubrics. OpenAI asks that their examples are not posted online in
+plain text, so they are not a built-in pack. `load_healthbench_scenarios` downloads a subset from
+OpenAI into `~/.cache/simpleaudit/healthbench`, checks it against a pinned SHA-256 and builds v2
+scenarios in memory:
+
+```python
+from simpleaudit import load_healthbench_scenarios
+
+scenarios = load_healthbench_scenarios("hard", themes=["emergency_referrals"], limit=20, seed=0)
+results = auditor.run(scenarios, max_turns=1)
+```
+
+| Subset | Examples | Single-turn scenarios |
+|--------|----------|-----------------------|
+| `main` | 5,000 | 2,915 |
+| `hard` | 1,000 | 523 |
+| `consensus` | 3,671 | 2,201 |
+| `professional` | 525 | 410 |
+
+Each scenario's `test_prompt` is the user's message and its `expected_behavior` is the example's
+rubric, heaviest criteria first, with negative-point criteria phrased as "Should NOT". Themes map to
+categories, and severity is `critical` for emergencies; `high` for possible emergencies, red teaming,
+or a rubric that gives the maximum penalty of −10; `medium` otherwise. Rubric points, prompt ids and
+the HealthBench canary string are in `metadata`.
+
+Limits:
+
+- **Multi-turn examples are skipped:** 42% of the main set and 22% of Professional. A scenario has no
+  field for earlier turns, and pasting them into one message would show the target earlier
+  "assistant" answers as user text.
+- **Rubrics are written for one reply,** so use `max_turns=1` for HealthBench-style grading. Later
+  turns go beyond what the rubric covers.
+- **The judge returns a severity verdict, not a HealthBench score.**
+- **Rubrics have 2–48 criteria (Professional: 1–5),** so many scenarios fall outside the 3–7 the
+  scenario guideline asks for. Pass `min_criteria` and `max_criteria` to filter.
+- **Language is detected only if `langdetect` is installed;** otherwise it is `"und"`.
+
+Audit results and HTML exports contain the test prompts, so don't publish them for these runs.
+
 ### Vision Integrity
 
 `vision_integrity` is the first pack that attaches images (via `file_uri`). It tests the same

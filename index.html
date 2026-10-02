@@ -224,6 +224,60 @@ results.plot()</code></pre>
       See the <a href="https://github.com/SimulaMet/SimpleAudit/blob/main/simpleaudit/visualization/README.md" target="_blank" rel="noopener" class="text-accent hover:underline">visualization guide</a> for more options.
     </p>
   </section>
+
+  <!-- Two ways to audit: CLI vs Studio -->
+  <section class="max-w-4xl mx-auto px-6 pb-20 w-full">
+    <h2 class="text-2xl font-bold text-white text-center">Two ways to audit</h2>
+    <p class="mt-3 text-gray-400 text-center max-w-xl mx-auto">
+      Same engine, two interfaces. Pick the one that fits your workflow.
+    </p>
+    <div class="mt-8 grid md:grid-cols-2 gap-6">
+      <!-- CLI / code-first -->
+      <div class="rounded-2xl border border-gray-800 bg-surface-raised p-6 flex flex-col">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="text-accent text-lg">⌨</span>
+          <h3 class="text-base font-semibold text-gray-100">SimpleAudit (this framework)</h3>
+        </div>
+        <p class="text-sm text-gray-400 leading-relaxed flex-1">
+          Code-first. Write Python, version your scenarios in git, script
+          reproducible audits in CI. Full control over every parameter.
+        </p>
+        <ul class="mt-4 space-y-2 text-sm text-gray-400">
+          <li class="flex items-start gap-2"><span class="text-accent mt-0.5">✓</span> Python API + CLI</li>
+          <li class="flex items-start gap-2"><span class="text-accent mt-0.5">✓</span> Versioned scenario packs in git</li>
+          <li class="flex items-start gap-2"><span class="text-accent mt-0.5">✓</span> Scriptable in CI/CD pipelines</li>
+          <li class="flex items-start gap-2"><span class="text-accent mt-0.5">✓</span> Two packages, minimal deps</li>
+        </ul>
+        <a href="https://github.com/SimulaMet/SimpleAudit" target="_blank" rel="noopener"
+           class="mt-6 inline-block px-4 py-2 rounded-lg border border-gray-700 hover:border-accent/50 text-sm text-gray-200 font-medium transition-colors text-center">
+          Get the framework
+        </a>
+      </div>
+      <!-- Studio / no-code -->
+      <div class="rounded-2xl border border-accent/40 bg-surface-raised p-6 flex flex-col relative">
+        <span class="absolute -top-3 left-6 px-3 py-0.5 rounded-full bg-accent text-white text-xs font-semibold">No-code · UI</span>
+        <div class="flex items-center gap-2 mb-4">
+          <span class="text-accent text-lg">🖥</span>
+          <h3 class="text-base font-semibold text-gray-100">SimpleAudit Studio</h3>
+        </div>
+        <p class="text-sm text-gray-400 leading-relaxed flex-1">
+          A self-hostable web platform built on the same engine. Design
+          scenarios in a browser, launch runs with a click, compare results
+          on a dashboard — no code required.
+        </p>
+        <ul class="mt-4 space-y-2 text-sm text-gray-400">
+          <li class="flex items-start gap-2"><span class="text-accent mt-0.5">✓</span> Browser-based UI, no code</li>
+          <li class="flex items-start gap-2"><span class="text-accent mt-0.5">✓</span> Interactive dashboard + live run monitoring</li>
+          <li class="flex items-start gap-2"><span class="text-accent mt-0.5">✓</span> Side-by-side run comparison</li>
+          <li class="flex items-start gap-2"><span class="text-accent mt-0.5">✓</span> One-liner install: <code class="text-accent">uvx simpleaudit-studio</code></li>
+        </ul>
+        <a href="https://simpleauditstudio.sushant.no" target="_blank" rel="noopener"
+           class="glow-pulse shimmer-btn relative overflow-hidden mt-6 inline-block px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-sm text-white font-semibold transition-colors text-center">
+          Try Studio
+        </a>
+      </div>
+    </div>
+  </section>
   </main>
 
   <!-- Footer -->
@@ -234,7 +288,7 @@ results.plot()</code></pre>
         <a href="https://github.com/SimulaMet/SimpleAudit" target="_blank" rel="noopener" class="hover:text-accent transition-colors">GitHub</a>
         <a href="https://pypi.org/project/simpleaudit/" target="_blank" rel="noopener" class="hover:text-accent transition-colors">PyPI</a>
         <a href="https://arxiv.org/abs/2605.06652" target="_blank" rel="noopener" class="hover:text-accent transition-colors">Paper</a>
-        <a href="https://github.com/SimulaMet/SimpleAuditStudio" target="_blank" rel="noopener" class="hover:text-accent transition-colors">SimpleAudit Studio</a>
+        <a href="https://simpleauditstudio.sushant.no" target="_blank" rel="noopener" class="hover:text-accent transition-colors">SimpleAudit Studio</a>
       </nav>
     </div>
   </footer>

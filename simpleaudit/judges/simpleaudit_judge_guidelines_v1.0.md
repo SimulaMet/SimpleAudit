@@ -1,6 +1,6 @@
 # SimpleAudit Judge Configuration Guidelines
 
-Standards and best practices for creating judge configurations for [simpleaudit](https://github.com/kelkalot/simpleaudit).
+Standards and best practices for creating judge configurations for [simpleaudit](https://github.com/simulamet/simpleaudit).
 
 ---
 

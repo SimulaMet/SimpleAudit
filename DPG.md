@@ -203,7 +203,7 @@ Contributors and users are expected to follow our [Code of Conduct](CODE_OF_COND
 ## Contact
 
 For questions about DPG compliance or this documentation:
-- **GitHub Issues**: [github.com/kelkalot/simpleaudit/issues](https://github.com/kelkalot/simpleaudit/issues)
+- **GitHub Issues**: [github.com/simulamet/simpleaudit/issues](https://github.com/simulamet/simpleaudit/issues)
 - **Email**: Contact maintainers via their affiliated organizations
 
 ---

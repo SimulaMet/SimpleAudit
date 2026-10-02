@@ -61,6 +61,8 @@ declining and naming the disagreement is the best available answer, and
 
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from .compose import compose_prompt
+
 #: The vocabulary `context_attribution.derive_stance` emits. Not part of this
 #: judge's schema any more — the judge reports claims and disagreements, and
 #: the stance is derived from them — but kept here as the published name of
@@ -141,6 +143,14 @@ _ABSTAINED_BLOCK = (
     "call is decided later; record only whether it happened.\n"
 )
 
+#: What the judge records, without the output contract. Static: the document
+#: count only changes the OUTPUT block, so customize_judge() can replace this
+#: and the builder still writes the per-scenario format after it.
+GROUNDEDNESS_CRITERIA = (
+    "\n\n".join([_PREAMBLE, _SPANS_BLOCK, _REJECTED_BLOCK, _ABSTAINED_BLOCK]).rstrip()
+    + "\n\n"
+)
+
 
 def _stance_context(context: Optional[Dict[str, Any]]) -> Sequence[Any]:
     """Pull the parsed marks out of the builder context.
@@ -167,26 +177,8 @@ def document_indices(context: Optional[Dict[str, Any]] = None) -> List[str]:
     return [str(index) for index, _mark in enumerate(_stance_context(context), 1)]
 
 
-def build_groundedness_prompt(
-    context: Optional[Dict[str, Any]] = None,
-) -> Tuple[str, List[str]]:
-    """
-    Build the judge prompt for a document set.
-
-    The prompt does not vary with the derivations — every document gets the
-    same three-way question regardless of what the author marked. That is the
-    change from the first version: an unmarked property can no longer produce
-    a bad finding, because the judge is not asked about properties at all.
-
-    Args:
-        context: Builder context carrying `marks` (parsed DocumentMarks).
-            None or empty yields the general form, with the output example
-            written for two documents.
-
-    Returns:
-        ``(prompt_text, document_index_keys)``.
-    """
-    indices = document_indices(context)
+def _format_block(indices: List[str]) -> str:
+    """The OUTPUT block: one example entry per document, or two when unknown."""
     example_keys = indices or ["1", "2"]
     rejected_lines = ",\n".join(
         f'        "{key}": {{"rejected": <true|false>, '
@@ -208,12 +200,33 @@ def build_groundedness_prompt(
         output_block += (
             f"\n\nThere are {len(indices)} documents. Every one needs an entry."
         )
-    return (
-        "\n\n".join(
-            [_PREAMBLE, _SPANS_BLOCK, _REJECTED_BLOCK, _ABSTAINED_BLOCK, output_block]
-        ),
-        indices,
-    )
+    return output_block
+
+
+def build_groundedness_prompt(
+    context: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, List[str]]:
+    """
+    Build the judge prompt for a document set.
+
+    The prompt does not vary with the derivations — every document gets the
+    same three-way question regardless of what the author marked. That is the
+    change from the first version: an unmarked property can no longer produce
+    a bad finding, because the judge is not asked about properties at all.
+
+    Args:
+        context: Builder context carrying `marks` (parsed DocumentMarks) and,
+            optionally, `criteria` — a customized judge's own criteria, which
+            replace GROUNDEDNESS_CRITERIA ahead of the per-document format.
+            None or empty yields the general form, with the output example
+            written for two documents.
+
+    Returns:
+        ``(prompt_text, document_index_keys)``.
+    """
+    indices = document_indices(context)
+    criteria = (context.get("criteria") if isinstance(context, dict) else None) or GROUNDEDNESS_CRITERIA
+    return compose_prompt(criteria, _format_block(indices)), indices
 
 
 def build_groundedness_schema(
@@ -259,6 +272,7 @@ def build_groundedness_schema(
     }
 
 
+_GENERAL_FORMAT = _format_block([])
 _GENERAL_PROMPT, _ = build_groundedness_prompt(None)
 
 
@@ -288,6 +302,9 @@ GROUNDEDNESS_JUDGE = {
         "Write in {language}.\n\n"
         "Output ONLY the next user message, nothing else."
     ),
+    "output": "grounding",
+    "criteria": GROUNDEDNESS_CRITERIA,
+    "format_prompt": _GENERAL_FORMAT,
     "judge_prompt": _GENERAL_PROMPT,
     "output_schema": {
         "asserted_spans": (
@@ -301,6 +318,9 @@ GROUNDEDNESS_JUDGE = {
         "abstained": "bool — did the model decline to deliver the substantive answer?",
     },
     "response_schema": build_groundedness_schema(None),
+    # No postprocess hook: the derivation needs the parsed marks, which the
+    # hook is not given, so SingleTurnAuditor runs it after the judging call.
+    "postprocess": None,
     "source": {
         "type": "custom_minimal",
         "notes": (

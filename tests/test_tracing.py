@@ -422,6 +422,26 @@ def test_parse_otlp_json_string_body():
     assert len(spans) == 1
 
 
+def test_parse_otlp_json_preserves_genai_content_attributes():
+    payload = _otlp_http_payload()
+    payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"].extend(
+        [
+            {"key": "gen_ai.input.messages", "value": {"stringValue": "user prompt"}},
+            {"key": "gen_ai.output.messages", "value": {"stringValue": "assistant output"}},
+            {"key": "gen_ai.tool.call.arguments", "value": {"stringValue": '{"x":1}'}},
+            {
+                "key": "gen_ai.retrieval.documents",
+                "value": {"arrayValue": {"values": [{"stringValue": "document text"}]}},
+            },
+        ]
+    )
+    span = parse_otlp_json(payload)[0]
+    assert span["attributes"]["gen_ai.input.messages"] == "user prompt"
+    assert span["attributes"]["gen_ai.output.messages"] == "assistant output"
+    assert span["attributes"]["gen_ai.tool.call.arguments"] == '{"x":1}'
+    assert span["attributes"]["gen_ai.retrieval.documents"] == ["document text"]
+
+
 @pytest.mark.asyncio
 async def test_otlp_receiver_ingests():
     receiver = OTLPTraceReceiver()

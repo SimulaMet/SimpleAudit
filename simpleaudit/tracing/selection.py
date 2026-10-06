@@ -37,6 +37,7 @@ class SelectionResult:
     elided: List[Dict[str, Any]] = field(default_factory=list)
     budget_used: int = 0
     budget: Optional[int] = None
+    selector_version: str = "v1"  # Track the selection policy version
 
     @property
     def elided_count(self) -> int:
@@ -66,6 +67,8 @@ def select_spans(
     evidence_kinds: Sequence[str] = DEFAULT_EVIDENCE_KINDS,
     noise_kinds: Sequence[str] = DEFAULT_NOISE_KINDS,
     token_budget: Optional[int] = None,
+    prefer_failing_spans: bool = False,
+    selector_version: str = "v1",
 ) -> SelectionResult:
     """Select evidence-relevant spans within an optional size budget.
 
@@ -79,6 +82,10 @@ def select_spans(
         Kinds to drop unless nothing else is selected.
     token_budget:
         Max total serialized size (chars) of selected spans. ``None`` = no cap.
+    prefer_failing_spans:
+        Prioritize spans with error/failure status over success spans.
+    selector_version:
+        Version identifier for the selection policy (recorded in provenance).
     """
     ev = {k.upper() for k in evidence_kinds}
     noise = {k.upper() for k in noise_kinds}
@@ -87,12 +94,27 @@ def select_spans(
     noise_spans = [s for s in spans if (s.get("kind") or "").upper() in noise]
     other = [s for s in spans if (s.get("kind") or "").upper() not in ev and (s.get("kind") or "").upper() not in noise]
 
-    # Priority: evidence kinds first, then other, then noise (only if nothing else).
-    candidates = list(evidence) + list(other)
+    # If prefer_failing_spans, partition into failing and non-failing
+    if prefer_failing_spans:
+        def _is_failing(span: Dict[str, Any]) -> bool:
+            status = (span.get("status") or "").lower()
+            return status in ("error", "failed", "exception")
+
+        evidence_failing = [s for s in evidence if _is_failing(s)]
+        evidence_passing = [s for s in evidence if not _is_failing(s)]
+        other_failing = [s for s in other if _is_failing(s)]
+        other_passing = [s for s in other if not _is_failing(s)]
+
+        # Priority: failing evidence, passing evidence, failing other, passing other, then noise
+        candidates = evidence_failing + evidence_passing + other_failing + other_passing
+    else:
+        # Priority: evidence kinds first, then other, then noise (only if nothing else).
+        candidates = list(evidence) + list(other)
+
     if not candidates:
         candidates = list(noise_spans)
 
-    result = SelectionResult(budget=token_budget)
+    result = SelectionResult(budget=token_budget, selector_version=selector_version)
     used = 0
     for span in candidates:
         size = _span_size(span)
@@ -121,6 +143,8 @@ def evidence_spans_for_turn(
     evidence_kinds: Sequence[str] = DEFAULT_EVIDENCE_KINDS,
     noise_kinds: Sequence[str] = DEFAULT_NOISE_KINDS,
     token_budget: Optional[int] = None,
+    prefer_failing_spans: bool = False,
+    selector_version: str = "v1",
 ) -> List[Dict[str, Any]]:
     """Build judge-ready ``evidence_spans`` for one audit turn.
 
@@ -140,6 +164,8 @@ def evidence_spans_for_turn(
         evidence_kinds=evidence_kinds,
         noise_kinds=noise_kinds,
         token_budget=token_budget,
+        prefer_failing_spans=prefer_failing_spans,
+        selector_version=selector_version,
     )
     return result.selected
 

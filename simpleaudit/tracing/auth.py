@@ -107,58 +107,6 @@ def make_basic_bearer_authenticator(
     return _authenticate
 
 
-def new_salt() -> bytes:
-    """Return a fresh salt for a persisted credential."""
-    return _new_salt()
-
-
-def hash_secret(secret: str, salt: bytes) -> bytes:
-    """Hash a credential secret using the shared salted primitive."""
-    return _hash_secret(secret, salt)
-
-
-def verify_secret(secret: str, salt: bytes, secret_hash: bytes) -> bool:
-    """Verify a credential secret in constant time."""
-    return hmac.compare_digest(secret_hash, _hash_secret(secret, salt))
-
-
-def generate_password() -> str:
-    """Generate a URL-safe password suitable for Basic authentication."""
-    return secrets.token_urlsafe(24)
-
-
-def generate_token() -> str:
-    """Generate a URL-safe bearer token."""
-    return "sa_otlp_" + secrets.token_urlsafe(32)
-
-
-def token_lookup_prefix(token: str) -> str:
-    """Return a non-secret stable prefix for indexed bearer lookup."""
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
-
-
-def parse_basic_header(header: str | None) -> tuple[str, str] | None:
-    """Decode an HTTP Basic authorization header, preserving colons in secrets."""
-    if not header or not header.lower().startswith("basic "):
-        return None
-    try:
-        decoded = base64.b64decode(header[6:].strip(), validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
-        return None
-    if ":" not in decoded:
-        return None
-    username, password = decoded.split(":", 1)
-    return username, password
-
-
-def parse_bearer_header(header: str | None) -> str | None:
-    """Extract a non-empty bearer token from an HTTP authorization header."""
-    if not header or not header.lower().startswith("bearer "):
-        return None
-    token = header[7:].strip()
-    return token or None
-
-
 def _hash_secret(secret: str, salt: bytes) -> bytes:
     """Salted SHA-256 of a secret. Deterministic for a given salt."""
     return hashlib.sha256(salt + secret.encode("utf-8")).digest()
@@ -184,7 +132,7 @@ class _Credential:
         return hmac.compare_digest(self.secret_hash, _hash_secret(secret, self.salt))
 
 
-@dataclass
+@dataclass(init=False)
 class AuthResult:
     """Outcome of an :meth:`OTLPAuth.verify` call.
 
@@ -196,6 +144,19 @@ class AuthResult:
     ok: bool
     target_id: Optional[str] = None
     reason: Optional[str] = None
+
+    def __init__(
+        self,
+        ok: Optional[bool] = None,
+        target_id: Optional[str] = None,
+        reason: Optional[str] = None,
+        *,
+        authenticated: Optional[bool] = None,
+        identity: Optional[str] = None,
+    ) -> None:
+        self.ok = bool(ok if ok is not None else authenticated)
+        self.target_id = target_id if target_id is not None else identity
+        self.reason = reason
 
     @property
     def authenticated(self) -> bool:

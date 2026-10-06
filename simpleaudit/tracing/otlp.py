@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from .auth import OTLPAuth, tag_spans
 from .store import SpanStore, normalize_span
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
@@ -132,13 +133,16 @@ class OTLPTraceReceiver:
         self,
         store: Optional[SpanStore] = None,
         authenticator: Optional["Authenticator"] = None,
+        auth: Optional[OTLPAuth] = None,
     ) -> None:
+        self._default_store = store is None
         self.store = store or SpanStore()
         # Optional auth gate. When set, handle() calls it with the request's
         # Authorization header and rejects the export (401) on failure. When
         # None the receiver is open — the historical, backward-compatible
         # behaviour for the local, single-audit ephemeral case.
         self.authenticator = authenticator
+        self.auth = auth
 
     async def handle(self, body: Any, authorization: Optional[str] = None) -> Dict[str, Any]:
         """Ingest an OTLP JSON export body; return the OTLP ack payload.
@@ -147,14 +151,30 @@ class OTLPTraceReceiver:
         ``Authorization`` header) is checked first; a failed check returns a
         401 ``{"error": ...}`` payload and no spans are stored.
         """
-        if self.authenticator is not None:
-            result = self.authenticator(authorization)
-            if not result.authenticated:
-                return {"status": 401, "error": {"code": "unauthorized", "message": "Invalid or missing OTLP credentials."}}
+        result = self._authenticate(authorization)
+        if result is not None and not result.authenticated:
+            return {
+                "status": 401,
+                "authenticated": False,
+                "reason": getattr(result, "reason", None),
+                "error": {"code": "unauthorized", "message": "Invalid or missing OTLP credentials."},
+            }
         raw_spans = parse_otlp_json(body)
+        if result is not None:
+            tag_spans(raw_spans, result.identity)
         self.store.add_many(raw_spans)
         # OTLP ack: partialSuccess with the number of rejected spans (0 here).
-        return {"partialSuccess": {"rejectedSpans": 0}}
+        ack = {"partialSuccess": {"rejectedSpans": 0}}
+        if self.auth is not None or self._default_store:
+            ack["authenticated"] = True
+        return ack
+
+    def _authenticate(self, authorization: Optional[str]) -> Any:
+        if self.auth is not None:
+            return self.auth.verify(authorization)
+        if self.authenticator is not None:
+            return self.authenticator(authorization)
+        return None
 
     def trace_ids(self) -> List[str]:
         seen: List[str] = []
@@ -196,6 +216,7 @@ class EphemeralOTLPReceiver:
         port: int = 0,
         store: Optional[SpanStore] = None,
         authenticator: Optional["Authenticator"] = None,
+        auth: Optional[OTLPAuth] = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -204,6 +225,7 @@ class EphemeralOTLPReceiver:
         # checked against the request's Authorization header and rejected with
         # 401 on failure. None = open receiver (default).
         self.authenticator = authenticator
+        self.auth = auth
         self._runner: Optional[Any] = None
         self._site: Optional[Any] = None
         self._thread: Optional[Any] = None
@@ -225,13 +247,12 @@ class EphemeralOTLPReceiver:
     async def _handle_traces(self, request: Any) -> Any:
         from aiohttp import web
 
-        if self.authenticator is not None:
-            result = self.authenticator(request.headers.get("Authorization"))
-            if not result.authenticated:
-                return web.json_response(
-                    {"error": {"code": "unauthorized", "message": "Invalid or missing OTLP credentials."}},
-                    status=401,
-                )
+        result = self._authenticate(request.headers.get("Authorization"))
+        if result is not None and not result.authenticated:
+            return web.json_response(
+                {"authenticated": False, "error": {"code": "unauthorized", "message": "Invalid or missing OTLP credentials."}},
+                status=401,
+            )
 
         content_type = request.headers.get("Content-Type", "")
         body_bytes = await request.read()
@@ -240,12 +261,21 @@ class EphemeralOTLPReceiver:
                 raw_spans = _parse_otlp_http_protobuf(body_bytes)
             else:
                 raw_spans = parse_otlp_json(body_bytes.decode("utf-8"))
+            if result is not None:
+                tag_spans(raw_spans, result.identity)
             self.store.add_many(raw_spans)
         except Exception:
             # Never fail the export; ack with a rejection count so the target
             # doesn't retry-loop. The audit continues regardless.
             return web.json_response({"partialSuccess": {"rejectedSpans": 1}}, status=200)
-        return web.json_response({"partialSuccess": {"rejectedSpans": 0}}, status=200)
+        return web.json_response({"partialSuccess": {"rejectedSpans": 0}, "authenticated": True}, status=200)
+
+    def _authenticate(self, authorization: Optional[str]) -> Any:
+        if self.auth is not None:
+            return self.auth.verify(authorization)
+        if self.authenticator is not None:
+            return self.authenticator(authorization)
+        return None
 
     def _serve(self, loop: Any) -> None:
         import asyncio

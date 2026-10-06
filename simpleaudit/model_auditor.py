@@ -57,11 +57,11 @@ class ScenarioExecution:
     scenario_name: str
     scenario_description: str
     conversation: List[Dict]
-    scenario_meta: Optional[Dict[str, Any]]
-    expected_behavior: Optional[List[str]]
-    trace_correlation: Optional[Any]
-    audit_run_id: Optional[str]
-    error: Optional[str]
+    trace_correlation: Optional[Any] = None
+    audit_run_id: Optional[str] = None
+    error: Optional[str] = None
+    scenario_meta: Optional[Dict[str, Any]] = None
+    expected_behavior: Optional[List[str]] = None
     target_input_tokens: int = 0
     target_output_tokens: int = 0
     auditor_input_tokens: int = 0

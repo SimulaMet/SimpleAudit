@@ -43,6 +43,31 @@ from .utils import (
 from .utils import parse_json_response as _parse_json_response
 
 
+from dataclasses import dataclass
+
+
+@dataclass
+class ScenarioExecution:
+    """Captures the state of a scenario after target execution but before judgment.
+
+    This dataclass represents one scenario execution through the target conversation phase.
+    It holds all state necessary for the evidence resolver to select trace evidence, which
+    can then be passed to the judge.
+    """
+    scenario_name: str
+    scenario_description: str
+    conversation: List[Dict]
+    scenario_meta: Optional[Dict[str, Any]]
+    expected_behavior: Optional[List[str]]
+    trace_correlation: Optional[Any]
+    audit_run_id: Optional[str]
+    error: Optional[str]
+    target_input_tokens: int = 0
+    target_output_tokens: int = 0
+    auditor_input_tokens: int = 0
+    auditor_output_tokens: int = 0
+
+
 def _user_agent() -> str:
     try:
         return f"simpleaudit/{_pkg_version('simpleaudit')}"
@@ -867,6 +892,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
+        evidence_resolver: Optional[Callable[[ScenarioExecution], Union[List[Dict[str, Any]], None]]] = None,
     ) -> AuditResult:
         turns = max_turns or self.max_turns
         # Per-scenario correlation ids. A fresh trace id per scenario keeps each
@@ -976,6 +1002,30 @@ Evaluate this conversation and respond with this exact JSON structure:
             self._log(f"--- Scenario FAILED mid-conversation: {name} [{error}] ---")
 
         if error is None:
+            # Call evidence resolver if provided, after target conversation, before judge.
+            resolved_evidence = evidence_spans
+            if evidence_resolver is not None:
+                execution = ScenarioExecution(
+                    scenario_name=name,
+                    scenario_description=description,
+                    conversation=conversation,
+                    scenario_meta=scenario_meta,
+                    expected_behavior=expected_behavior,
+                    trace_correlation=trace_correlation,
+                    audit_run_id=audit_run_id,
+                    error=None,
+                    target_input_tokens=target_input_tokens,
+                    target_output_tokens=target_output_tokens,
+                    auditor_input_tokens=auditor_input_tokens,
+                    auditor_output_tokens=auditor_output_tokens,
+                )
+                try:
+                    resolved_evidence = await evidence_resolver(execution) if asyncio.iscoroutinefunction(evidence_resolver) else evidence_resolver(execution)
+                except Exception as exc:
+                    self._log(f"--- Evidence resolution failed: {type(exc).__name__}: {exc} ---")
+                    # If evidence resolution fails, continue without evidence
+                    resolved_evidence = evidence_spans
+
             self._log("Judging conversation...", name=name)
             judge_prompt, judge_schema, judge_postprocess, fell_back = self._resolve_judge_spec(
                 self.judge_prompt,
@@ -1003,7 +1053,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     postprocess=judge_postprocess,
                     scenario_meta=scenario_meta,
                     params=effective_judge or None,
-                    evidence_spans=evidence_spans,
+                    evidence_spans=resolved_evidence,
                 )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out
@@ -1076,6 +1126,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
+        evidence_resolver: Optional[Callable[[ScenarioExecution], Union[List[Dict[str, Any]], None]]] = None,
     ) -> AuditResults:
         if max_workers < 1:
             raise ValueError(
@@ -1150,6 +1201,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                         evidence_spans=evidence_spans,
                         audit_run_id=audit_run_id,
                         trace_correlation=trace_correlation,
+                        evidence_resolver=evidence_resolver,
                     )
                 except Exception as exc:
                     # Don't let one failing scenario abort the whole batch and
@@ -1210,6 +1262,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
+        evidence_resolver: Optional[Callable[[ScenarioExecution], Union[List[Dict[str, Any]], None]]] = None,
     ) -> AuditResults:
         try:
             asyncio.get_running_loop()
@@ -1228,6 +1281,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     evidence_spans=evidence_spans,
                     audit_run_id=audit_run_id,
                     trace_correlation=trace_correlation,
+                    evidence_resolver=evidence_resolver,
                 )
             )
         msg = "ModelAuditor.run() cannot be called from an active event loop. Use await <object>.run_async()."

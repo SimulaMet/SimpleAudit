@@ -34,7 +34,7 @@ except PackageNotFoundError:
     __version__ = "0.0.0+unknown"
 __author__ = "SimpleAudit Contributors"
 
-from .model_auditor import ModelAuditor
+from .model_auditor import ModelAuditor, ScenarioExecution
 from .auditor import Auditor
 from .targets import (
     CallableTarget,
@@ -86,6 +86,7 @@ from .perturbations import (
 
 __all__ = [
     "ModelAuditor",
+    "ScenarioExecution",
     "Auditor",
     "Target",
     "TargetContext",

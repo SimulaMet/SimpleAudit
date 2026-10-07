@@ -38,7 +38,7 @@ Usage::
 
 import asyncio
 from datetime import date
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from tqdm.auto import tqdm
 
@@ -47,7 +47,7 @@ from .context_derivations import derive_all
 from .context_findings import FINDING_SEVERITY, derive_findings
 from .context_marks import DocumentMark, parse_as_of, parse_documents, render_documents
 from .judges import get_judge
-from .model_auditor import ModelAuditor
+from .model_auditor import ModelAuditor, OnTurn
 from .results import AuditResult, AuditResults
 from .targets.base import TargetContext
 from .tracing.context import make_traceparent, new_trace_id
@@ -264,7 +264,7 @@ class SingleTurnAuditor(ModelAuditor):
         params: Optional[Dict[str, Any]] = None,
         target_params: Optional[Dict[str, Any]] = None,
         judge_params: Optional[Dict[str, Any]] = None,
-        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        on_turn: Optional[OnTurn] = None,
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
@@ -495,7 +495,7 @@ class SingleTurnAuditor(ModelAuditor):
         target_params: Optional[Dict[str, Any]] = None,
         judge_params: Optional[Dict[str, Any]] = None,
         auditor_params: Optional[Dict[str, Any]] = None,
-        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        on_turn: Optional[OnTurn] = None,
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,

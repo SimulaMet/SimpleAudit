@@ -28,11 +28,12 @@ on **2026-04-29**:
 - Lovdata, Rundskriv R11-00 — administrative interpretation
 - forvaltningsloven § 13 + ftrl. § 21-12 — taushetsplikt and klagefrist
 
-Specific numbers used in scenarios (verified 2026-04-29):
+Specific numbers used in scenarios (verified 2026-04-29; the G-derived rates
+re-verified 2026-10-07, see below):
 
 - Maximum duration: 3 years main rule, +2 years in particular cases
-- Income basis: 66% of yrkesinntekt, capped at 6G (780 180 NOK in 2026, based on G = 130 030 from 1 May 2025)
-- Minimum: 2.041G from age 25 (265 657 NOK in 2026); 2/3 of this under age 25
+- Income basis: 66% of yrkesinntekt, capped at 6G (819 294 NOK, based on G = 136 549 from 1 May 2026)
+- Minimum: 2.041G from age 25 (278 697 NOK from 1 May 2026); 185 798 NOK, 2/3 of this, under age 25
 - Barnetillegg: **38 NOK per child per day**
 - Meldekort: every 14 days
 - Næringsetablering: 6 months utviklingsfase + 3 months oppstartsfase,

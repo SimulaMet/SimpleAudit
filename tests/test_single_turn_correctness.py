@@ -245,3 +245,88 @@ def test_provenance_findings_are_the_scored_register_not_a_copy(monkeypatch):
     monkeypatch.setitem(FINDING_SEVERITY, "new_finding", "medium")
     out = combine_judgments({"severity": "low", "new_finding": True}, {"severity": "pass"})
     assert "provenance: new_finding" in out["issues_found"]
+
+
+# ---------------------------------------------------------------------------
+# Where the severity comes from
+# ---------------------------------------------------------------------------
+
+
+def _plain_auditor(answer, judge_payload):
+    """A plain ModelAuditor on the groundedness judge, with fake clients.
+
+    The generic judge path, i.e. everything that is not SingleTurnAuditor:
+    the config's prompt and schema are used as-is and nothing derives the
+    findings from the marks afterwards.
+    """
+    with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()):
+        auditor = ModelAuditor(
+            model="fake-model", provider="openai", judge_model="fake-judge",
+            judge_provider="openai", judge="groundedness", max_turns=1,
+            show_progress=False, max_retries=0,
+        )
+    auditor.target_client = FakeClient(lambda **_: answer)
+    auditor.judge_client = FakeClient(lambda **_: json.dumps(judge_payload))
+    auditor.auditor_client = auditor.judge_client
+    return auditor
+
+
+def test_single_turn_severity_is_the_derived_one_not_the_judges_own():
+    # The guard below must never fire on this path. SingleTurnAuditor derives
+    # the findings after the judging call, so its judge call passes no
+    # postprocess hook; if it ever started to, this severity would go ERROR.
+    _judge, result = _run(
+        STALE_ANSWER,
+        _groundedness([STALE_ANSWER]),
+        _checklist("met", "Barn under 16 år betaler ikke egenandel"),
+    )
+
+    assert result.judgment["provenance"]["used_superseded_context"] is True
+    assert (
+        result.judgment["severity_components"]["provenance"]
+        == FINDING_SEVERITY["used_superseded_context"]
+    )
+    assert result.severity != "ERROR"
+
+
+def test_the_generic_judge_path_reports_error_instead_of_an_underived_medium():
+    # The judge emits asserted_spans / rejected / abstained and no severity, so
+    # _severity_from_judgment used to fall through to its "medium" default — a
+    # number with nothing behind it, identical for a grounded and an ungrounded
+    # answer. The run must name why it cannot grade this instead.
+    auditor = _plain_auditor(STALE_ANSWER, _groundedness([STALE_ANSWER]))
+    result = asyncio.run(auditor.run_scenario(
+        name=HELFO_SCENARIO["name"],
+        description=HELFO_SCENARIO["description"],
+        test_prompt=HELFO_SCENARIO["test_prompt"],
+        documents=HELFO_SCENARIO["documents"],
+        expected_behavior=HELFO_SCENARIO["expected_behavior"],
+    ))
+
+    assert result.severity == "ERROR"
+    reason = " ".join(result.judgment.get("issues_found") or [])
+    assert "SingleTurnAuditor" in reason
+    assert "marks" in reason
+
+
+def test_the_guard_leaves_an_error_judgment_alone():
+    # Same contract as the other postprocess hooks: an ERROR dict from a parse
+    # failure is passed through, not relabelled with this hook's reason.
+    from simpleaudit.judges.groundedness import postprocess_groundedness
+
+    err = {"severity": "ERROR", "issues_found": ["Could not parse judge response"]}
+    assert postprocess_groundedness(err) is err
+
+
+def test_the_guard_names_the_reason_over_an_off_contract_issues_found():
+    # An empty issues_found would otherwise swallow the reason and leave an
+    # ERROR with nothing explaining it. The observations are kept either way.
+    from simpleaudit.judges.groundedness import UNGRADED_REASON, postprocess_groundedness
+
+    observation = dict(_groundedness([STALE_ANSWER]), issues_found=[])
+    out = postprocess_groundedness(observation)
+
+    assert out["issues_found"] == [UNGRADED_REASON]
+    assert out["asserted_spans"] == [STALE_ANSWER]
+    assert out["abstained"] is False
+    assert observation["issues_found"] == []  # the input dict is not mutated

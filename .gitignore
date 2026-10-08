@@ -24,3 +24,6 @@ coverage.xml
 
 # Local checkout of a separate standalone repo (has its own .git/origin)
 hdir-autumn-poc-audit-scenarios-2026/
+
+# Library: do not track the uv lockfile (uv convention for non-apps)
+uv.lock

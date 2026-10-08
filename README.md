@@ -20,44 +20,6 @@ See the [standards and best practices for creating custom test scenarios](https:
 
 <img alt="simpleaudit_example_gemma_model" src="https://github.com/user-attachments/assets/05c45a62-74e7-4aa3-a3cd-41bad0cc8233" />
 
-
-## Why SimpleAudit?
-
-<div style="overflow-x: auto;">
-
-| Tool | Complexity | Dependencies | Token cost | Use case |
-|------|------------|--------------|------------|----------|
-| **SimpleAudit** | ⭐ Simple | 2 packages | $ Low | Comparative scoring |
-| Petri | ⭐⭐⭐ Complex | Inspect framework | $$ ~1.7× higher | Discovery-oriented auditing |
-| PyRIT | ⭐⭐⭐ Complex | Many | $$ Variable | Multi-turn attack campaigns |
-| Garak | ⭐⭐ Medium | Plugin system | $ Variable | Static vulnerability scanning |
-| Custom | ⭐⭐⭐ Complex | Varies | Varies | Build from scratch |
-
-</div>
-
-### Methodology & Validation
-
-SimpleAudit is built around an **instrumental-validity chain** — when no labelled benchmark exists for your language or domain, you need a substitute for ground-truth agreement. The chain has three requirements, each empirically validated ([paper](https://arxiv.org/abs/2605.06652)):
-
-| Requirement | What it means | Result |
-|---|---|---|
-| **Responsiveness** | Safe vs. unsafe targets must separate | AUROC 0.89–1.00 across reliable judge–auditor cells |
-| **Target sensitivity** | Score variance must come from the target, not the apparatus | Target-dominant (η² ≈ 0.52); judge variance largely cancels under deltas |
-| **Reproducibility** | Scores must stabilise across reruns | Within ~1 point on the 0–100 scale by n=10 |
-
-The reproducibility leg operates at two levels. At the **aggregate** level, the overall score stabilises within ~1 point by n=10. At the **per-scenario** level, the fragility signal (normalised entropy, ordinal spread, modal agreement) identifies individual verdicts that are unstable across runs — a direct application of the *Jagged Judges* finding ([Zhao et al., 2026](https://arxiv.org/abs/2608.12645)) that baseline jury majority strength is the best single-shot predictor of which items flip under perturbation. The reframing check extends this to prompt-wording invariance, isolating apparatus artifacts from genuine target behaviour.
-
-We apply the same chain to [Petri](https://github.com/safety-research/petri) — both tools pass, so the differences live upstream of the chain. SimpleAudit's choice is to **commit to a fixed scenario pack, rubric, auditor, judge, sampling configuration, and rerun count** by default, so every rerun is comparable. Petri's design point is discovery over a 38-dimension rubric where the user picks the construct and aggregation; that flexibility is the right call for discovery and moves work to the user when the goal is a single comparable score.
-
-Practical consequences:
-
-- **Default `J = A`** (judge matches auditor capability) is empirically grounded — judge variance largely cancels under matched-target deltas while auditor variance does not. ~1.7× lower per-run token cost than Petri under matched protocols.
-- **Auditor capability should match the target range.** An auditor that is too strong floors safe-target scores and erases the deltas the instrument exists to report — don't reach for the strongest available model by default.
-- **Report the bundle, not a leaderboard.** Score, matched deltas, critical-rate differences, uncertainty, and the judge/auditor used — together, never collapsed to a single rank.
-
-See the paper for the full validation protocol, variance decomposition, and a Norwegian public-sector procurement case comparing Borealis and Gemma 3.
-
-
 ## Installation
 
 **Install from PyPI (recommended):**
@@ -479,6 +441,41 @@ auditor = ModelAuditor(
 | `max_retries` | Retries per API call for transient failures | No (default: 2) |
 | `retry_backoff` | Initial retry delay in seconds, doubled per attempt (exponential backoff) | No (default: 0.5) |
 
+## Why SimpleAudit?
+
+<div style="overflow-x: auto;">
+
+| Tool | Complexity | Dependencies | Token cost | Use case |
+|------|------------|--------------|------------|----------|
+| **SimpleAudit** | ⭐ Simple | 2 packages | $ Low | Comparative scoring |
+| Petri | ⭐⭐⭐ Complex | Inspect framework | $$ ~1.7× higher | Discovery-oriented auditing |
+| PyRIT | ⭐⭐⭐ Complex | Many | $$ Variable | Multi-turn attack campaigns |
+| Garak | ⭐⭐ Medium | Plugin system | $ Variable | Static vulnerability scanning |
+| Custom | ⭐⭐⭐ Complex | Varies | Varies | Build from scratch |
+
+</div>
+
+### Methodology & Validation
+
+SimpleAudit is built around an **instrumental-validity chain** — when no labelled benchmark exists for your language or domain, you need a substitute for ground-truth agreement. The chain has three requirements, each empirically validated ([paper](https://arxiv.org/abs/2605.06652)):
+
+| Requirement | What it means | Result |
+|---|---|---|
+| **Responsiveness** | Safe vs. unsafe targets must separate | AUROC 0.89–1.00 across reliable judge–auditor cells |
+| **Target sensitivity** | Score variance must come from the target, not the apparatus | Target-dominant (η² ≈ 0.52); judge variance largely cancels under deltas |
+| **Reproducibility** | Scores must stabilise across reruns | Within ~1 point on the 0–100 scale by n=10 |
+
+The reproducibility leg operates at two levels. At the **aggregate** level, the overall score stabilises within ~1 point by n=10. At the **per-scenario** level, the fragility signal (normalised entropy, ordinal spread, modal agreement) identifies individual verdicts that are unstable across runs — a direct application of the *Jagged Judges* finding ([Zhao et al., 2026](https://arxiv.org/abs/2608.12645)) that baseline jury majority strength is the best single-shot predictor of which items flip under perturbation. The reframing check extends this to prompt-wording invariance, isolating apparatus artifacts from genuine target behaviour.
+
+We apply the same chain to [Petri](https://github.com/safety-research/petri) — both tools pass, so the differences live upstream of the chain. SimpleAudit's choice is to **commit to a fixed scenario pack, rubric, auditor, judge, sampling configuration, and rerun count** by default, so every rerun is comparable. Petri's design point is discovery over a 38-dimension rubric where the user picks the construct and aggregation; that flexibility is the right call for discovery and moves work to the user when the goal is a single comparable score.
+
+Practical consequences:
+
+- **Default `J = A`** (judge matches auditor capability) is empirically grounded — judge variance largely cancels under matched-target deltas while auditor variance does not. ~1.7× lower per-run token cost than Petri under matched protocols.
+- **Auditor capability should match the target range.** An auditor that is too strong floors safe-target scores and erases the deltas the instrument exists to report — don't reach for the strongest available model by default.
+- **Report the bundle, not a leaderboard.** Score, matched deltas, critical-rate differences, uncertainty, and the judge/auditor used — together, never collapsed to a single rank.
+
+See the paper for the full validation protocol, variance decomposition, and a Norwegian public-sector procurement case comparing Borealis and Gemma 3.
 
 ## Scenario Packs
 

@@ -43,10 +43,6 @@ tracing = [
     "opentelemetry-proto>=1.20",
 ]
 plot = ["matplotlib>=3.5.0"]
-visualize = [
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
-]
 dev = [
     # pytest is pinned <9 because pytest-testmon 2.x is not yet compatible with
     # pytest 9 (same pin as Studio).
@@ -59,7 +55,7 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
-all = ["simpleaudit[plot,visualize,dev]"]
+all = ["simpleaudit[plot,dev]"]
 
 [project.urls]
 Homepage = "https://github.com/simulamet/simpleaudit"
@@ -74,8 +70,6 @@ include = ["simpleaudit*"]
 
 [tool.setuptools.package-data]
 simpleaudit = [
-    "visualization/*.html",
-    "visualization/*.png",
     "scenarios/images/*.png",
 ]
 

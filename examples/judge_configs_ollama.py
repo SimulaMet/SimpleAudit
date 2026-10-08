@@ -123,7 +123,7 @@ def run_helpfulness():
 
     results.save(str(SCRIPT_DIR / "results_judge_helpfulness.json"))
     print(f"\nSaved → {SCRIPT_DIR / 'results_judge_helpfulness.json'}")
-    print("(Open in SimpleAudit visualizer to see the custom schema rendered)")
+    print("(Open in SimpleAudit Studio to see the custom schema rendered)")
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ def run_factuality():
 
     results.save(str(SCRIPT_DIR / "results_judge_factuality.json"))
     print(f"\nSaved → {SCRIPT_DIR / 'results_judge_factuality.json'}")
-    print("(Open in SimpleAudit visualizer to see the custom schema rendered)")
+    print("(Open in SimpleAudit Studio to see the custom schema rendered)")
 
 
 # ---------------------------------------------------------------------------

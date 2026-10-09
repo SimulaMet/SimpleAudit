@@ -38,6 +38,11 @@ judgment dict is stored unchanged.
                 the scenario's designed severity. Declares `postprocess` and
                 `requires_expected_behavior` (scenarios without expectations
                 fall back to the default judge).
+- choice_match: Code-only exact-match grading of a scenario's decision question
+                (see simpleaudit/decision.py): the chosen option against
+                decision.accepted. Calls no judge model and creates no judge
+                client; pass, the designed severity, or UNGRADED without an
+                answer key. Declares `grade`.
 
 Every config declares ``output``, the shape of its grade (see OUTPUT_KINDS):
 "severity" (the ladder), "score" (1–10, severity derived), "binary" (a yes/no
@@ -60,6 +65,12 @@ paths in reframing: `postprocess(judgment, *, conversation, expected_behavior,
 scenario_meta)` transforms the parsed judge output, and
 `requires_expected_behavior=True` routes scenarios without expected_behavior
 to the default judge.
+
+A third hook, `grade(*, conversation, expected_behavior, scenario_meta)`,
+replaces the judge call altogether: ModelAuditor calls it instead of a judge
+model and creates no judge client. The judge-only paths in reframing refuse
+such configs, because stored transcripts lack the scenario data they grade
+against.
 
 Usage:
     from simpleaudit import ModelAuditor
@@ -85,6 +96,7 @@ from .helsedir_sexhealth_no import HELSEDIR_SEXHEALTH_NO_JUDGE
 from .helsedir_sexhealth_no_rag import HELSEDIR_SEXHEALTH_NO_RAG_JUDGE
 from .binary_abstention import BINARY_ABSTENTION_JUDGE
 from .checklist import CHECKLIST_JUDGE
+from .choice_match import CHOICE_MATCH_JUDGE
 from .default import DEFAULT_JUDGE
 from .compose import BUILD_OUTPUTS, build_judge, compose_prompt, customize_judge, dimension_key
 
@@ -102,6 +114,7 @@ JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
     "helsedir_sexhealth_no_rag":  HELSEDIR_SEXHEALTH_NO_RAG_JUDGE,
     "binary_abstention":          BINARY_ABSTENTION_JUDGE,
     "checklist":                  CHECKLIST_JUDGE,
+    "choice_match":               CHOICE_MATCH_JUDGE,
 }
 
 

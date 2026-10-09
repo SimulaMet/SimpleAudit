@@ -388,6 +388,7 @@ class ModelAuditor:
             self.judge_postprocess = judge_postprocess
             self.judge_requires_expected_behavior = False
         self._warned_no_expectations = False
+        self._warned_turn_limit = False
 
         # If judge_fields is set, override the schema to only include those fields.
         # This takes precedence over both the config schema and explicit schema
@@ -525,6 +526,25 @@ class ModelAuditor:
         if requires_expected_behavior and not expected_behavior:
             return None, None, None, True
         return judge_prompt, response_schema, postprocess, False
+
+    def _turns_for_target(self, turns: int) -> int:
+        """Cap a scenario's turns at the target's own limit (``Target.max_turns``).
+
+        A decision model answers a question once and cannot take part in a
+        conversation, so ``DecisionTarget`` declares ``max_turns = 1``. Other
+        targets declare nothing and are not capped.
+        """
+        limit = getattr(self.target, "max_turns", None)
+        if not isinstance(limit, int) or turns <= limit:
+            return turns
+        if not self._warned_turn_limit:
+            self._warned_turn_limit = True
+            warnings.warn(
+                f"{type(self.target).__name__} answers at most {limit} turn(s); "
+                f"running {limit} instead of {turns}. (Reported once per auditor.)",
+                stacklevel=3,
+            )
+        return limit
 
     def _warn_no_expectations(self, scenario_name: str) -> None:
         if self._warned_no_expectations:
@@ -896,7 +916,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         trace_correlation: Optional[Any] = None,
         evidence_resolver: Optional[Callable[[ScenarioExecution], Union[List[Dict[str, Any]], None]]] = None,
     ) -> AuditResult:
-        turns = max_turns or self.max_turns
+        turns = self._turns_for_target(max_turns or self.max_turns)
         # Per-scenario correlation ids. A fresh trace id per scenario keeps each
         # scenario's turns in one W3C trace while still allowing 0..N observed
         # traces per turn (fan-out) via trace_correlation.
@@ -1009,7 +1029,11 @@ Evaluate this conversation and respond with this exact JSON structure:
                 response_preview = response[:80] + "..." if len(response) > 80 else response
                 self._log(f"TARGET: {response_preview}", name=name)
 
-                conversation.append({"role": "assistant", "content": response})
+                reply: Dict[str, Any] = {"role": "assistant", "content": response}
+                decision_answer = getattr(target_resp, "decision", None)
+                if decision_answer is not None:
+                    reply["decision"] = decision_answer
+                conversation.append(reply)
                 if pbar_audit:
                     pbar_audit.update(1)
         except Exception as exc:
@@ -1180,7 +1204,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         self._log(f"   Judge: {judge_info}")
         self._log(f"   System Prompt: {'Yes' if self.system_prompt else 'No'}\n")
 
-        turns_val = max_turns or self.max_turns
+        turns_val = self._turns_for_target(max_turns or self.max_turns)
         total_audit_steps = len(scenario_list) * turns_val
         total_judge_steps = len(scenario_list)
 

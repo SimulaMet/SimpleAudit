@@ -280,7 +280,7 @@ def test_ollama_constructor():
 def test_openrouter_constructor_reads_the_key_from_the_environment(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-env")
     target = DecisionTarget.openrouter("typesafe/jev-1.13", extra_body={"provider": {"zdr": True}})
-    assert target.url == "https://openrouter.ai/api/alpha/decisions"
+    assert target.url == "https://openrouter.ai/api/v1/systemone"
     assert target.headers["Authorization"] == "Bearer sk-env"
     assert target.max_body_bytes is None
     assert target.extra_body == {"provider": {"zdr": True}}

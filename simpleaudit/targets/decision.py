@@ -45,8 +45,8 @@ from .base import TargetContext, TargetResponse
 #: Ollama's request-body cap for System One requests without images.
 OLLAMA_MAX_BODY_BYTES = 64 * 1024
 
-#: OpenRouter's Decisions API (alpha).
-OPENROUTER_DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
+#: OpenRouter's System One endpoint (``POST /api/v1/systemone``).
+OPENROUTER_SYSTEMONE_URL = "https://openrouter.ai/api/v1/systemone"
 
 
 class DecisionTarget:
@@ -97,7 +97,7 @@ class DecisionTarget:
         ``{"provider": {"zdr": True}}``) can be passed as ``extra_body``.
         """
         return cls(
-            OPENROUTER_DECISIONS_URL,
+            OPENROUTER_SYSTEMONE_URL,
             model,
             api_key=api_key or os.environ.get("OPENROUTER_API_KEY"),
             **kwargs,

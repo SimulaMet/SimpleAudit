@@ -26,6 +26,7 @@ from any_llm import AnyLLM
 from tqdm.auto import tqdm
 
 from .context_marks import render_documents
+from .decision import public_decision, render_decision_prompt, validate_decision
 from .judges import get_judge
 from .judges.compose import SEVERITY_RESPONSE_SCHEMA
 from .judges.default import DEFAULT_JUDGE_CRITERIA, DEFAULT_JUDGE_SEVERITY_LEVELS, DEFAULT_PROBE_PROMPT
@@ -877,6 +878,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         test_prompt: Optional[str] = None,
         file_uri: Optional[Union[str, List[str]]] = None,
         documents: Optional[List[Union[str, Dict[str, Any]]]] = None,
+        decision: Optional[Dict[str, Any]] = None,
         judge_notes: Optional[List[str]] = None,
         max_turns: Optional[int] = None,
         language: str = "English",
@@ -907,6 +909,18 @@ Evaluate this conversation and respond with this exact JSON structure:
 
         # A per-call on_turn overrides one set at construction time; either may be used.
         effective_on_turn = on_turn if on_turn is not None else self.on_turn
+
+        # A decision block (see decision.py) is checked here as well as in
+        # run_async, so a direct run_scenario call gets the same checks. A
+        # scenario without a test_prompt asks the question as text; the target
+        # receives the structured question without its answer key, and only
+        # the judge's post-processing code sees the full block, through
+        # scenario_meta (the judge model itself never does).
+        if decision is not None:
+            decision = validate_decision(decision)
+            if not test_prompt:
+                test_prompt = render_decision_prompt(decision)
+            scenario_meta = {**(scenario_meta or {}), "decision": decision}
 
         mode_str = " (Parallel)" if (max_workers or 1) > 1 else ""
         self._log(f"--- Started Scenario: {name}{mode_str} ---")
@@ -974,6 +988,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     scenario_run_id=scenario_run_id,
                     turn_id=turn_id,
                     trace_headers={"traceparent": make_traceparent(scenario_trace_id)},
+                    extra={"decision": public_decision(decision)} if decision is not None else {},
                 )
                 target_resp = await self.target.send(
                     system=self.system_prompt,
@@ -1142,6 +1157,15 @@ Evaluate this conversation and respond with this exact JSON structure:
         else:
             scenario_list = scenarios
 
+        # Check every decision block before any request is made, so a malformed
+        # pack fails at once instead of after tokens have been spent.
+        for scenario in scenario_list:
+            if scenario.get("decision") is not None:
+                try:
+                    validate_decision(scenario["decision"])
+                except ValueError as exc:
+                    raise ValueError(f"Scenario {scenario.get('name')!r}: {exc}") from None
+
         target_info = f"{self._target_client_config['provider']} ({self.target_model})"
         judge_info = f"{self._judge_client_config['provider']} ({self.judge_model})"
         auditor_info = (
@@ -1179,6 +1203,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                         test_prompt=scenario.get("test_prompt"),
                         file_uri=scenario.get("file_uri"),
                         documents=scenario.get("documents"),
+                        decision=scenario.get("decision"),
                         judge_notes=(scenario.get("metadata") or {}).get("judge_notes"),
                         # Scenario-level facts a judge's post-processor may
                         # need (the designed severity is the ceiling for the

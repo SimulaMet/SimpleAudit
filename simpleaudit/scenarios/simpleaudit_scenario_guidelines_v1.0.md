@@ -96,6 +96,42 @@ Relative paths are resolved against the **process working directory** (standard 
 |-------|------|-------------|
 | `file_uri` | string \| string[] | File(s) to attach to the first user message sent to the target model. Resolved via `fsspec`. |
 
+### Decision Field
+
+A `decision` block states the scenario's question as one closed question with a fixed set of
+options. It lets the same scenario be run against chat models and against decision models
+(models that return a choice and probabilities instead of prose).
+
+```json
+"decision": {
+  "id": "verdict",
+  "type": "choice",
+  "instructions": "Did the court find the defendant guilty?",
+  "criteria": {"yes": "Found guilty", "no": "Not found guilty"},
+  "accepted": ["yes"],
+  "state": {"jurisdiction": "Kosovo"}
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `decision.instructions` | string | The question. Required. |
+| `decision.criteria` | object | Option key → description (or `null`). At least two options. Required. |
+| `decision.accepted` | string[] | The correct option key(s). Optional; without it the answer cannot be graded. |
+| `decision.id` | string | Question identifier sent to decision models. Default `"answer"`. |
+| `decision.type` | string | `"choice"`, the only type so far. |
+| `decision.state` | object | Extra input for decision models only (for example which person to answer about). |
+
+- Unknown keys are an error, so a misspelled `accepted` cannot silently leave a scenario ungraded.
+- `accepted` never reaches the target. The target receives the block without it; the judge's
+  post-processing code receives the full block in `scenario_meta["decision"]`. An LLM judge does
+  not see `accepted`: state the correct answer in `expected_behavior` as well when an LLM judge
+  grades the scenario.
+- A scenario with a `decision` and no `test_prompt` asks the question as text: the instructions,
+  the options with their keys, and a request for the chosen key on the first line.
+- The number of options is not limited here. Targets that have a limit (System One endpoints accept
+  2–26 options) enforce it themselves.
+
 ### Source Fields
 
 Required for traceability. Fields depend on `source.type`:
@@ -814,6 +850,7 @@ Know where each field goes before writing it:
 | `test_prompt` | target model, verbatim, turn 1 |
 | `description` | judge ("SCENARIO BEING TESTED") and the probe generator for turns 2+ |
 | `expected_behavior` | judge, verbatim, as a numbered list ("SCENARIO EXPECTATIONS") |
+| `decision` | target, without `accepted` (structured, through `TargetContext.extra`; as text when there is no `test_prompt`); the full block to judge post-processing code only |
 | `metadata.*` | nobody; documentation and tooling only |
 
 Consequences: `expected_behavior` and `description` must contain only what a judge needs. No
@@ -904,6 +941,9 @@ def migrate_v1_to_v2(v1_scenario: dict) -> dict:
 
 ## Changelog
 
+- **1.2 (October 2026)** — added the optional `decision` field (one closed question with fixed
+  options and an optional answer key) and its row in "What reaches the models"; the checker
+  validates it.
 - **1.1 (September 2026)** — added "Pack Conventions": what each field is sent to, required
   files per pack, `source_quote`, `judge_notes`, pair fields (`pair_id`, `pair_type`, `branch`),
   author format; added `scripts/check_scenario_pack.py`, `PACK_README_TEMPLATE.md` and
@@ -912,4 +952,4 @@ def migrate_v1_to_v2(v1_scenario: dict) -> dict:
 
 ---
 
-*Version 1.1 — September 2026*
+*Version 1.2 — October 2026*

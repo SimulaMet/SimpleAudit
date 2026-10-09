@@ -85,6 +85,20 @@ from simpleaudit.repeated_results import (
 from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.utils import SEVERITY_ORDER, severity_direction
 
+
+def _refuse_code_graded(config: Dict[str, Any], name: Any) -> None:
+    """Judge-only paths grade stored transcripts; a code-graded config needs the scenario.
+
+    A config with ``grade`` (judges/choice_match.py) grades against the scenario's
+    decision block, which stored results do not carry.
+    """
+    if config.get("grade") is not None:
+        label = config.get("name") if isinstance(name, dict) else name
+        raise ValueError(
+            f"Judge {label!r} grades in code against the scenario's decision block, which "
+            "stored transcripts do not carry; run the scenarios again to grade them with it."
+        )
+
 #: A function from one conversation (list of role/content dicts) to another.
 Transform = Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
 
@@ -134,6 +148,7 @@ class PromptVariant:
         ``transform``, ...) and win over the config's values.
         """
         config = get_judge(name)
+        _refuse_code_graded(config, name)
         fields: Dict[str, Any] = {
             "label": label or (config.get("name") or "custom judge" if isinstance(name, dict) else name),
             "judge_prompt": config["judge_prompt"],
@@ -1099,6 +1114,7 @@ async def rejudge_async(
     requires_expected_behavior = False
     if judge is not None:
         config = get_judge(judge)
+        _refuse_code_graded(config, judge)
         judge_prompt = judge_prompt if judge_prompt is not None else config["judge_prompt"]
         response_schema = (
             response_schema if response_schema is not None else config.get("response_schema")

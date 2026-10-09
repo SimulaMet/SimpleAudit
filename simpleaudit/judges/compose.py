@@ -237,6 +237,11 @@ def customize_judge(
             f"Judge {config.get('name') or base!r} has no format_prompt, so its criteria "
             "cannot be replaced; pass judge_prompt instead."
         )
+    if criteria is not None and config.get("grade") is not None:
+        raise ValueError(
+            f"Judge {config.get('name') or base!r} grades in code, so it has no criteria to "
+            "replace; use another judge, or build_judge(), for custom criteria."
+        )
     if criteria is not None:
         config["criteria"] = criteria
     if probe_prompt is not None:

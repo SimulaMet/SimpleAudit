@@ -10,7 +10,8 @@ ERROR (must fix), WARN (fix or explain in the PR) or INFO (for the reviewer).
 Exit code is 1 when any ERROR is present. tests/test_scenario_pack_conventions.py
 runs the ERROR-level rules in CI for the packs listed there.
 
-Standard library only.
+Standard library only, apart from simpleaudit itself (the pack registry, and the
+decision-block rules in simpleaudit/decision.py).
 """
 
 import argparse
@@ -174,6 +175,15 @@ def check_scenarios(pack, scenarios, rep):
             with_ids = [j + 1 for j, x in enumerate(eb) if ROWID_RE.search(x)]
             if with_ids:
                 rep.warn(w, f"register-row IDs in judge-facing expected_behavior lines {with_ids}; keep IDs in metadata only")
+
+        if "decision" in s:
+            # Same rules the auditor applies before a run (simpleaudit/decision.py).
+            from simpleaudit.decision import validate_decision
+
+            try:
+                validate_decision(s["decision"])
+            except ValueError as exc:
+                rep.error(w, f"invalid decision block: {exc}")
 
         jn = md.get("judge_notes")
         if jn is not None:

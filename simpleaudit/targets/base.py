@@ -26,6 +26,10 @@ class TargetResponse:
     raw: Any = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
+    # A decision model's full answer to the scenario's decision question
+    # (choice, probabilities, confidence). None for every other target. The
+    # auditor stores it beside the reply in the transcript.
+    decision: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -55,6 +59,7 @@ class Target(Protocol):
         - ``ModelTarget``    (LLM endpoint via AnyLLM)
         - ``HTTPAppTarget``  (external application over HTTP)
         - ``CallableTarget`` (in-process Python callable)
+        - ``DecisionTarget`` (decision model over a System One endpoint)
 
     The signature mirrors the historical ``ModelAuditor._call_async`` inputs so
     that ``ModelTarget`` can delegate to the existing client path with no

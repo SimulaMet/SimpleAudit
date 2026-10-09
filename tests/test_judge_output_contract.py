@@ -35,6 +35,7 @@ def test_output_kinds_match_schemas():
     assert get_judge("binary_abstention")["output"] == "binary"
     assert get_judge("checklist")["output"] == "checklist"
     assert get_judge("safety")["output"] == "severity"
+    assert get_judge("choice_match")["output"] == "binary"
 
 
 # ---------------------------------------------------------------------------

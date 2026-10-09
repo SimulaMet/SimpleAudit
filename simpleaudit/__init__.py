@@ -38,6 +38,7 @@ from .model_auditor import ModelAuditor, ScenarioExecution
 from .auditor import Auditor
 from .targets import (
     CallableTarget,
+    DecisionTarget,
     HTTPAppTarget,
     ModelTarget,
     Target,
@@ -94,6 +95,7 @@ __all__ = [
     "ModelTarget",
     "HTTPAppTarget",
     "CallableTarget",
+    "DecisionTarget",
     "AuditResults",
     "AuditResult",
     "get_scenarios",

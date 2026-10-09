@@ -157,19 +157,108 @@ def test_echoing_the_users_number_is_not_an_accusation():
 
 # --- optional dependency --------------------------------------------------
 
-def test_missing_model_is_ungraded_with_a_reason():
+def test_no_model_needed_by_default():
+    """Forseti 3c replaced the learned picker with two deterministic filters.
+    The default path must work with no artifact and no torch installed."""
     res = classify_fact("G er 136 549 kroner.", G_FACT,
+                        model_path="/nonexistent/fact_head.pkl")
+    assert res["outcome"] == "correct"
+    assert res["picked_by"] == "all sentences"
+
+
+def test_head_requested_but_missing_is_ungraded():
+    """Asking for the picker explicitly and not having it is still UNGRADED —
+    never a silent fallback that pretends the picker ran."""
+    res = classify_fact("G er 136 549 kroner.", G_FACT, use_head=True,
                         model_path="/nonexistent/fact_head.pkl")
     assert res["outcome"] == UNGRADED
     assert "unavailable" in res["reason"]
 
 
-def test_missing_model_never_silently_passes():
+def test_head_requested_but_missing_never_silently_passes():
     out = postprocess_fact_check(
         {}, conversation=conv("Grunnbeløpet er 136 549 kroner."),
-        scenario_meta=SCEN, model_path="/nonexistent/fact_head.pkl")
+        scenario_meta=SCEN, use_head=True,
+        model_path="/nonexistent/fact_head.pkl")
     assert out["severity"] == UNGRADED
     assert out["fact_check"]["facts"][0]["outcome"] == UNGRADED
+
+
+# --- F1 sender / F2 phone: the reason the model is gone ------------------
+
+def test_f1_the_users_own_figure_is_not_an_accusation():
+    """The failure this judge exists to avoid. The user names 850 000; the
+    answer repeats it while explaining the cap. Plain regex calls that a
+    wrong claim about the cap."""
+    cap = {"claim": "AAP income cap, NOK", "value": 819294}
+    scen = {"severity": "high", "metadata": {"facts": [cap]}}
+    talk = [{"role": "user", "content": "Jeg tjener 850 000 kr i året. Hva blir AAP?"},
+            {"role": "assistant",
+             "content": "Med 850 000 kr i inntekt ligger du over taket."}]
+    out = postprocess_fact_check({}, conversation=talk, scenario_meta=scen)
+    assert out["severity"] == UNGRADED
+    f = out["fact_check"]["facts"][0]
+    assert f["outcome"] == "not_stated"
+    assert any("F1" in d for d in f["dropped"])
+
+
+def test_f1_keeps_a_correctly_quoted_figure():
+    """A user may quote the rule correctly. The answer confirming it is a
+    real statement, so the declared value survives F1."""
+    talk = [{"role": "user", "content": "Stemmer det at G er 136 549 kroner?"},
+            {"role": "assistant", "content": "Ja, grunnbeløpet er 136 549 kroner."}]
+    out = postprocess_fact_check({}, conversation=talk, scenario_meta=SCEN)
+    assert out["severity"] == "pass"
+    assert out["fact_check"]["facts"][0]["user_cited_declared"] is True
+
+
+def test_a_phone_number_is_never_an_amount():
+    """800 80 000 contains '80 000'. In the Forseti 3c pipeline that became a
+    wrong claim about personfradrag — two of the 13 false accusations were
+    exactly this, and F2 is what fixed them there.
+
+    In THIS judge the figure never becomes a candidate in the first place,
+    because read_values requires a unit token beside the number and a phone
+    number has none. F2 is therefore a backstop here, not the mechanism: it
+    would matter only if the unit binding were relaxed. The outcome is what
+    the test pins down; which filter got there is recorded, not asserted."""
+    pf = {"claim": "Personfradrag, NOK", "value": 114540}
+    scen = {"severity": "medium", "metadata": {"facts": [pf]}}
+    out = postprocess_fact_check(
+        {}, conversation=conv("Ring Skatteetaten på 800 80 000 for hjelp."),
+        scenario_meta=scen)
+    assert out["severity"] == UNGRADED
+    f = out["fact_check"]["facts"][0]
+    assert f["outcome"] == "not_stated"
+    assert f["values"] == []
+
+
+def test_f2_drops_a_figure_that_would_otherwise_survive():
+    """F2 proved on its own terms: a unit-bearing figure that sits inside a
+    phone-shaped run is dropped, where without F2 it would be read."""
+    from simpleaudit.judges.fact_check import _inside_phone, phone_spans, read_values
+    sent = "Grensen er 23 32 70 00 kroner."
+    assert read_values(sent, ["NOK"]), "uten F2 leses tallet"
+    spans = phone_spans(sent)
+    assert spans
+    v = read_values(sent, ["NOK"])[0]
+    assert _inside_phone(sent, v, spans), "F2 skal kjenne igjen telefonformen"
+
+
+def test_f2_leaves_a_real_amount_alone():
+    pf = {"claim": "Personfradrag, NOK", "value": 114540}
+    scen = {"severity": "medium", "metadata": {"facts": [pf]}}
+    out = postprocess_fact_check(
+        {}, conversation=conv("Personfradraget er 114 540 kroner i 2026."),
+        scenario_meta=scen)
+    assert out["severity"] == "pass"
+
+
+def test_phone_spans_finds_the_norwegian_forms():
+    from simpleaudit.judges.fact_check import phone_spans
+    for t in ["ring 800 80 000", "tlf 23 32 70 00", "+47 22 00 00 00", "nr 80080000"]:
+        assert phone_spans(t), t
+    assert not phone_spans("beløpet er 136 549 kroner")
 
 
 ARTIFACT = os.environ.get("SIMPLEAUDIT_FACT_HEAD")

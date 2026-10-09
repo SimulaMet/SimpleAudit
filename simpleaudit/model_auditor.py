@@ -285,6 +285,21 @@ def _render_conversation(
     return turn_separator.join(turns), uris
 
 
+class _NoModelClient:
+    """Placeholder for a judge or auditor client a code-only judge makes unnecessary.
+
+    A judge config with ``grade`` (see judges/choice_match.py) calls no judge
+    model, so creating a real client would demand an API key for a model that is
+    never used. A call still fails loudly, with ``message`` saying what to set.
+    """
+
+    def __init__(self, message: str) -> None:
+        self._message = message
+
+    async def acompletion(self, *args: Any, **kwargs: Any):
+        raise RuntimeError(self._message)
+
+
 class _NoopTargetClient:
     """Placeholder target client used when an explicit non-model Target is set.
 
@@ -381,12 +396,17 @@ class ModelAuditor:
                 judge_postprocess if judge_postprocess is not None else config.get("postprocess")
             )
             self.judge_requires_expected_behavior = bool(config.get("requires_expected_behavior"))
+            # A config with `grade` is graded in code and replaces the judge call
+            # (judges/choice_match.py). An explicit judge_prompt asks for a model
+            # judge, so it switches grading back to the model.
+            self.judge_grade = config.get("grade") if judge_prompt is None else None
         else:
             self.probe_prompt = probe_prompt
             self.judge_prompt = judge_prompt
             self.judge_response_schema = judge_response_schema
             self.judge_postprocess = judge_postprocess
             self.judge_requires_expected_behavior = False
+            self.judge_grade = None
         self._warned_no_expectations = False
         self._warned_turn_limit = False
 
@@ -425,7 +445,12 @@ class ModelAuditor:
             "provider": judge_provider,
             "client_kwargs": kwargs if judge_kwargs is None else judge_kwargs,
         }
-        self.judge_client = self._create_anyllm_client(**self._judge_client_config)
+        if self.judge_grade is not None:
+            self.judge_client = _NoModelClient(
+                f"Judge {self.judge_name!r} grades in code; no judge model is called."
+            )
+        else:
+            self.judge_client = self._create_anyllm_client(**self._judge_client_config)
 
         # Auditor model: falls back to judge config if not separately specified
         self.auditor_model = auditor_model or judge_model
@@ -435,7 +460,13 @@ class ModelAuditor:
             "provider": auditor_provider or judge_provider,
             "client_kwargs": kwargs if auditor_kwargs is None else auditor_kwargs,
         }
-        if self._auditor_client_config == self._judge_client_config and self.auditor_model == self.judge_model:
+        if self.judge_grade is not None and auditor_model is None:
+            # A code-only judge has no model for the auditor to fall back to.
+            self.auditor_client = _NoModelClient(
+                f"Follow-up turns need an auditor model, and judge {self.judge_name!r} calls none: "
+                "pass auditor_model and auditor_provider, or run one turn (max_turns=1)."
+            )
+        elif self._auditor_client_config == self._judge_client_config and self.auditor_model == self.judge_model:
             self.auditor_client = self.judge_client
         else:
             self.auditor_client = self._create_anyllm_client(**self._auditor_client_config)
@@ -1076,24 +1107,33 @@ Evaluate this conversation and respond with this exact JSON structure:
             if fell_back:
                 self._warn_no_expectations(name)
             try:
-                judgment, j_in, j_out = await self._judge_conversation_async(
-                    self.judge_client,
-                    self.judge_model,
-                    description,
-                    conversation,
-                    expected_behavior,
-                    judge_prompt=judge_prompt,
-                    json_format=self.json_format,
-                    judge_notes=judge_notes,
-                    response_schema=judge_schema,
-                    judge_fields=self.judge_fields,
-                    max_retries=self.max_retries,
-                    retry_backoff=self.retry_backoff,
-                    postprocess=judge_postprocess,
-                    scenario_meta=scenario_meta,
-                    params=effective_judge or None,
-                    evidence_spans=resolved_evidence,
-                )
+                if self.judge_grade is not None:
+                    # Graded in code (judges/choice_match.py): no judge call, no tokens.
+                    judgment = self.judge_grade(
+                        conversation=conversation,
+                        expected_behavior=expected_behavior,
+                        scenario_meta=scenario_meta,
+                    )
+                    j_in = j_out = 0
+                else:
+                    judgment, j_in, j_out = await self._judge_conversation_async(
+                        self.judge_client,
+                        self.judge_model,
+                        description,
+                        conversation,
+                        expected_behavior,
+                        judge_prompt=judge_prompt,
+                        json_format=self.json_format,
+                        judge_notes=judge_notes,
+                        response_schema=judge_schema,
+                        judge_fields=self.judge_fields,
+                        max_retries=self.max_retries,
+                        retry_backoff=self.retry_backoff,
+                        postprocess=judge_postprocess,
+                        scenario_meta=scenario_meta,
+                        params=effective_judge or None,
+                        evidence_spans=resolved_evidence,
+                    )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out
                 # The judge runs once after all turns complete; report it against
@@ -1191,7 +1231,11 @@ Evaluate this conversation and respond with this exact JSON structure:
                     raise ValueError(f"Scenario {scenario.get('name')!r}: {exc}") from None
 
         target_info = f"{self._target_client_config['provider']} ({self.target_model})"
-        judge_info = f"{self._judge_client_config['provider']} ({self.judge_model})"
+        judge_info = (
+            f"code ({self.judge_name})"
+            if self.judge_grade is not None
+            else f"{self._judge_client_config['provider']} ({self.judge_model})"
+        )
         auditor_info = (
             f"{self._auditor_client_config['provider']} ({self.auditor_model})"
             if self.auditor_model != self.judge_model or self._auditor_client_config != self._judge_client_config

@@ -11,6 +11,7 @@ Concrete targets:
     - ``ModelTarget``    — an LLM endpoint via AnyLLM (the historical default)
     - ``HTTPAppTarget``  — an external application over HTTP (black-box)
     - ``CallableTarget`` — an in-process Python callable (handy for tests)
+    - ``DecisionTarget`` — a decision model over a System One endpoint
 
 The model integration (AnyLLM) is an implementation detail of
 ``ModelTarget``; it is not the architectural center of the engine.
@@ -18,6 +19,7 @@ The model integration (AnyLLM) is an implementation detail of
 
 from .base import Target, TargetContext, TargetResponse
 from .callable import CallableTarget
+from .decision import DecisionTarget
 from .http import HTTPAppTarget
 from .model import ModelTarget
 
@@ -28,4 +30,5 @@ __all__ = [
     "ModelTarget",
     "HTTPAppTarget",
     "CallableTarget",
+    "DecisionTarget",
 ]

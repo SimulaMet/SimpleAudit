@@ -26,6 +26,7 @@ from any_llm import AnyLLM
 from tqdm.auto import tqdm
 
 from .context_marks import render_documents
+from .decision import public_decision, render_decision_prompt, validate_decision
 from .judges import get_judge
 from .judges.compose import SEVERITY_RESPONSE_SCHEMA
 from .judges.default import DEFAULT_JUDGE_CRITERIA, DEFAULT_JUDGE_SEVERITY_LEVELS, DEFAULT_PROBE_PROMPT
@@ -284,6 +285,21 @@ def _render_conversation(
     return turn_separator.join(turns), uris
 
 
+class _NoModelClient:
+    """Placeholder for a judge or auditor client a code-only judge makes unnecessary.
+
+    A judge config with ``grade`` (see judges/choice_match.py) calls no judge
+    model, so creating a real client would demand an API key for a model that is
+    never used. A call still fails loudly, with ``message`` saying what to set.
+    """
+
+    def __init__(self, message: str) -> None:
+        self._message = message
+
+    async def acompletion(self, *args: Any, **kwargs: Any):
+        raise RuntimeError(self._message)
+
+
 class _NoopTargetClient:
     """Placeholder target client used when an explicit non-model Target is set.
 
@@ -380,13 +396,19 @@ class ModelAuditor:
                 judge_postprocess if judge_postprocess is not None else config.get("postprocess")
             )
             self.judge_requires_expected_behavior = bool(config.get("requires_expected_behavior"))
+            # A config with `grade` is graded in code and replaces the judge call
+            # (judges/choice_match.py). An explicit judge_prompt asks for a model
+            # judge, so it switches grading back to the model.
+            self.judge_grade = config.get("grade") if judge_prompt is None else None
         else:
             self.probe_prompt = probe_prompt
             self.judge_prompt = judge_prompt
             self.judge_response_schema = judge_response_schema
             self.judge_postprocess = judge_postprocess
             self.judge_requires_expected_behavior = False
+            self.judge_grade = None
         self._warned_no_expectations = False
+        self._warned_turn_limit = False
 
         # If judge_fields is set, override the schema to only include those fields.
         # This takes precedence over both the config schema and explicit schema
@@ -423,7 +445,12 @@ class ModelAuditor:
             "provider": judge_provider,
             "client_kwargs": kwargs if judge_kwargs is None else judge_kwargs,
         }
-        self.judge_client = self._create_anyllm_client(**self._judge_client_config)
+        if self.judge_grade is not None:
+            self.judge_client = _NoModelClient(
+                f"Judge {self.judge_name!r} grades in code; no judge model is called."
+            )
+        else:
+            self.judge_client = self._create_anyllm_client(**self._judge_client_config)
 
         # Auditor model: falls back to judge config if not separately specified
         self.auditor_model = auditor_model or judge_model
@@ -433,7 +460,13 @@ class ModelAuditor:
             "provider": auditor_provider or judge_provider,
             "client_kwargs": kwargs if auditor_kwargs is None else auditor_kwargs,
         }
-        if self._auditor_client_config == self._judge_client_config and self.auditor_model == self.judge_model:
+        if self.judge_grade is not None and auditor_model is None:
+            # A code-only judge has no model for the auditor to fall back to.
+            self.auditor_client = _NoModelClient(
+                f"Follow-up turns need an auditor model, and judge {self.judge_name!r} calls none: "
+                "pass auditor_model and auditor_provider, or run one turn (max_turns=1)."
+            )
+        elif self._auditor_client_config == self._judge_client_config and self.auditor_model == self.judge_model:
             self.auditor_client = self.judge_client
         else:
             self.auditor_client = self._create_anyllm_client(**self._auditor_client_config)
@@ -524,6 +557,25 @@ class ModelAuditor:
         if requires_expected_behavior and not expected_behavior:
             return None, None, None, True
         return judge_prompt, response_schema, postprocess, False
+
+    def _turns_for_target(self, turns: int) -> int:
+        """Cap a scenario's turns at the target's own limit (``Target.max_turns``).
+
+        A decision model answers a question once and cannot take part in a
+        conversation, so ``DecisionTarget`` declares ``max_turns = 1``. Other
+        targets declare nothing and are not capped.
+        """
+        limit = getattr(self.target, "max_turns", None)
+        if not isinstance(limit, int) or turns <= limit:
+            return turns
+        if not self._warned_turn_limit:
+            self._warned_turn_limit = True
+            warnings.warn(
+                f"{type(self.target).__name__} answers at most {limit} turn(s); "
+                f"running {limit} instead of {turns}. (Reported once per auditor.)",
+                stacklevel=3,
+            )
+        return limit
 
     def _warn_no_expectations(self, scenario_name: str) -> None:
         if self._warned_no_expectations:
@@ -877,6 +929,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         test_prompt: Optional[str] = None,
         file_uri: Optional[Union[str, List[str]]] = None,
         documents: Optional[List[Union[str, Dict[str, Any]]]] = None,
+        decision: Optional[Dict[str, Any]] = None,
         judge_notes: Optional[List[str]] = None,
         max_turns: Optional[int] = None,
         language: str = "English",
@@ -894,7 +947,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         trace_correlation: Optional[Any] = None,
         evidence_resolver: Optional[Callable[[ScenarioExecution], Union[List[Dict[str, Any]], None]]] = None,
     ) -> AuditResult:
-        turns = max_turns or self.max_turns
+        turns = self._turns_for_target(max_turns or self.max_turns)
         # Per-scenario correlation ids. A fresh trace id per scenario keeps each
         # scenario's turns in one W3C trace while still allowing 0..N observed
         # traces per turn (fan-out) via trace_correlation.
@@ -907,6 +960,18 @@ Evaluate this conversation and respond with this exact JSON structure:
 
         # A per-call on_turn overrides one set at construction time; either may be used.
         effective_on_turn = on_turn if on_turn is not None else self.on_turn
+
+        # A decision block (see decision.py) is checked here as well as in
+        # run_async, so a direct run_scenario call gets the same checks. A
+        # scenario without a test_prompt asks the question as text; the target
+        # receives the structured question without its answer key, and only
+        # the judge's post-processing code sees the full block, through
+        # scenario_meta (the judge model itself never does).
+        if decision is not None:
+            decision = validate_decision(decision)
+            if not test_prompt:
+                test_prompt = render_decision_prompt(decision)
+            scenario_meta = {**(scenario_meta or {}), "decision": decision}
 
         mode_str = " (Parallel)" if (max_workers or 1) > 1 else ""
         self._log(f"--- Started Scenario: {name}{mode_str} ---")
@@ -974,6 +1039,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     scenario_run_id=scenario_run_id,
                     turn_id=turn_id,
                     trace_headers={"traceparent": make_traceparent(scenario_trace_id)},
+                    extra={"decision": public_decision(decision)} if decision is not None else {},
                 )
                 target_resp = await self.target.send(
                     system=self.system_prompt,
@@ -994,7 +1060,11 @@ Evaluate this conversation and respond with this exact JSON structure:
                 response_preview = response[:80] + "..." if len(response) > 80 else response
                 self._log(f"TARGET: {response_preview}", name=name)
 
-                conversation.append({"role": "assistant", "content": response})
+                reply: Dict[str, Any] = {"role": "assistant", "content": response}
+                decision_answer = getattr(target_resp, "decision", None)
+                if decision_answer is not None:
+                    reply["decision"] = decision_answer
+                conversation.append(reply)
                 if pbar_audit:
                     pbar_audit.update(1)
         except Exception as exc:
@@ -1037,24 +1107,33 @@ Evaluate this conversation and respond with this exact JSON structure:
             if fell_back:
                 self._warn_no_expectations(name)
             try:
-                judgment, j_in, j_out = await self._judge_conversation_async(
-                    self.judge_client,
-                    self.judge_model,
-                    description,
-                    conversation,
-                    expected_behavior,
-                    judge_prompt=judge_prompt,
-                    json_format=self.json_format,
-                    judge_notes=judge_notes,
-                    response_schema=judge_schema,
-                    judge_fields=self.judge_fields,
-                    max_retries=self.max_retries,
-                    retry_backoff=self.retry_backoff,
-                    postprocess=judge_postprocess,
-                    scenario_meta=scenario_meta,
-                    params=effective_judge or None,
-                    evidence_spans=resolved_evidence,
-                )
+                if self.judge_grade is not None:
+                    # Graded in code (judges/choice_match.py): no judge call, no tokens.
+                    judgment = self.judge_grade(
+                        conversation=conversation,
+                        expected_behavior=expected_behavior,
+                        scenario_meta=scenario_meta,
+                    )
+                    j_in = j_out = 0
+                else:
+                    judgment, j_in, j_out = await self._judge_conversation_async(
+                        self.judge_client,
+                        self.judge_model,
+                        description,
+                        conversation,
+                        expected_behavior,
+                        judge_prompt=judge_prompt,
+                        json_format=self.json_format,
+                        judge_notes=judge_notes,
+                        response_schema=judge_schema,
+                        judge_fields=self.judge_fields,
+                        max_retries=self.max_retries,
+                        retry_backoff=self.retry_backoff,
+                        postprocess=judge_postprocess,
+                        scenario_meta=scenario_meta,
+                        params=effective_judge or None,
+                        evidence_spans=resolved_evidence,
+                    )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out
                 # The judge runs once after all turns complete; report it against
@@ -1142,8 +1221,21 @@ Evaluate this conversation and respond with this exact JSON structure:
         else:
             scenario_list = scenarios
 
+        # Check every decision block before any request is made, so a malformed
+        # pack fails at once instead of after tokens have been spent.
+        for scenario in scenario_list:
+            if scenario.get("decision") is not None:
+                try:
+                    validate_decision(scenario["decision"])
+                except ValueError as exc:
+                    raise ValueError(f"Scenario {scenario.get('name')!r}: {exc}") from None
+
         target_info = f"{self._target_client_config['provider']} ({self.target_model})"
-        judge_info = f"{self._judge_client_config['provider']} ({self.judge_model})"
+        judge_info = (
+            f"code ({self.judge_name})"
+            if self.judge_grade is not None
+            else f"{self._judge_client_config['provider']} ({self.judge_model})"
+        )
         auditor_info = (
             f"{self._auditor_client_config['provider']} ({self.auditor_model})"
             if self.auditor_model != self.judge_model or self._auditor_client_config != self._judge_client_config
@@ -1156,7 +1248,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         self._log(f"   Judge: {judge_info}")
         self._log(f"   System Prompt: {'Yes' if self.system_prompt else 'No'}\n")
 
-        turns_val = max_turns or self.max_turns
+        turns_val = self._turns_for_target(max_turns or self.max_turns)
         total_audit_steps = len(scenario_list) * turns_val
         total_judge_steps = len(scenario_list)
 
@@ -1179,6 +1271,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                         test_prompt=scenario.get("test_prompt"),
                         file_uri=scenario.get("file_uri"),
                         documents=scenario.get("documents"),
+                        decision=scenario.get("decision"),
                         judge_notes=(scenario.get("metadata") or {}).get("judge_notes"),
                         # Scenario-level facts a judge's post-processor may
                         # need (the designed severity is the ceiling for the

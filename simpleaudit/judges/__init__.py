@@ -89,6 +89,7 @@ from .helsedir_sexhealth_no_rag import HELSEDIR_SEXHEALTH_NO_RAG_JUDGE
 from .binary_abstention import BINARY_ABSTENTION_JUDGE
 from .checklist import CHECKLIST_JUDGE
 from .groundedness import GROUNDEDNESS_JUDGE
+from .fact_check import FACT_CHECK_JUDGE, postprocess_fact_check
 from .default import DEFAULT_JUDGE
 from .compose import BUILD_OUTPUTS, build_judge, compose_prompt, customize_judge, dimension_key
 
@@ -107,6 +108,7 @@ JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
     "binary_abstention":          BINARY_ABSTENTION_JUDGE,
     "checklist":                  CHECKLIST_JUDGE,
     "groundedness":               GROUNDEDNESS_JUDGE,
+    "fact_check":                 FACT_CHECK_JUDGE,
 }
 
 
@@ -150,6 +152,7 @@ def list_judge_configs() -> Dict[str, str]:
 
 
 __all__ = [
+    "postprocess_fact_check",
     "get_judge", "list_judge_configs", "JUDGE_CONFIGS", "DEFAULT_JUDGE", "OUTPUT_KINDS",
     "build_judge", "customize_judge", "compose_prompt", "dimension_key", "BUILD_OUTPUTS",
 ]

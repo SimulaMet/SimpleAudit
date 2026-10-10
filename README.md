@@ -548,6 +548,42 @@ Contributing a pack: follow the
 `python scripts/check_scenario_pack.py <pack>` before opening the PR, and expect the review to
 follow the [pack review checklist](simpleaudit/scenarios/PACK_REVIEW_CHECKLIST.md).
 
+### Dated facts
+
+Rates and thresholds go out of date. A scenario can list the dated facts it relies on in
+`metadata.facts`, recording when each figure was checked and when it needs checking again:
+
+```python
+"facts": [{
+    "claim": "Grunnbeløpet (G), NOK",
+    "anchors": ["grunnbeløp", "G"],  # optional; read by the fact_check judge only
+    "value": 136549,
+    "valid_from": "2026-05-01",   # None when the source gives no date
+    "verified_at": "2026-10-07",
+    "review_by": "2027-05-01",    # set by the rule's own rhythm; None for a figure fixed in statute
+    "source_url": "https://www.nav.no/grunnbelopet",
+    "source_quote": "Grunnbeløpet (G) per 1. mai 2026 er 136 549 kroner.",
+}]
+```
+
+`stale_facts(packs, as_of)` returns the facts whose `review_by` is before `as_of`. It reads no
+clock, so pass the date yourself:
+
+```python
+from datetime import date
+from simpleaudit.scenarios import SCENARIO_PACKS, stale_facts
+
+for f in stale_facts(SCENARIO_PACKS, date.today()):
+    print(f["pack"], f["scenario"], f["claim"], f["review_by"])
+```
+
+`anchors` lists the words an answer uses when it talks about that quantity. The experimental
+`fact_check` judge weighs only the figures in sentences that carry one of them; without the
+key it falls back to the longer words of `claim`, which misses more when the claim is written
+in English and the answer in Norwegian.
+
+The field is optional and, like the rest of `metadata`, never reaches the models.
+
 ### HealthBench (loaded at run time)
 
 [HealthBench](https://openai.com/index/healthbench/) and

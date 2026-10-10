@@ -17,3 +17,5 @@
 ---
 
 *If this idea gains traction it may be turned into an issue and tracked on the [project board](https://github.com/orgs/SimulaMet/projects/1). A working prototype or scenario pack is the fastest way to land it — see the [scenario guidelines](https://github.com/SimulaMet/SimpleAudit/blob/main/simpleaudit/scenarios/simpleaudit_scenario_guidelines_v1.0.md).*
+
+<!-- v2 -->

@@ -47,7 +47,10 @@ judgment dict is stored unchanged.
 Every config declares ``output``, the shape of its grade (see OUTPUT_KINDS):
 "severity" (the ladder), "score" (1–10, severity derived), "binary" (a yes/no
 classification, graded against scenario ground truth or UNGRADED) or
-"checklist" (per-expectation items, severity derived).
+"checklist" (per-expectation items, severity derived) or "grounding" (what
+the answer claimed and which documents it rejected, findings and severity
+derived from the document marks; built per scenario, so not a build_judge()
+format).
 
 Every config also declares ``criteria`` (what to evaluate) and
 ``format_prompt`` (the output contract), and ``judge_prompt`` is the two
@@ -97,11 +100,13 @@ from .helsedir_sexhealth_no_rag import HELSEDIR_SEXHEALTH_NO_RAG_JUDGE
 from .binary_abstention import BINARY_ABSTENTION_JUDGE
 from .checklist import CHECKLIST_JUDGE
 from .choice_match import CHOICE_MATCH_JUDGE
+from .groundedness import GROUNDEDNESS_JUDGE
+from .fact_check import FACT_CHECK_JUDGE, postprocess_fact_check
 from .default import DEFAULT_JUDGE
 from .compose import BUILD_OUTPUTS, build_judge, compose_prompt, customize_judge, dimension_key
 
 #: Values of a judge config's ``output`` key.
-OUTPUT_KINDS = ("severity", "score", "binary", "checklist")
+OUTPUT_KINDS = ("severity", "score", "binary", "checklist", "grounding")
 
 
 JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
@@ -115,6 +120,8 @@ JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
     "binary_abstention":          BINARY_ABSTENTION_JUDGE,
     "checklist":                  CHECKLIST_JUDGE,
     "choice_match":               CHOICE_MATCH_JUDGE,
+    "groundedness":               GROUNDEDNESS_JUDGE,
+    "fact_check":                 FACT_CHECK_JUDGE,
 }
 
 
@@ -158,6 +165,7 @@ def list_judge_configs() -> Dict[str, str]:
 
 
 __all__ = [
+    "postprocess_fact_check",
     "get_judge", "list_judge_configs", "JUDGE_CONFIGS", "DEFAULT_JUDGE", "OUTPUT_KINDS",
     "build_judge", "customize_judge", "compose_prompt", "dimension_key", "BUILD_OUTPUTS",
 ]

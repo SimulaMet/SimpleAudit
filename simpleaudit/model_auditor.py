@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from any_llm import AnyLLM
 from tqdm.auto import tqdm
 
+from ._event_loop import run_sync
 from .context_marks import render_documents
 from .decision import public_decision, render_decision_prompt, validate_decision
 from .judges import get_judge
@@ -42,6 +43,38 @@ from .utils import (
     severity_from_score,
 )
 from .utils import parse_json_response as _parse_json_response
+
+#: Progress callback: ``on_turn(turn_index, max_turns, role)``.
+#:
+#: Called synchronously, from inside the event loop, after each phase of a
+#: scenario completes:
+#:
+#: - ``"auditor"``: the auditor model wrote a probe. Not fired for a turn whose
+#:   probe is the scenario's ``test_prompt`` (turn 0, when one is set), so a
+#:   turn reports either ``"auditor"`` then ``"target"``, or ``"target"`` alone.
+#: - ``"target"``: the target answered.
+#: - ``"judge"``: the judge call returned. Once per scenario, after the last
+#:   turn, reported at ``max_turns - 1``. It also fires when the judgment is a
+#:   parse-failure ERROR: it marks that the call returned, not that the verdict
+#:   is usable.
+#:
+#: ``turn_index`` is 0-based. ``max_turns`` is the turn count the run was given
+#: (the per-call ``max_turns`` if passed), not the number of turns that ran,
+#: and is assumed to be at least 1. ``SingleTurnAuditor`` reports its one
+#: exchange as turn 0 of 1 whatever ``max_turns`` says.
+#:
+#: A phase that fails fires nothing, and nothing fires after it: a target error
+#: ends the scenario's events with no ``"judge"``, and so does a judge call that
+#: raises. The scenario's result is then ERROR.
+#:
+#: The arguments carry no scenario name. With ``max_workers > 1``, calls from
+#: different scenarios interleave, and ``AuditExperiment.run_scenario_reps``
+#: fires a scenario's events again when it retries a rep that came back ERROR.
+#:
+#: The return value is ignored. An exception raised by the callback is logged
+#: and swallowed. The callback must be a plain function: it is not awaited,
+#: so an ``async def`` callback's body never runs.
+OnTurn = Callable[[int, int, str], None]
 
 
 from dataclasses import dataclass
@@ -300,6 +333,12 @@ class _NoModelClient:
         raise RuntimeError(self._message)
 
 
+#: The probe model reads the conversation in the "USER: ..." form above and now
+#: and then starts its own message with the label. Left in, the target receives
+#: "user: ..." as part of the message (seen live with gpt-4o, 2026-10-02).
+_PROBE_ROLE_LABEL = re.compile(r"^\s*user\s*:\s*", re.IGNORECASE)
+
+
 class _NoopTargetClient:
     """Placeholder target client used when an explicit non-model Target is set.
 
@@ -351,7 +390,7 @@ class ModelAuditor:
         target_params: Optional[Dict[str, Any]] = None,
         judge_params: Optional[Dict[str, Any]] = None,
         auditor_params: Optional[Dict[str, Any]] = None,
-        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        on_turn: Optional[OnTurn] = None,
     ):
         if max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {max_retries}")
@@ -617,13 +656,14 @@ class ModelAuditor:
         turn_index: int,
         max_turns: int,
         role: str,
-        callback: Optional[Callable[[int, int, str], None]] = None,
+        callback: Optional[OnTurn] = None,
     ) -> None:
         """Invoke an on_turn callback if set. Never raises.
 
         Uses ``callback`` when provided, otherwise falls back to the
         construction-time ``self.on_turn``. A raising callback is logged,
         not propagated — a progress observer must never fail an audit.
+        The contract callers can rely on is documented on ``OnTurn``.
         """
         cb = callback if callback is not None else self.on_turn
         if cb is not None:
@@ -787,6 +827,8 @@ Generate the next user message to probe this scenario."""
             retry_backoff=retry_backoff,
             params=params,
         )
+        if isinstance(content, str):
+            content = _PROBE_ROLE_LABEL.sub("", content, count=1)
         return content, input_tokens, output_tokens
 
     @staticmethod
@@ -941,7 +983,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         target_params: Optional[Dict[str, Any]] = None,
         judge_params: Optional[Dict[str, Any]] = None,
         auditor_params: Optional[Dict[str, Any]] = None,
-        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        on_turn: Optional[OnTurn] = None,
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
@@ -1201,7 +1243,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         target_params: Optional[Dict[str, Any]] = None,
         judge_params: Optional[Dict[str, Any]] = None,
         auditor_params: Optional[Dict[str, Any]] = None,
-        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        on_turn: Optional[OnTurn] = None,
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
@@ -1351,7 +1393,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         target_params: Optional[Dict[str, Any]] = None,
         judge_params: Optional[Dict[str, Any]] = None,
         auditor_params: Optional[Dict[str, Any]] = None,
-        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        on_turn: Optional[OnTurn] = None,
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
@@ -1360,7 +1402,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(
+            return run_sync(
                 self.run_async(
                     scenarios,
                     max_turns=max_turns,

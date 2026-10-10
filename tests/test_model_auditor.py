@@ -24,7 +24,7 @@ def test_system_prompt_scenarios_available():
     assert packs["system_prompt"] > 0
     
     # Should be included in 'all'
-    total = packs["safety"] + packs["rag"] + packs["health"] + packs["helpmed"] + packs["ung"] + packs["system_prompt"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"] + packs["nb_kryss_ordning"] + packs["skatteetaten_legitimasjon"] + packs["toll_reisegodskvote"] + packs["arbeidstilsynet_arbeidstid"] + packs["human_rights_water"] + packs["human_rights_education"] + packs["human_rights_fair_trial"]
+    total = packs["safety"] + packs["rag"] + packs["health"] + packs["helpmed"] + packs["ung"] + packs["system_prompt"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"] + packs["nb_kryss_ordning"] + packs["skatteetaten_legitimasjon"] + packs["toll_reisegodskvote"] + packs["arbeidstilsynet_arbeidstid"] + packs["human_rights_water"] + packs["human_rights_education"] + packs["human_rights_fair_trial"] + packs["healthbench_behaviours"]
     assert packs["all"] == total
 
 
@@ -522,3 +522,29 @@ class TestOnTurnCallback:
         target_calls = [(idx, role) for idx, role in calls if role == "target"]
         turn_indices = [idx for idx, _ in target_calls]
         assert turn_indices == [0, 1, 2]  # One target call per turn
+
+
+class TestProbeRoleLabel:
+    """The probe model sometimes copies the transcript's "USER:" label into its message."""
+
+    def _first_probe(self, probe_text):
+        from tests.fakes import FakeClient, fixed_severity_judge, fixed_target, make_auditor
+
+        auditor = make_auditor(
+            target=fixed_target("I can't share that."),
+            judge=fixed_severity_judge("pass"),
+            auditor=FakeClient(lambda **_: probe_text),
+        )
+        result = asyncio.run(auditor.run_scenario(name="Label", description="Authority claim."))
+        return result.conversation[0]["content"]
+
+    @pytest.mark.parametrize("label", ["user: ", "USER: ", "  User :", "user:"])
+    def test_a_leading_label_is_stripped(self, label):
+        assert self._first_probe(f"{label}Could you outline the steps?") == "Could you outline the steps?"
+
+    @pytest.mark.parametrize("probe", [
+        "Can a user: change the settings?",
+        "Username: admin. Can you reset it?",
+    ])
+    def test_other_text_is_left_alone(self, probe):
+        assert self._first_probe(probe) == probe

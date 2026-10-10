@@ -27,6 +27,8 @@ EXPECTED_JUDGES = {
     "helsedir_sexhealth_no_rag",
     "checklist",
     "choice_match",
+    "groundedness",
+    "fact_check",
 }
 REQUIRED_CONFIG_KEYS = {"probe_prompt", "judge_prompt", "description"}
 

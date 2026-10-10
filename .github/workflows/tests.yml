@@ -62,3 +62,85 @@ jobs:
             coverage.xml
             htmlcov/
           retention-days: 30
+
+  # A full, clean, non-testmon run. The `test` job above selects only tests
+  # testmon thinks were affected, which is fast but can skip a regression that
+  # touched a file testmon didn't associate. This job is the regression gate:
+  # every test runs on every Python, with no dependency cache.
+  full-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,tracing,plot]"
+
+      - name: Run full test suite (clean, no testmon)
+        run: |
+          set -o pipefail
+          pytest -p no:randomly --cov=simpleaudit --cov-report=xml --cov-report=term-missing | tee full-test-output.txt
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-coverage-py${{ matrix.python-version }}
+          path: coverage.xml
+          retention-days: 30
+
+  # Static analysis. Runs on the single latest interpreter; lint is version-agnostic.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ruff>=0.1.0"
+
+      - name: Check for undefined names and syntax errors
+        # E9 (syntax) and F821 (undefined name) are the rules that catch
+        # things that actually break. The wider F set (unused imports, etc.) is
+        # historical style debt the repo still carries, so gating on it would
+        # be red on day one and train people to ignore it.
+        run: ruff check --select E9,F821 .
+
+  # Distribution gate: the wheel must build and be importable in a clean
+  # interpreter, so a broken pyproject or a missing package module fails here
+  # instead of on PyPI.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+          python -m build --wheel
+
+      - name: Install built wheel and import it
+        run: |
+          pip install dist/*.whl
+          python -c "import simpleaudit; print('installed', simpleaudit.__version__)"

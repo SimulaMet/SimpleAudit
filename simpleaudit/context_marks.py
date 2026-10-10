@@ -282,3 +282,91 @@ def render_documents(
         f"\n--- DOCUMENT {index} ---\n{mark.text}"
         for index, mark in enumerate(_as_marks(marks), 1)
     )
+
+
+# --- helpers used by SingleTurnAuditor and the context_grounding pack (from #69) ---
+
+def parse_as_of(scenario: Dict[str, Any]) -> Optional[date]:
+    """
+    Read the scenario-level ``as_of`` date — the date the question is asked.
+
+    Returns None when the scenario does not set one. That is not a fallback to
+    today: without ``as_of`` there is no date to test a validity window
+    against, and every temporal derivation returns None instead of guessing.
+    """
+    if not scenario:
+        return None
+    return _parse_date(scenario.get("as_of"), "as_of")
+
+
+def _cell(value: Any) -> str:
+    """Render one mark for the judge's table, spelling out the unknown case."""
+    if value is None:
+        # "unknown" rather than a dash or an empty cell: the judge is an LLM,
+        # and a blank cell is the one rendering it might read as "no".
+        return "unknown"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def mark_table(
+    marks: Sequence[Union[DocumentMark, str, Dict[str, Any]]],
+    as_of: Optional[date],
+) -> str:
+    """
+    Render the per-document mark table that goes to the judge.
+
+    Judge-only. The columns are index, relevant, true, current, authority and
+    source: what the judge needs to tell "the model used a superseded document"
+    apart from "the model used a false one". ``current`` is derived from the
+    document's validity window against *as_of*, and is ``unknown`` whenever the
+    window or *as_of* leaves it underivable.
+
+    Parameters
+    ----------
+    marks : sequence of DocumentMark
+        Documents in the same order :func:`render_documents` numbered them.
+    as_of : date or None
+        The date the question is asked.
+
+    Returns
+    -------
+    str
+        A pipe-delimited table, or a one-line note when there are no documents.
+    """
+    # Local import: context_derivations imports this module, so currency is
+    # pulled in at call time rather than duplicating the rule in two places.
+    from .context_derivations import current
+
+    parsed = _as_marks(marks)
+    if not parsed:
+        return "(no documents)"
+
+    header = ("index", "relevant", "true", "current", "authority", "source")
+    rows = [
+        (
+            str(index),
+            _cell(mark.relevant),
+            _cell(mark.true),
+            _cell(current(mark, as_of)),
+            _cell(mark.authority),
+            _cell(mark.source),
+        )
+        for index, mark in enumerate(parsed, 1)
+    ]
+
+    widths = [
+        max(len(column), *(len(row[i]) for row in rows))
+        for i, column in enumerate(header)
+    ]
+    def _line(cells: Sequence[str]) -> str:
+        # rstrip: the last column's padding is invisible to a reader and only
+        # adds tokens to the judge prompt.
+        return " | ".join(
+            cell.ljust(widths[i]) for i, cell in enumerate(cells)
+        ).rstrip()
+
+    lines = [_line(header), "-+-".join("-" * width for width in widths)]
+    lines.extend(_line(row) for row in rows)
+    return "\n".join(lines)

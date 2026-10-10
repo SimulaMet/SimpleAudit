@@ -1,33 +1,36 @@
-about: Share ideas for new features, scenario packs, judges, or Studio improvements
 title: "[Idea] "
-labels: [ideas]
+labels: ["ideas"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Share ideas for new features, scenario packs, judges, or Studio improvements.
   - type: textarea
     id: idea
     attributes:
-      label: The idea
-      description: One or two sentences: what should SimpleAudit (or Studio) do?
+      label: "The idea"
+      description: "One or two sentences: what should SimpleAudit (or Studio) do?"
     validations:
       required: true
   - type: textarea
     id: why
     attributes:
-      label: Why it matters
-      description: Who benefits, what pain it removes, what audit use case it enables.
+      label: "Why it matters"
+      description: "Who benefits, what pain it removes, what audit use case it enables."
     validations:
       required: false
   - type: textarea
     id: looks-like
     attributes:
-      label: What you imagine it looking like
-      description: Rough sketch: CLI flag, judge name, scenario field, Studio UI — anything helps.
+      label: "What you imagine it looking like"
+      description: "Rough sketch: CLI flag, judge name, scenario field, Studio UI — anything helps."
     validations:
       required: false
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives considered
-      description: What you tried or ruled out, and why.
+      label: "Alternatives considered"
+      description: "What you tried or ruled out, and why."
     validations:
       required: false
   - type: markdown

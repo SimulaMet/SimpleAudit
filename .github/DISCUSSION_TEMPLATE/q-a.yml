@@ -1,38 +1,42 @@
-about: Ask the community for help — setup, running audits, reading results, extending SimpleAudit
 title: "[Q&A] "
-labels: [question]
+labels: ["question"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask the community for help — setup, running audits, reading results, or extending SimpleAudit.
   - type: textarea
     id: goal
     attributes:
-      label: What are you trying to do?
-      description: e.g. run a RAG audit with local Llama 3, read fragility scores, add a custom judge
+      label: "What are you trying to do?"
+      description: "e.g. run a RAG audit with local Llama 3, read fragility scores, add a custom judge."
     validations:
       required: true
   - type: textarea
     id: tried
     attributes:
-      label: What did you try, and what happened?
-      description: Include the exact command or code.
-      render: shell
+      label: "What did you try, and what happened?"
+      description: "Include the exact command or code."
+      render: bash
     validations:
       required: false
   - type: textarea
     id: output
     attributes:
-      label: Output / error
-      description: Paste the relevant output or error message.
+      label: "Output / error"
+      description: "Paste the relevant output or error message."
     validations:
       required: false
   - type: textarea
     id: environment
     attributes:
-      label: Environment
-      description: |
-        - SimpleAudit version: `python -c "import simpleaudit; print(simpleaudit.__version__)"`
-        - Python version:
-        - Target type: (model / callable / HTTP app / decision model)
-        - Judge/auditor model (if any):
+      label: "Environment"
+      description: "Version, Python version, target type, and judge/auditor model (if any)."
+      value: |
+        - **SimpleAudit version:**
+        - **Python version:**
+        - **Target type:** (model / callable / HTTP app / decision model)
+        - **Judge/auditor model (if any):**
     validations:
       required: false
   - type: markdown

@@ -20,6 +20,23 @@ See the [standards and best practices for creating custom test scenarios](https:
 
 <img alt="simpleaudit_example_gemma_model" src="https://github.com/user-attachments/assets/05c45a62-74e7-4aa3-a3cd-41bad0cc8233" />
 
+---
+
+> [!TIP]
+> ## 🚀 Don't want to write code? Try **SimpleAudit Studio**
+>
+> **[SimpleAudit Studio](https://github.com/SimulaMet/SimpleAuditStudio)** is the form-based **web UI** for SimpleAudit. Build versioned scenario sets, register models, launch audits, compare results, and monitor for drift — all in a live dashboard. **No Python or CLI required.**
+>
+> ▶️ **[Open the live demo](https://sushantgautam-simpleaudit-studio.hf.space)** (no install) &nbsp;·&nbsp; [GitHub](https://github.com/SimulaMet/SimpleAuditStudio)
+>
+> ```bash
+> uvx simpleaudit-studio@latest
+> ```
+>
+> Runs locally at [http://localhost:8000](http://localhost:8000). Prefer code? Keep scrolling — the Python API and CLI are below.
+
+---
+
 ## Installation
 
 **Install from PyPI (recommended):**

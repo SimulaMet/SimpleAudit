@@ -491,6 +491,7 @@ auditor = ModelAuditor(
 | `show_progress` | Show tqdm progress bars | No (default: `True`) |
 | `max_retries` | Retries per API call for transient failures | No (default: 2) |
 | `retry_backoff` | Initial retry delay in seconds, doubled per attempt (exponential backoff) | No (default: 0.5) |
+| `on_turn` | Progress callback `on_turn(turn_index, max_turns, role)`, fired after each phase with `role` `"auditor"`, `"target"` or `"judge"`. `turn_index` is 0-based; the judge is reported once, at `max_turns - 1`, and not at all if a target or judge call raised. Also accepted per call by `run` / `run_async`, where it overrides this one. Full contract: `simpleaudit.model_auditor.OnTurn` | No |
 
 
 ## Scenario Packs

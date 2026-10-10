@@ -147,7 +147,7 @@ SKATTEETATEN_SCENARIOS = [
                 },
                 {
                     "claim": "Minstefradrag on wage income, upper limit, NOK",
-                    "anchors": ["minstefradrag"],
+                    "anchors": ["minstefradrag", "maksbeløp"],
                     "value": 95700,
                     "valid_from": "2026-01-01",
                     "verified_at": "2026-10-07",

@@ -7,6 +7,7 @@ import pytest
 from simpleaudit.scenarios import SCENARIO_PACKS, stale_facts
 
 FACT_KEYS = {"claim", "value", "valid_from", "verified_at", "review_by", "source_url", "source_quote"}
+OPTIONAL_FACT_KEYS = {"anchors"}
 
 
 def _fact(claim, review_by, **extra):
@@ -84,7 +85,8 @@ def test_built_in_facts_are_complete_and_current_on_their_verification_date():
              for f in (s.get("metadata") or {}).get("facts") or []]
     assert facts
     for f in facts:
-        assert set(f) == FACT_KEYS, f
+        assert FACT_KEYS <= set(f) <= FACT_KEYS | OPTIONAL_FACT_KEYS, f
+        assert all(isinstance(a, str) and a.strip() for a in f.get("anchors", [])), f
         assert f["source_url"].startswith("https://"), f
     assert stale_facts(SCENARIO_PACKS, "2026-10-07") == []
 

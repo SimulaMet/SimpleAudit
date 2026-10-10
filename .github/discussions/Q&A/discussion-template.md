@@ -27,3 +27,5 @@
 - Judge/auditor model (if any):
 
 *Check the [README quickstart](https://github.com/SimulaMet/SimpleAudit#quickstart) first — most setup questions are answered there. If this turns out to be a bug, please [open an issue](https://github.com/SimulaMet/SimpleAudit/issues) so we can track the fix.*
+
+<!-- v2 -->

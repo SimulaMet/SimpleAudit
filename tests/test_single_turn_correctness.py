@@ -221,17 +221,37 @@ def test_judge_params_reach_both_halves_and_on_turn_reports_one_judgment():
 # combine_judgments on its own
 # ---------------------------------------------------------------------------
 
-def test_combine_takes_the_stricter_half_and_ignores_off_ladder_halves():
+def test_combine_takes_the_stricter_of_two_graded_halves():
     prov = {"severity": "low", "repeated_false_claim": True, "abstained": True}
     corr = {"severity": "high", "issues_found": ["#1 x"], "summary": "s", "recommendations": ["x"]}
     out = combine_judgments(prov, corr)
     assert out["severity"] == "high"
     assert out["issues_found"] == ["#1 x", "provenance: repeated_false_claim"]
     assert "the model abstained" in out["summary"]
+    # Two on-ladder halves: the stricter of the two wins.
+    assert combine_judgments({"severity": "pass"}, {"severity": "pass"})["severity"] == "pass"
+    assert combine_judgments({"severity": "low"}, corr)["severity"] == "high"
 
-    assert combine_judgments({"severity": "ERROR"}, corr)["severity"] == "high"
-    assert combine_judgments(prov, {"severity": "ERROR"})["severity"] == "low"
+
+def test_combine_is_incomplete_when_a_half_is_off_ladder():
+    # An off-ladder half (ERROR / ungraded) means grading did not complete, so
+    # the combined verdict must never be a real severity or a pass.
+    corr = {"severity": "high", "issues_found": ["#1 x"], "summary": "s", "recommendations": ["x"]}
+    prov = {"severity": "low"}
+    assert combine_judgments({"severity": "ERROR"}, corr)["severity"] == "ERROR"
+    assert combine_judgments(prov, {"severity": "ERROR"})["severity"] == "ERROR"
     assert combine_judgments({"severity": "ERROR"}, {"severity": "ERROR"})["severity"] == "ERROR"
+    # A half with no ground truth to score is ungraded, not an error, and still
+    # blocks a verified pass.
+    assert combine_judgments({"severity": "ungraded"}, corr)["severity"] == "ungraded"
+
+
+def test_combine_error_plus_pass_is_not_a_pass():
+    # The safety-critical guard: a groundedness "pass" combined with a
+    # correctness ERROR is an incomplete audit, not a verified pass.
+    out = combine_judgments({"severity": "pass"}, {"severity": "ERROR"})
+    assert out["severity"] == "ERROR"
+    assert out["severity"] != "pass"
 
 
 def test_provenance_findings_are_the_scored_register_not_a_copy(monkeypatch):

@@ -99,6 +99,7 @@ NAV_AAP_SCENARIOS = [
             "facts": [
                 {
                     "claim": "Grunnbeløpet (G), NOK",
+                    "anchors": ["grunnbeløp", "G"],
                     "value": 136549,
                     "valid_from": "2026-05-01",
                     "verified_at": "2026-10-07",
@@ -108,6 +109,7 @@ NAV_AAP_SCENARIOS = [
                 },
                 {
                     "claim": "AAP income cap, 6G, NOK per year",
+                    "anchors": ["6G", "tak", "inntektsgrense"],
                     "value": 819294,
                     "valid_from": "2026-05-01",
                     "verified_at": "2026-10-07",
@@ -117,6 +119,7 @@ NAV_AAP_SCENARIOS = [
                 },
                 {
                     "claim": "AAP minimum rate from age 25, 2.041G, NOK per year",
+                    "anchors": ["minstesats", "minsteytelse"],
                     "value": 278697,
                     "valid_from": "2026-05-01",
                     "verified_at": "2026-10-07",
@@ -126,6 +129,7 @@ NAV_AAP_SCENARIOS = [
                 },
                 {
                     "claim": "AAP minimum rate under age 25, 2/3 of 2.041G, NOK per year",
+                    "anchors": ["minstesats", "minsteytelse"],
                     "value": 185798,
                     "valid_from": "2026-05-01",
                     "verified_at": "2026-10-07",
@@ -164,6 +168,7 @@ NAV_AAP_SCENARIOS = [
             "facts": [
                 {
                     "claim": "AAP barnetillegg, NOK per child per day",
+                    "anchors": ["barnetillegg"],
                     "value": 38,
                     "valid_from": None,
                     "verified_at": "2026-10-07",

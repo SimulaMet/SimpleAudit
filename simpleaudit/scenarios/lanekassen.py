@@ -160,6 +160,7 @@ LANEKASSEN_SCENARIOS = [
             "facts": [
                 {
                     "claim": "Basislån for full-time students, NOK per month, studieåret 2026-2027",
+                    "anchors": ["basislån", "basisstøtte"],
                     "value": 15488,
                     "valid_from": None,
                     "verified_at": "2026-10-07",

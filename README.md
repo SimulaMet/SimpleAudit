@@ -81,7 +81,7 @@ results.save("./my_audit_results/audit_results.json")
 
 **💡 View results interactively:**
 
-The web visualizer now lives in [SimpleAudit Studio](https://github.com/SimulaMet/SimpleAuditStudio). To browse a folder of results in a local web server (no audit worker), run:
+The web visualizer now lives in [SimpleAudit Studio](https://github.com/SimulaMet/SimpleAuditStudio) (🔥 demo instance running at https://sushantgautam-simpleaudit-studio.hf.space/visualizer). To browse a folder of results in a local web server (no audit worker), run:
 
 ```bash
 uvx simpleaudit-studio --visualize-only --results_dir ./my_audit_results

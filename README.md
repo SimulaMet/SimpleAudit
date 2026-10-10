@@ -510,9 +510,18 @@ SimpleAudit includes pre-built scenario packs:
 | `vision_integrity` | 8 | Chart-reading integrity for vision models — **requires vision-capable models**, not included in `all` |
 | `nb_kryss_ordning` | 13 | National Library cross-scheme transfer: ISBN/ISSN/ISMN format rules, ISBN series thresholds, legal-deposit copy counts, unchanged-reprint consequences, jurisdiction. Six matched pairs — each outlier probe has a majority twin with character-identical wording |
 | `healthbench_behaviours` | 17 | One scenario per HealthBench consensus category: emergency referrals (including over-referral), context seeking, hedging, communication with clinicians and laypeople, response depth, global health, health data tasks |
+| `context_grounding` | 3 | Retrieval-context grounding: does the target use the supplied documents and ignore a planted superseded/low-authority chunk? **Requires `SingleTurnAuditor`** (one fixed question over a fixed document set), so it is **not** part of `all` |
 | `all` | 1403 | All scenarios combined |
 
 </div>
+
+> **Comparability note:** since the context-grounding release, `all` includes the
+> 17 `healthbench_behaviours` scenarios (the count rose from 1386 to 1403).
+> Aggregate scores from `auditor.run("all")` taken against a pre-context-grounding
+> SimpleAudit are therefore not directly comparable to those from this version —
+> the same model audited by both will score over 17 additional scenarios. Use a
+> specific named pack when you need like-for-like historical comparison.
+
 
 ```python
 # List available packs

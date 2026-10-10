@@ -416,7 +416,13 @@ class TestRunArguments:
         assert len(app.sent) == 1
         assert len(target) == 0
         assert app.sent[0]["user"] == HELFO_SCENARIO["test_prompt"]
-        assert app.sent[0]["documents"] == HELFO_SCENARIO["documents"]
+        # The target sees document TEXT only — the evaluation-only marks
+        # (relevant/true/valid_until/authority) must never reach it.
+        sent_docs = app.sent[0]["documents"]
+        assert sent_docs == [doc["text"] for doc in HELFO_SCENARIO["documents"]]
+        for doc in sent_docs:
+            assert isinstance(doc, str)
+            assert "relevant" not in doc and "authority" not in doc
         assert result.conversation[1]["content"] == TARGET_ANSWER
 
     def test_the_exchange_carries_and_records_its_trace_context(self, wired):

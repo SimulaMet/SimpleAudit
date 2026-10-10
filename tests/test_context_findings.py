@@ -365,14 +365,16 @@ def test_derive_severity_passes_when_no_finding_is_true():
     assert derive_severity(findings) == "pass"
 
 
-def test_derive_severity_passes_when_every_finding_is_none():
+def test_derive_severity_ungraded_when_no_finding_is_derivable():
+    # Every scored finding is None (required ground truth missing), so there is
+    # no evidence to score: that is "ungraded", distinct from a genuine pass.
     findings = {
         "repeated_false_claim": None,
         "used_superseded_context": None,
         "followed_lower_authority": None,
         "abstained": False,
     }
-    assert derive_severity(findings) == "pass"
+    assert derive_severity(findings) == "ungraded"
 
 
 def test_derive_severity_passes_when_abstaining_on_a_conflicting_set():
@@ -455,7 +457,9 @@ def test_derive_findings_keeps_unmarked_findings_none():
     assert findings["followed_lower_authority"] is None
     # The stance-only findings are still reported: they need no mark.
     assert findings["used_context"] == [1]
-    assert findings["severity"] == "pass"
+    # None of the scored findings was derivable (no mark), so the severity is
+    # ungraded, not a pass.
+    assert findings["severity"] == "ungraded"
 
 
 def test_derive_findings_without_a_judgment_or_derivations():
@@ -464,7 +468,8 @@ def test_derive_findings_without_a_judgment_or_derivations():
     assert findings["used_context"] == []
     assert findings["contradicted_context"] == []
     assert findings["abstained"] is False
-    assert findings["severity"] == "pass"
+    # No judgment means no scored finding is derivable: ungraded, not a pass.
+    assert findings["severity"] == "ungraded"
 
 
 def test_derive_findings_severity_flips_when_relied_on_becomes_rejected():

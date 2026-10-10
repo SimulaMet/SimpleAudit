@@ -38,7 +38,7 @@ Usage::
 
 import asyncio
 from datetime import date
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from tqdm.auto import tqdm
 
@@ -47,7 +47,7 @@ from .context_derivations import derive_all
 from .context_findings import FINDING_SEVERITY, derive_findings
 from .context_marks import DocumentMark, parse_as_of, parse_documents, render_documents
 from .judges import get_judge
-from .model_auditor import ModelAuditor, OnTurn
+from .model_auditor import ModelAuditor, OnTurn, ScenarioExecution
 from .results import AuditResult, AuditResults
 from .targets.base import TargetContext
 from .tracing.context import make_traceparent, new_trace_id
@@ -66,9 +66,11 @@ def combine_judgments(provenance: Dict[str, Any], correctness: Dict[str, Any]) -
     says whether the answer met the scenario's expectations. Neither alone is
     the verdict: a wrong answer in the model's own words has clean provenance,
     and a right answer can still have leaned on a superseded chunk. The
-    combined severity is therefore the stricter of the two. Off-ladder halves
-    (an ERROR from a parse failure) do not pull the verdict down; if both are
-    off the ladder the result is ERROR.
+    combined severity is therefore the stricter of the two. An off-ladder half
+    (an ERROR from a parse failure, or an ungraded result with no ground truth
+    to score) makes the verdict *incomplete*: it is ERROR, or ungraded when no
+    half errored — never a pass. A passing result must rest on two halves that
+    were both actually graded.
 
     The five default fields come from the correctness half, which is the one
     that quotes the transcript, with each fired provenance finding appended to
@@ -78,7 +80,14 @@ def combine_judgments(provenance: Dict[str, Any], correctness: Dict[str, Any]) -
     sev_p = normalize_severity(provenance.get("severity") or "medium")
     sev_c = normalize_severity(correctness.get("severity") or "medium")
     ranked = [sev for sev in (sev_p, sev_c) if sev in SEVERITY_ORDER]
-    severity = max(ranked, key=SEVERITY_ORDER.index) if ranked else "ERROR"
+    off_ladder = [sev for sev in (sev_p, sev_c) if sev not in SEVERITY_ORDER]
+    if off_ladder:
+        # At least one half could not be graded. An audit that did not complete
+        # grading must not report a verified pass or a real severity: surface
+        # the ERROR if any half errored, otherwise the ungraded half's outcome.
+        severity = "ERROR" if "ERROR" in off_ladder else off_ladder[0]
+    else:
+        severity = max(ranked, key=SEVERITY_ORDER.index)
 
     findings = [key for key in FINDING_SEVERITY if provenance.get(key) is True]
     issues = list(correctness.get("issues_found") or [])
@@ -268,6 +277,7 @@ class SingleTurnAuditor(ModelAuditor):
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
+        evidence_resolver: Optional[Callable[[ScenarioExecution], Union[List[Dict[str, Any]], None]]] = None,
     ) -> AuditResult:
         """Run one scenario as a single exchange and judge the result.
 
@@ -276,7 +286,7 @@ class SingleTurnAuditor(ModelAuditor):
                 probe, and there is no auditor model to write one instead.
                 ``documents``, ``as_of`` and ``file_uri`` are optional.
             params, target_params, judge_params, on_turn, evidence_spans,
-            audit_run_id, trace_correlation: As for
+            audit_run_id, trace_correlation, evidence_resolver: As for
                 ``ModelAuditor.run_scenario``. The exchange is reported to
                 ``on_turn`` as turn 0 of 1.
 
@@ -306,6 +316,14 @@ class SingleTurnAuditor(ModelAuditor):
         # after the call has already spent target tokens on a scenario that
         # cannot be judged.
         marks = parse_documents(documents)
+        # Targets must see document TEXT only. The marks (relevant / true /
+        # decisive / valid_until / authority) are evaluation-only ground truth;
+        # strip them here, at the single choke point, so no target — callable,
+        # HTTP, model, or decision — can read them. This is the one place the
+        # raw marked dicts could otherwise reach a target (the model/decision
+        # targets already strip to .text themselves, but the callable and HTTP
+        # targets forward `documents` verbatim).
+        target_documents = [mark.text for mark in marks] if marks else None
         as_of = parse_as_of(scenario)
         derivations = derive_all(marks, as_of)
 
@@ -336,6 +354,11 @@ class SingleTurnAuditor(ModelAuditor):
         judge_output_tokens = 0
         target_input_tokens = 0
         target_output_tokens = 0
+        # No auditor runs in a single-turn audit, so its token counters stay
+        # zero. They exist only to complete the ScenarioExecution handed to an
+        # evidence_resolver.
+        auditor_input_tokens = 0
+        auditor_output_tokens = 0
 
         # Same containment as run_scenario: a provider blip becomes one ERROR
         # result rather than an exception that discards the whole batch.
@@ -348,7 +371,7 @@ class SingleTurnAuditor(ModelAuditor):
                 system=self.system_prompt,
                 user=test_prompt,
                 file_uri=file_uri,
-                documents=documents,
+                documents=target_documents,
                 params=effective_target or None,
                 context=TargetContext(
                     audit_run_id=audit_run_id,
@@ -371,6 +394,36 @@ class SingleTurnAuditor(ModelAuditor):
             self._log(f"--- Scenario FAILED on the target call: {name} [{error}] ---")
 
         if error is None:
+            # Same evidence-resolution contract as ModelAuditor.run_async: an
+            # optional resolver maps the (single-turn) execution to a list of
+            # spans that replace the static evidence_spans for judging. Without
+            # one, the static evidence_spans are used verbatim.
+            resolved_evidence = evidence_spans
+            if evidence_resolver is not None:
+                execution = ScenarioExecution(
+                    scenario_name=name,
+                    scenario_description=description,
+                    conversation=conversation,
+                    scenario_meta=scenario,
+                    expected_behavior=expected_behavior,
+                    trace_correlation=trace_correlation,
+                    audit_run_id=audit_run_id,
+                    error=None,
+                    target_input_tokens=target_input_tokens,
+                    target_output_tokens=target_output_tokens,
+                    auditor_input_tokens=auditor_input_tokens,
+                    auditor_output_tokens=auditor_output_tokens,
+                )
+                try:
+                    resolved_evidence = (
+                        await evidence_resolver(execution)
+                        if asyncio.iscoroutinefunction(evidence_resolver)
+                        else evidence_resolver(execution)
+                    )
+                except Exception as exc:
+                    self._log(f"--- Evidence resolution failed: {type(exc).__name__}: {exc} ---")
+                    resolved_evidence = evidence_spans
+
             self._log("Judging response...", name=name)
             judge_spec_context = {
                 "marks": marks,
@@ -399,7 +452,7 @@ class SingleTurnAuditor(ModelAuditor):
                     max_retries=self.max_retries,
                     retry_backoff=self.retry_backoff,
                     params=effective_judge or None,
-                    evidence_spans=evidence_spans,
+                    evidence_spans=resolved_evidence,
                 )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out
@@ -437,7 +490,7 @@ class SingleTurnAuditor(ModelAuditor):
                         correctness, c_in, c_out = await self._judge_correctness(
                             description, conversation, expected_behavior, scenario,
                             params=effective_judge or None,
-                            evidence_spans=evidence_spans,
+                            evidence_spans=resolved_evidence,
                         )
                         judge_input_tokens += c_in
                         judge_output_tokens += c_out
@@ -499,6 +552,7 @@ class SingleTurnAuditor(ModelAuditor):
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
+        evidence_resolver: Optional[Callable[[ScenarioExecution], Union[List[Dict[str, Any]], None]]] = None,
     ) -> AuditResults:
         """Run every scenario single-turn and collect the results.
 
@@ -564,6 +618,7 @@ class SingleTurnAuditor(ModelAuditor):
                         evidence_spans=evidence_spans,
                         audit_run_id=audit_run_id,
                         trace_correlation=trace_correlation,
+                        evidence_resolver=evidence_resolver,
                     )
                 except Exception as exc:
                     # Don't let one failing scenario abort the whole batch and

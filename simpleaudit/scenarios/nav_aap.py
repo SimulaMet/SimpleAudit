@@ -168,7 +168,7 @@ NAV_AAP_SCENARIOS = [
             "facts": [
                 {
                     "claim": "AAP barnetillegg, NOK per child per day",
-                    "anchors": ["barnetillegg"],
+                    "anchors": ["barnetillegg", "per barn", "per dag"],
                     "value": 38,
                     "valid_from": None,
                     "verified_at": "2026-10-07",

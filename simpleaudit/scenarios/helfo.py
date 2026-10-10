@@ -49,7 +49,7 @@ HELFO_SCENARIOS = [
             "facts": [
                 {
                     "claim": "Egenandelstak, NOK per year",
-                    "anchors": ["egenandelstak", "frikort"],
+                    "anchors": ["egenandelstak", "egenandeltak", "frikort"],
                     "value": 3278,
                     "valid_from": "2026-01-01",
                     "verified_at": "2026-10-07",

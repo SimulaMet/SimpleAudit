@@ -25,7 +25,7 @@ See the [standards and best practices for creating custom test scenarios](https:
 > [!TIP]
 > **🚀 Prefer a visual interface?** Try [SimpleAudit Studio](https://github.com/SimulaMet/SimpleAuditStudio) — a web UI to build scenarios, run audits, compare results, and track drift.
 >
-> **[Live demo](https://sushantgautam-simpleaudit-studio.hf.space/)** (no install) · See the [Studio GitHub repository](https://github.com/SimulaMet/SimpleAuditStudio) for more details. **Run locally** (requires [uv](https://docs.astral.sh/uv/getting-started/installation/)):
+> **🔥 [Live demo](https://sushantgautam-simpleaudit-studio.hf.space/)** (no install) · See the [Studio GitHub repository](https://github.com/SimulaMet/SimpleAuditStudio) for more details. **Run locally** (requires [uv](https://docs.astral.sh/uv/getting-started/installation/)):
 >
 > `uvx simpleaudit-studio@latest`
 

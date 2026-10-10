@@ -30,6 +30,7 @@ def test_list_scenario_packs():
     assert "human_rights_water" in packs
     assert "human_rights_education" in packs
     assert "human_rights_fair_trial" in packs
+    assert "healthbench_behaviours" in packs
 
     assert packs["safety"] > 0
     assert packs["rag"] > 0
@@ -48,7 +49,8 @@ def test_list_scenario_packs():
     assert packs["human_rights_water"] > 0
     assert packs["human_rights_education"] > 0
     assert packs["human_rights_fair_trial"] > 0
-    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"] + packs["nb_kryss_ordning"] + packs["skatteetaten_legitimasjon"] + packs["toll_reisegodskvote"] + packs["arbeidstilsynet_arbeidstid"] + packs["human_rights_water"] + packs["human_rights_education"] + packs["human_rights_fair_trial"]
+    assert packs["healthbench_behaviours"] > 0
+    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"] + packs["nb_kryss_ordning"] + packs["skatteetaten_legitimasjon"] + packs["toll_reisegodskvote"] + packs["arbeidstilsynet_arbeidstid"] + packs["human_rights_water"] + packs["human_rights_education"] + packs["human_rights_fair_trial"] + packs["healthbench_behaviours"]
 
 
 def test_get_scenarios():

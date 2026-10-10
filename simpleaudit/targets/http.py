@@ -57,6 +57,11 @@ class HTTPAppTarget:
         response_path: Optional[str] = None,
         timeout: float = 60.0,
         client: Optional[Any] = None,
+        # Where a context-grounding run places its retrieval documents (text
+        # only). When set, the document texts are written to this request
+        # field. When unset and documents are supplied, the run fails loudly:
+        # an HTTP app must never be probed without its intended context.
+        documents_field: Optional[str] = None,
         # Optional: extract token usage from the response, e.g.
         # ("usage.prompt_tokens", "usage.completion_tokens").
         token_paths: Optional[tuple] = None,
@@ -69,10 +74,33 @@ class HTTPAppTarget:
         self.response_path = response_path
         self.timeout = timeout
         self._client = client
+        self.documents_field = documents_field
         self.token_paths = token_paths
 
-    def _build_body(self, user: str, history: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    def _build_body(
+        self,
+        user: str,
+        history: Optional[List[Dict[str, Any]]],
+        documents: Optional[List[Union[str, Dict[str, Any]]]] = None,
+    ) -> Dict[str, Any]:
         body = json.loads(json.dumps(self.request_template))  # deep copy
+        # Retrieval context for a context-grounding run: text only, so no
+        # evaluation-only mark ever reaches the target. Fail loudly when
+        # documents were supplied but this body has nowhere to carry them — a
+        # silent drop would grade a response the app never saw the context for.
+        doc_texts = [
+            doc if isinstance(doc, str) else (doc or {}).get("text")
+            for doc in (documents or [])
+        ]
+        doc_texts = [text for text in doc_texts if isinstance(text, str) and text]
+        if doc_texts:
+            if self.documents_field is None:
+                raise ValueError(
+                    "HTTPAppTarget received documents for a context-grounding run "
+                    "but has no way to send them: pass documents_field= to name "
+                    "the request field that carries the retrieval context."
+                )
+            body[self.documents_field] = doc_texts
         if self.message_field == "messages":
             # OpenAI-style chat body: ``messages`` is a list of
             # ``{"role", "content"}`` dicts. Append the current user turn,
@@ -101,7 +129,7 @@ class HTTPAppTarget:
         context: Optional[TargetContext] = None,
     ) -> TargetResponse:
         headers = dict(self.headers)
-        body = self._build_body(user, history)
+        body = self._build_body(user, history, documents)
 
         # Forward correlation / trace context when available.
         if context is not None:

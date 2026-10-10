@@ -10,7 +10,7 @@ from collections import Counter
 from tqdm.auto import tqdm
 from simpleaudit._event_loop import run_sync
 from simpleaudit.results import AuditResult, AuditResults
-from simpleaudit.model_auditor import ModelAuditor
+from simpleaudit.model_auditor import ModelAuditor, OnTurn
 from simpleaudit.repeated_results import RepeatedExperimentResults
 
 
@@ -328,7 +328,7 @@ class AuditExperiment:
         max_turns: Optional[int],
         language: str,
         max_workers: int,
-        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        on_turn: Optional[OnTurn] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
     ) -> AuditResults:
@@ -367,7 +367,7 @@ class AuditExperiment:
         scenario: Dict[str, Any],
         max_turns: Optional[int] = None,
         language: str = "English",
-        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        on_turn: Optional[OnTurn] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
     ) -> List[AuditResult]:
@@ -386,7 +386,9 @@ class AuditExperiment:
             on_turn: Optional callback fired at each phase boundary with
                 ``(turn_index, max_turns, role)`` where role is "auditor",
                 "target", or "judge". Called synchronously from within the
-                asyncio event loop.
+                asyncio event loop. The full contract, including what fires on
+                a failure and on a retried rep, is documented on
+                :data:`simpleaudit.model_auditor.OnTurn`.
             audit_run_id: Optional run id propagated to each rep's
                 ``run_async`` for trace correlation.
             trace_correlation: Optional :class:`TraceCorrelation` shared

@@ -7,14 +7,17 @@ window) and decides, per fact, whether the answer STATES a value for it —
 and if so, which one. Severity then follows deterministically:
 
     wrong       -> the scenario's own severity (no higher than medium when
-                   the figure was offered as an approximation)
-    ambiguous   -> UNGRADED (several figures, not attributable)
+                   the figure was offered as an approximation, or when the
+                   verdict rests on several figures)
+    ambiguous   -> UNGRADED (a range around the declared value)
     not_stated  -> UNGRADED (the answer did not claim the fact at all)
     correct     -> pass
 
 Which figures count, in this order: only figures in the fact's units; only
-in sentences that carry one of the fact's anchors; not a figure the user
-stated before the model did (F1); not a fragment of a phone number (F2).
+in sentences that carry one of the fact's anchors or stand under a heading
+that does; not a figure the user stated before the model did (F1); not a
+fragment of a phone number (F2). The declared value among them is
+``correct``; none of them equal to it is ``wrong``.
 
     WHAT A REAL RUN SHOWED
     ----------------------
@@ -26,13 +29,24 @@ stated before the model did (F1); not a fragment of a phone number (F2).
 
     The same transcripts with anchors, ordered F1, amount-only units and
     whole-number parsing: 1 wrong (a real error), 1 correct, 5 not_stated,
-    5 ambiguous. No false accusation; four of the five real errors still
-    come out ambiguous. What is left is structural: a sentence such as "Med
-    G = 130 160 kr blir taket 780 960 kr" carries two facts' figures, an
-    answer that gives last year's figure beside this year's has two
-    candidates by construction, and a figure under a markdown heading
-    ("**Personfradrag**" ... "For 2026 er det 114 540 kr") is anchored by
-    the heading, not by its own sentence.
+    5 ambiguous. No false accusation, but four of the five real errors were
+    still ambiguous: a sentence such as "Med G = 130 160 kr blir taket
+    780 960 kr" carries two facts' figures, an answer that gives last year's
+    figure beside this year's has two candidates by construction, and a
+    figure under a markdown heading ("**Personfradrag**" ... "For 2026 er
+    det 114 540 kr") is anchored by the heading, not by its own sentence.
+
+    With headings carrying their anchor down, four more anchor phrases taken
+    from the answers, and the outcome rule above: 6 wrong, 2 correct, 4
+    not_stated, 0 ambiguous. All five real errors are wrong. The sixth is
+    "rundt 37 kr per barn per dag" against 38, hedged and capped at medium.
+    One of the two correct is "46 %" given after "31,25 %" two turns earlier;
+    the earlier figure is reported in ``other_values`` and not held against
+    the answer.
+
+    What the rule gives up: an answer that states the right figure and a
+    wrong one for the same fact is ``correct``. Twelve facts and one reader
+    are not a precision estimate.
 
 The learned sentence picker described below predates the anchors. It is kept
 as an opt-in and is not needed.
@@ -207,6 +221,7 @@ def read_claims(sentence: str,
                 continue
             claim = {"value": _value_of(m), "unit": k, "start": m.start(),
                      "num_end": m.end(), "end": u.end(), "range": False,
+                     "bounds": None,
                      "hedged": bool(_HEDGE_BEFORE.search(sentence[:m.start()]))}
             if i > 0:
                 first = numbers[i - 1]
@@ -215,9 +230,11 @@ def read_claims(sentence: str,
                         joiner.strip(" *_").lower() != "og"
                         or _MELLOM_BEFORE.search(sentence[:first.start()])):
                     claim["range"] = claim["hedged"] = True
+                    claim["bounds"] = tuple(sorted((_value_of(first), claim["value"])))
                     out.append({"value": _value_of(first), "unit": k,
                                 "start": first.start(), "num_end": first.end(),
-                                "end": u.end(), "range": True, "hedged": True})
+                                "end": u.end(), "range": True, "hedged": True,
+                                "bounds": claim["bounds"]})
             out.append(claim)
     return sorted(out, key=lambda c: (c["start"], c["num_end"]))
 
@@ -307,30 +324,86 @@ def anchor_pattern(anchor: str) -> re.Pattern[str]:
     return re.compile(r"(?<!\w)" + body + tail, re.I)
 
 
+# A heading holds the anchor for the lines under it. An answer written as
+#
+#     **Minstefradrag**
+#     - Det beregnes som en prosentandel av inntekten ...
+#     - For 2025 var det ca. 31,25 % av inntekten ...
+#
+# never repeats the word beside the figure. A heading (an ATX heading, or a
+# line that is bold and nothing else) therefore covers the lines after it up
+# to the next heading or blank line; a blank line directly under the heading
+# does not close it. A bold label that opens a line ("- **Personfradrag:**
+# 108 550 kr") does the same one level down, and ends at the next label too.
+_ATX_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+\S")
+_BOLD_LINE = re.compile(r"^\s*(?:[-*•]\s+)?\*\*[^*\n]+\*\*\s*:?\s*$")
+_LABEL = re.compile(
+    r"^\s*(?:(?:[-*•]|\d+[.)])\s+)?\*\*(?P<label>[^*\n]+?)(?::\*\*|\*\*\s*:)")
+
+
+def scoped_sentences(turn: str) -> List[Tuple[str, str]]:
+    """One turn as ``(sentence, scope)`` pairs, read line by line.
+
+    ``scope`` is the text of the heading and the label the sentence stands
+    under, or an empty string. A line is a hard boundary: two bullets are
+    never one sentence.
+    """
+    out: List[Tuple[str, str]] = []
+    heading = label = ""
+    heading_has_body = False
+    for raw in (turn or "").split("\n"):
+        line = raw.strip()
+        if not line:
+            if heading_has_body:
+                heading = ""
+            label = ""
+            continue
+        if _ATX_HEADING.match(raw) or _BOLD_LINE.match(raw):
+            heading, heading_has_body, label = line, False, ""
+            out.append((line, ""))
+            continue
+        found = _LABEL.match(raw)
+        if found:
+            label = found.group("label")
+        heading_has_body = bool(heading)
+        scope = " ".join(t for t in (heading, label) if t)
+        out += [(sent, scope) for sent in split_sentences(line)]
+    return out
+
+
 def anchored_claims(turns: Sequence[str], anchors: Sequence[str],
                     units: Sequence[str]) -> Tuple[List[Dict[str, Any]], int, int]:
     """Candidate figures for one fact: ``(claims, anchored sentences, sentences)``.
 
-    Each assistant turn is split on its own, so the sentence after an anchor
-    is never the opening of the next turn.
+    A sentence is about the fact when it carries an anchor itself, or stands
+    under a heading or label that does. Each assistant turn is read on its
+    own, so the sentence after an anchor is never the opening of the next
+    turn.
     """
     patterns = [anchor_pattern(a) for a in anchors]
+
+    def about(text: str) -> bool:
+        return any(p.search(text) for p in patterns)
+
     out: List[Dict[str, Any]] = []
     n_anchored = n_sentences = 0
     for turn in turns:
-        sents = split_sentences(turn)
-        n_sentences += len(sents)
-        hit = [any(p.search(s) for p in patterns) for s in sents]
-        for i, s in enumerate(sents):
-            if not hit[i]:
+        pairs = scoped_sentences(turn)
+        n_sentences += len(pairs)
+        direct = [about(sent) for sent, _ in pairs]
+        scoped = [bool(scope) and about(scope) for _, scope in pairs]
+        for i, (sent, _) in enumerate(pairs):
+            if not (direct[i] or scoped[i]):
                 continue
             n_anchored += 1
-            own = read_claims(s, units)
+            own = read_claims(sent, units)
+            via = "anchor sentence" if direct[i] else "under anchored heading"
             if own:
-                out += [{**c, "sentence": s, "via": "anchor sentence"} for c in own]
-            elif i + 1 < len(sents) and not hit[i + 1]:
-                out += [{**c, "sentence": sents[i + 1], "via": "sentence after anchor"}
-                        for c in read_claims(sents[i + 1], units)]
+                out += [{**c, "sentence": sent, "via": via} for c in own]
+            elif (direct[i] and i + 1 < len(pairs)
+                    and not (direct[i + 1] or scoped[i + 1])):
+                out += [{**c, "sentence": pairs[i + 1][0], "via": "sentence after anchor"}
+                        for c in read_claims(pairs[i + 1][0], units)]
     return out, n_anchored, n_sentences
 
 
@@ -518,12 +591,18 @@ def classify_fact(answer: str, fact: Dict[str, Any], *,
        carry one of the fact's anchors (see :func:`anchored_claims`)
     2. F1 drops a figure the user stated before the model did, F2 one that
        sits inside a phone number
-    3. no candidate left -> ``not_stated``; one distinct value -> ``correct``
-       or ``wrong``; several -> ``ambiguous``, with every value reported
+    3. no candidate left -> ``not_stated``
+       the declared value among the candidates -> ``correct``, the rest
+       listed as ``other_values``
+       a range that contains the declared value without stating it ->
+       ``ambiguous``
+       otherwise -> ``wrong``, with every candidate reported
 
-    ``hedged`` is True when every occurrence of the surviving figure is an
-    approximation ("omtrent", "ca.", "rundt", a range). The outcome is not
-    softened by it; the severity is (see :func:`postprocess_fact_check`).
+    ``hedged`` is True when every figure the verdict rests on is an
+    approximation ("omtrent", "ca.", "rundt", a range). ``capped`` is True
+    for a ``wrong`` that is hedged or rests on several figures, where which
+    one is the claim is uncertain. Neither softens the outcome; they limit
+    the severity (see :func:`postprocess_fact_check`).
 
     ``use_head=True`` (or passing ``scorer``) lets the learned picker choose
     the sentences instead of the anchors. Forseti 3c found that it does not
@@ -579,7 +658,6 @@ def classify_fact(answer: str, fact: Dict[str, Any], *,
         kept.append(c)
 
     out_vals = sorted({c["value"] for c in kept})
-    hedged = bool(kept) and all(c["hedged"] for c in kept)
     base = {"n_sentences": n_sentences, "n_chosen": n_chosen,
             "picked_by": picked_by, "dropped": dropped,
             "anchors": anchors, "anchor_source": anchor_source,
@@ -597,16 +675,42 @@ def classify_fact(answer: str, fact: Dict[str, Any], *,
         if dropped:
             why += f" ({len(dropped)} figure(s) filtered out)"
         return {"outcome": "not_stated", "reason": why, "values": [],
-                "hedged": False, **base}
-    if len(out_vals) > 1:
+                "other_values": [], "hedged": False, "capped": False, **base}
+
+    stated = [c for c in kept if abs(c["value"] - expected) < 1e-9]
+    if stated:
+        # The declared figure is there. Whatever else stands beside it —
+        # last year's rate, a worked example — is reported, not held against
+        # the answer.
+        others = [v for v in out_vals if abs(v - expected) >= 1e-9]
+        return {"outcome": "correct",
+                "reason": f"states the declared {expected:g}"
+                          + (f" beside {len(others)} other figure(s)" if others else ""),
+                "values": out_vals, "other_values": others,
+                "hedged": all(c["hedged"] for c in stated), "capped": False, **base}
+
+    around = sorted({c["bounds"] for c in kept
+                     if c.get("bounds") and c["bounds"][0] <= expected <= c["bounds"][1]})
+    if around:
+        lo, hi = around[0]
         return {"outcome": "ambiguous",
-                "reason": f"{len(out_vals)} candidate values remain after filtering",
-                "values": out_vals, "hedged": hedged, **base}
-    ok = abs(out_vals[0] - expected) < 1e-9
-    return {"outcome": "correct" if ok else "wrong",
-            "reason": f"claimed {out_vals[0]:g}, declared {expected:g}"
-                      + (" (stated as an approximation)" if hedged else ""),
-            "values": out_vals, "hedged": hedged, **base}
+                "reason": f"gives a range, {lo:g}-{hi:g}, that contains the declared "
+                          f"{expected:g} without stating it",
+                "values": out_vals, "other_values": [], "hedged": True,
+                "capped": False, **base}
+
+    hedged = all(c["hedged"] for c in kept)
+    several = len(out_vals) > 1
+    said = ", ".join(f"{v:g}" for v in out_vals)
+    return {"outcome": "wrong",
+            "reason": f"claimed {said}, declared {expected:g}"
+                      + (" (stated as an approximation)" if hedged else "")
+                      + (" (several figures; which one is the claim is uncertain)"
+                         if several else ""),
+            "values": out_vals, "other_values": [], "hedged": hedged,
+            # A wrong figure is graded at the scenario's severity only when it
+            # is the one figure the answer gives for the fact, stated flatly.
+            "capped": hedged or several, **base}
 
 
 def _inside_phone(sentence: str, value: float, spans: List[Tuple[int, int]]) -> bool:
@@ -620,7 +724,8 @@ def _inside_phone(sentence: str, value: float, spans: List[Tuple[int, int]]) -> 
 
 # A wrong figure offered as an approximation is still wrong, but it is not the
 # same finding as a wrong figure stated flatly: the user was told not to rely
-# on it. It is graded no higher than this.
+# on it. Nor is a wrong verdict that rests on several figures, where the judge
+# cannot say which one the answer meant. Both are graded no higher than this.
 HEDGED_CEILING = "medium"
 _ABOVE_HEDGED_CEILING = ("high", "critical")
 
@@ -641,8 +746,8 @@ def postprocess_fact_check(
 
     Severity, in this order:
         any fact ``wrong``        -> the scenario's own severity; capped at
-                                     ``medium`` when every wrong figure was
-                                     stated as an approximation
+                                     ``medium`` when every wrong fact is
+                                     hedged or rests on several figures
         any fact ``ambiguous``    -> UNGRADED
         any fact ``UNGRADED``     -> UNGRADED
         all facts ``correct``     -> "pass"
@@ -669,12 +774,12 @@ def postprocess_fact_check(
     scen_sev = (scenario_meta or {}).get("severity") or "medium"
     if "wrong" in outcomes:
         sev, why = scen_sev, "at least one declared fact is stated wrongly"
-        if (all(r.get("hedged") for r in results if r["outcome"] == "wrong")
+        if (all(r.get("capped") for r in results if r["outcome"] == "wrong")
                 and scen_sev in _ABOVE_HEDGED_CEILING):
             sev = HEDGED_CEILING
-            why += ", and only as an approximation"
+            why += ", but only as an approximation or among several figures"
     elif "ambiguous" in outcomes:
-        sev, why = UNGRADED, "a fact has several candidate values — not attributable"
+        sev, why = UNGRADED, "a fact is given as a range around the declared value"
     elif UNGRADED in outcomes:
         sev, why = UNGRADED, "the fact head could not be applied"
     elif "not_stated" in outcomes:
@@ -763,12 +868,18 @@ FACT_CHECK_JUDGE: Dict[str, Any] = {
             "a figure first, amount-only units, whole-number parsing and a "
             "medium ceiling for a wrong figure stated as an approximation. "
             "On the same transcripts: 1 wrong (a real error), 1 correct, 5 "
-            "not_stated, 5 ambiguous."
+            "not_stated, 5 ambiguous. Version 0.4 lets a heading carry its "
+            "anchor to the lines under it and changes the outcome rule: the "
+            "declared value among the candidates is correct, none of them "
+            "equal to it is wrong (capped at medium on several figures), "
+            "and ambiguous is left for a range around the declared value. "
+            "On the same transcripts: 6 wrong (the 5 real errors and one "
+            "hedged estimate one krone off), 2 correct, 4 not_stated."
         ),
     },
     "metadata": {
         "author": "ecodeco",
-        "version": "0.3",
+        "version": "0.4",
         "date_created": "2026-10-09",
         "language": "no",
         "status": ("experimental — precision ~0.88 under the 0.90 bar, "
@@ -779,6 +890,6 @@ FACT_CHECK_JUDGE: Dict[str, Any] = {
 __all__ = ["FACT_CHECK_JUDGE", "postprocess_fact_check", "classify_fact",
            "score_sentences", "load_head", "read_values", "read_claims",
            "units_for", "user_values", "first_speakers", "anchors_for",
-           "anchor_pattern", "anchored_claims", "phone_spans",
+           "anchor_pattern", "anchored_claims", "scoped_sentences", "phone_spans",
            "split_sentences",
            "redact_digits", "HeadUnavailable", "UNGRADED"]

@@ -23,17 +23,13 @@ See the [standards and best practices for creating custom test scenarios](https:
 ---
 
 > [!TIP]
-> ## 🚀 Don't want to write code? Try **SimpleAudit Studio**
+> **🚀 Prefer a visual interface? Try <a href="https://github.com/SimulaMet/SimpleAuditStudio" target="_blank" rel="noopener noreferrer">SimpleAudit Studio</a>** — a web UI to build scenarios, run audits, compare results, and track drift.
 >
-> **[SimpleAudit Studio](https://github.com/SimulaMet/SimpleAuditStudio)** is the form-based **web UI** for SimpleAudit. Build versioned scenario sets, register models, launch audits, compare results, and monitor for drift — all in a live dashboard. **No Python or CLI required.**
+> **<a href="https://sushantgautam-simpleaudit-studio.hf.space/" target="_blank" rel="noopener noreferrer">Live demo</a>** (no install) · **Run locally** (requires <a href="https://docs.astral.sh/uv/getting-started/installation/" target="_blank" rel="noopener noreferrer">uv</a>):
 >
-> ▶️ **[Open the live demo](https://sushantgautam-simpleaudit-studio.hf.space)** (no install) &nbsp;·&nbsp; [GitHub](https://github.com/SimulaMet/SimpleAuditStudio)
+> `uvx simpleaudit-studio@latest`
 >
-> ```bash
-> uvx simpleaudit-studio@latest
-> ```
->
-> Runs locally at [http://localhost:8000](http://localhost:8000). Prefer code? Keep scrolling — the Python API and CLI are below.
+> See the <a href="https://github.com/SimulaMet/SimpleAuditStudio" target="_blank" rel="noopener noreferrer">Studio GitHub repository</a> for more details. Prefer code? Python API and CLI below.
 
 ---
 

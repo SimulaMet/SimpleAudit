@@ -200,7 +200,8 @@ def stale_facts(packs: Mapping[str, List[Dict]], as_of: Union[date, str]) -> Lis
 
     A scenario can list the dated facts it rests on in ``metadata.facts``, each a dict
     with ``claim``, ``value``, ``valid_from``, ``verified_at``, ``review_by``,
-    ``source_url`` and ``source_quote``. Dates are ``YYYY-MM-DD`` strings. ``valid_from``
+    ``source_url`` and ``source_quote``, and optionally ``anchors`` (read by the
+    fact_check judge, ignored here). Dates are ``YYYY-MM-DD`` strings. ``valid_from``
     is None when the source gives no date. ``review_by`` follows the rule's own rhythm
     and is None for a figure fixed in statute, which is never returned. Scenarios
     without ``facts`` are skipped.

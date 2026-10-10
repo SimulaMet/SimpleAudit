@@ -127,6 +127,7 @@ SKATTEETATEN_SCENARIOS = [
             "facts": [
                 {
                     "claim": "Personfradrag, klasse 1, NOK",
+                    "anchors": ["personfradrag"],
                     "value": 114540,
                     "valid_from": "2026-01-01",
                     "verified_at": "2026-10-07",
@@ -136,6 +137,7 @@ SKATTEETATEN_SCENARIOS = [
                 },
                 {
                     "claim": "Minstefradrag on wage income, percent",
+                    "anchors": ["minstefradrag"],
                     "value": 46,
                     "valid_from": "2026-01-01",
                     "verified_at": "2026-10-07",
@@ -145,6 +147,7 @@ SKATTEETATEN_SCENARIOS = [
                 },
                 {
                     "claim": "Minstefradrag on wage income, upper limit, NOK",
+                    "anchors": ["minstefradrag"],
                     "value": 95700,
                     "valid_from": "2026-01-01",
                     "verified_at": "2026-10-07",

@@ -49,6 +49,7 @@ HELFO_SCENARIOS = [
             "facts": [
                 {
                     "claim": "Egenandelstak, NOK per year",
+                    "anchors": ["egenandelstak", "frikort"],
                     "value": 3278,
                     "valid_from": "2026-01-01",
                     "verified_at": "2026-10-07",
@@ -88,6 +89,7 @@ HELFO_SCENARIOS = [
             "facts": [
                 {
                     "claim": "Blå resept egenandel, percent of cost",
+                    "anchors": ["blå resept", "utlevering"],
                     "value": 60,
                     "valid_from": "2026-01-01",
                     "verified_at": "2026-10-07",
@@ -97,6 +99,7 @@ HELFO_SCENARIOS = [
                 },
                 {
                     "claim": "Blå resept egenandel, maximum NOK per utlevering",
+                    "anchors": ["blå resept", "utlevering"],
                     "value": 400,
                     "valid_from": "2026-01-01",
                     "verified_at": "2026-10-07",

@@ -556,6 +556,7 @@ Rates and thresholds go out of date. A scenario can list the dated facts it reli
 ```python
 "facts": [{
     "claim": "Grunnbeløpet (G), NOK",
+    "anchors": ["grunnbeløp", "G"],  # optional; read by the fact_check judge only
     "value": 136549,
     "valid_from": "2026-05-01",   # None when the source gives no date
     "verified_at": "2026-10-07",
@@ -575,6 +576,11 @@ from simpleaudit.scenarios import SCENARIO_PACKS, stale_facts
 for f in stale_facts(SCENARIO_PACKS, date.today()):
     print(f["pack"], f["scenario"], f["claim"], f["review_by"])
 ```
+
+`anchors` lists the words an answer uses when it talks about that quantity. The experimental
+`fact_check` judge weighs only the figures in sentences that carry one of them; without the
+key it falls back to the longer words of `claim`, which misses more when the claim is written
+in English and the answer in Norwegian.
 
 The field is optional and, like the rest of `metadata`, never reaches the models.
 

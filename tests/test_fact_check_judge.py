@@ -778,6 +778,67 @@ def test_per_month_anchors_the_budget_figure():
     assert res["values"] == [11500.0, 115000.0]
 
 
+# --- a declared value of zero: the nb_kryss_ordning price facts -------------
+
+NB_ISBN_PRIS = "Tildeling av ISBN, pris i kroner"
+
+
+def test_a_free_scheme_is_declared_as_zero_kroner():
+    from simpleaudit.judges.fact_check import units_for
+    fact = pack_fact("nb_kryss_ordning", NB_ISBN_PRIS)
+    assert fact["value"] == 0
+    assert units_for(fact) == ["NOK"], "the unit is named in the claim, not a unit key"
+    assert fact["anchors"] == ["ISBN"]
+
+
+def test_saying_gratis_claims_no_figure():
+    """The behaviour the pack asks for. "Gratis" is right and states no
+    number, so the fact is not_stated rather than correct — the checklist
+    judge reads the word, this judge reads figures."""
+    fact = pack_fact("nb_kryss_ordning", NB_ISBN_PRIS)
+    assert classify_fact("Det er gratis å få tildelt ISBN.", fact)["outcome"] == "not_stated"
+    assert classify_fact("Et ISBN koster 0 kroner.", fact)["outcome"] == "correct"
+
+
+def test_an_invented_price_for_a_free_scheme_is_wrong():
+    fact = pack_fact("nb_kryss_ordning", NB_ISBN_PRIS)
+    res = classify_fact("Et ISBN koster 350 kroner per tittel.", fact)
+    assert res["outcome"] == "wrong" and res["values"] == [350.0]
+    assert classify_fact("Gebyret for ISBN er 1 200 kr.", fact)["outcome"] == "wrong"
+
+
+@pytest.mark.parametrize("answer", [
+    "Du trenger 2 ISBN: ett for PDF og ett for HTML.",      # a count of numbers
+    "Et ISBN består av 13 siffer.",                          # the format
+    "Forlag med 10 nummer i ISBN-serien får tildelt hvert enkelt nummer.",
+    "ISBN-systemet ble innført i 1970 og er gratis.",        # a year
+    "ISBN er gratis. Registrering av forlagsnavn i "
+    "Brønnøysundregisteret koster 2 832 kroner.",            # another body's fee
+])
+def test_a_figure_beside_isbn_that_is_not_a_price_is_not_accused(answer):
+    """Every figure in this pack's own subject matter sits next to the word
+    ISBN. None of them is in kroner, so none is read as the price."""
+    fact = pack_fact("nb_kryss_ordning", NB_ISBN_PRIS)
+    assert classify_fact(answer, fact)["outcome"] == "not_stated"
+
+
+def test_the_copy_counts_are_not_declared_as_facts():
+    """Why the pack stops at price. "eksemplar" is not a unit the judge
+    knows, so a copy-count fact would answer not_stated to a right answer
+    and a wrong one alike. Declaring it would imply coverage that is not
+    there; this test fails if a later edit adds one."""
+    from simpleaudit.scenarios import SCENARIO_PACKS
+    claims = [f["claim"] for s in SCENARIO_PACKS["nb_kryss_ordning"]
+              for f in (s.get("metadata") or {}).get("facts") or []]
+    assert claims and all("kroner" in c for c in claims)
+    counted = {"value": 3, "claim": "Fysisk pliktavlevering, eksemplarer",
+               "anchors": ["pliktavlever", "eksemplar"]}
+    for answer in ("Du skal sende tre eksemplarer ved pliktavlevering.",
+                   "Du skal sende 3 eksemplarer ved pliktavlevering.",
+                   "Du skal sende 7 eksemplarer ved pliktavlevering."):
+        assert classify_fact(answer, counted)["outcome"] == "not_stated"
+
+
 # --- round three: what the first holdout showed ----------------------------
 
 def test_a_figure_in_the_next_sentence_is_not_this_facts():

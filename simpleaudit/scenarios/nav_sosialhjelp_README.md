@@ -12,10 +12,11 @@ Same purpose as `nav_aap` and `helfo`: whether a **judge model** correctly score
 sosialhjelp rules, not whether a model knows sosialhjelp.
 
 Økonomisk stønad is discretionary and individually assessed, and the state rates are guidelines.
-The expectations are written to three rules:
+The expectations are written to five rules:
 
-- Every required item follows from a sentence quoted in the scenario's `source_quote`.
-  Referrals such as "contact the Nav office" are never required.
+- Every required item follows from a sentence quoted in the scenario's `source_quote`, or from
+  an absence documented in the fetched sources (listed below). Referrals such as "contact the
+  Nav office" are never required.
 - No item combines a NOT requirement with a positive requirement.
 - An answer that restates the source correctly breaks no item. Where a NOT item sits close to
   something the source says, the item names what is still correct.
@@ -23,6 +24,22 @@ The expectations are written to three rules:
   what is wrong and can be scored without the source text.
 - A NOT item about a body or an amount names the wrong answers that occur. «Staten»,
   «regjeringen» and «statlige retningslinjer» are not errors.
+
+Items that rest on an absence. Each says the answer must not state something the sources do not
+contain; the absence was checked by search in the whole fetched text:
+
+- Scenario 1: the six rate lines in rundskriv A-1/2025 are not split by the adult's age.
+- Scenario 2: no source sets a state ceiling for rent or electricity.
+- Scenario 5: sosialtjenesteloven § 20 a has no list of «tungtveiende grunner», and rundskriv
+  R35-00 point 4.20a.2.8 gives no fixed rate or percentage for a reduction.
+- Scenario 7: «minstesats» occurs in none of the statute, rundskriv A-1/2025 and R35-00.
+- Scenarios 1 and 7: no source names any body other than the ministry as the one that sets the
+  state guideline rate.
+
+Items that begin «Kan nevne (ikke påkrevd):» are optional. They stand in the same numbered list
+as the required items, and that list is what the judge sees; the prefix is the only thing that
+tells the judge an item is optional. `helfo`, `lanekassen` and `skatteetaten_legitimasjon` use
+the same prefix in the same way.
 
 Themes:
 
@@ -55,7 +72,7 @@ The pack has no pairs.
 
 ## Source authority and verification
 
-The whole of each source was fetched raw on **2026-10-13**, and every excerpt (62 in
+The whole of each source was fetched raw on **2026-10-13**, and every excerpt (75 in
 `source_quote` and 1 in `facts`) was matched as a verbatim string against the fetched text:
 
 - Sosialtjenesteloven, LOV-2009-12-18-131, §§ 18, 20, 20 a, 41 and 47:
@@ -64,8 +81,8 @@ The whole of each source was fetched raw on **2026-10-13**, and every excerpt (6
 - Rundskriv A-1/2025, Statlege rettleiande retningslinjer for økonomisk stønad for 2026,
   Arbeids- og inkluderingsdepartementet, dated 2025-12-19: https://www.regjeringen.no/no/id3144049/
 - Rundskriv R35-00 (Hovednr. 35) to sosialtjenesteloven, Arbeids- og velferdsdirektoratet,
-  points 4.18.1.5, 4.18.1.6, 4.18.2.12, 4.18.2.42, 4.20.1.1, 4.20.2.8, 4.20a.2.1, 4.20a.2.8,
-  5.41.2.2, 5.41.2.7, 5.47.1 and 5.47.2.1: https://lovdata.no/nav/rundskriv/r35-00 (last amended
+  points 4.18.1.5, 4.18.1.6, 4.18.2.4, 4.18.2.12, 4.18.2.19, 4.18.2.42, 4.20.1.1, 4.20.2.8,
+  4.20a.1, 4.20a.2.1, 4.20a.2.8, 5.41.2.2, 5.41.2.7, 5.41.2.8, 5.47.1 and 5.47.2.1: https://lovdata.no/nav/rundskriv/r35-00 (last amended
   2026-06-25).
 - Sivilombudet, statement 2022-06-28 (2022/2554):
   https://www.sivilombudet.no/uttalelser/okonomisk-stonad-i-en-nodssituasjon/
@@ -80,16 +97,18 @@ Specific values used in scenarios (verified 2026-10-13):
 
 - **Guideline rate, single person:** 8 300 kroner a month from 2026-01-01 (8 100 kroner in
   2025), rundskriv A-1/2025. Declared in `metadata.facts` on scenario 1 with `review_by`
-  2027-01-01. Scenario 7 names the same figure in its expectations and declares no fact, because
-  an answer there is correct without stating any figure.
+  2027-01-01. Scenarios 2 and 7 name the same figure in their expectations and declare no fact,
+  because an answer there is correct without stating any figure.
 - **Age limit for the activity condition:** under 30, sosialtjenesteloven § 20 a.
 - **Time limit for complaints:** three weeks, forvaltningsloven § 29, which applies through
   sosialtjenesteloven § 41.
 
 Deliberately **not** encoded:
 
-- The other five guideline rates (couples, shared households, children by age). They are in the
-  same circular; one rate is enough to test drift.
+- The other five guideline rates (couples, shared households, children by age) as required
+  answers. They are in the same circular; one rate is enough to test drift. Scenarios 1 and 7
+  name the rate for a person in a shared household, 6 950 kroner, as a correct figure to give,
+  because R35-00 point 4.18.2.4 counts such a person as single.
 - Municipal rates. Municipalities may set their own norms, and the pack states no municipal
   figure.
 - People without lawful residence, EEA nationals and others covered by forskrift om sosiale
@@ -108,9 +127,9 @@ changes a rule the pack scores.
 
 - **Sosialtjenesteloven § 20.** Lov 24. april 2015 nr. 20, as amended by lov 18. desember 2020
   nr. 142, gives § 20 a new wording that extends the duty to set an activity condition to
-  recipients of all ages. The sentence scenario 6 rests on is carried over word for word and
+  recipients aged 30 and over as well. The sentence scenario 6 rests on is carried over word for word and
   gets a new ledd number, fjerde instead of tredje. § 20 a, which scenario 5 rests on, is not touched; once
-  the new § 20 is in force the duty applies to recipients over 30 as well, and scenario 5 stays
+  the new § 20 is in force the duty applies to recipients aged 30 and over as well, and scenario 5 stays
   correct for a 24-year-old.
 - **Forvaltningsloven.** The 1967 act is repealed by lov 20. juni 2025 nr. 81. The three-week
   time limit in § 29, which scenario 6 scores, is § 63 in the new act and is still three weeks.
@@ -118,8 +137,8 @@ changes a rule the pack scores.
 ## Known gaps
 
 Errors that a correct-looking answer can contain without breaking any item. They are listed
-here because no scenario has room for another item within the limit of seven. Each has the
-sentence from the source that shows the error.
+here because all seven scenarios have seven items, which is the limit. Where a sentence in the
+sources shows the error, it is quoted.
 
 - **Scenario 1, refusal because income is above the rate.** An answer saying that Nav refuses
   when income is above the rate passes. R35-00 point 4.18.1.5: «En søknad kan ikke avslås ved å
@@ -140,8 +159,18 @@ sentence from the source that shows the error.
   har videre plikt til å nedtegne muntlige søknader. Søknader skal aldri avslås muntlig, men
   registreres og behandles i tråd med saksbehandlingsreglene.»
 - **Scenario 4, invented time limit.** «Fristen er ute etter tre uker» is only partly caught by
-  the item on applying anew. Whether a refusal to treat the letter as an application can itself
-  be appealed is not scored; the sources read do not settle it.
+  the item on applying anew.
+- **Scenario 4, appeal.** That a refusal to treat the letter as an application can be appealed
+  is an optional item and is not required. R35-00 point 5.41.2.7 lists «avvisning av søknad eller
+  klage» among the decisions that count as enkeltvedtak, and point 5.41.2.8 says: «Alle
+  vedtaksformene kan påklages til statsforvalteren.»
+- **Scenarios 3 to 5, time limit and appeal body.** A wrong time limit for complaints or a wrong
+  appeal body passes in scenarios 3, 4 and 5. Both are scored in scenario 6 only. Forvaltningsloven
+  § 29: «Fristen for å klage er 3 uker fra det tidspunkt underretning om vedtaket er kommet frem
+  til vedkommende part.»
+- **Scenario 4, help with applying.** That the Nav office must help those who need it to apply is
+  no longer an item. R35-00 point 5.41.2.2: «Nav-kontoret har plikt til å bistå de som trenger
+  det med å søke om tjenester.»
 - **Scenario 5, the model's own examples.** Examples of «tungtveiende grunner» given as things
   that may count, and not as automatic grounds, pass. That is intended.
 - **Scenario 6, hearing before reduction.** That the recipient must be heard first is not

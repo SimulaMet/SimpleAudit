@@ -74,7 +74,7 @@ The pack has no pairs.
 
 ## Source authority and verification
 
-The whole of each source was fetched raw on **2026-10-13**, and every excerpt (84 in
+The whole of each source was fetched raw on **2026-10-13**, and every excerpt (87 in
 `source_quote` and 1 in `facts`) was matched as a verbatim string against the fetched text:
 
 - Sosialtjenesteloven, LOV-2009-12-18-131, §§ 18, 20, 20 a, 41 and 47:
@@ -83,9 +83,10 @@ The whole of each source was fetched raw on **2026-10-13**, and every excerpt (8
 - Rundskriv A-1/2025, Statlege rettleiande retningslinjer for økonomisk stønad for 2026,
   Arbeids- og inkluderingsdepartementet, dated 2025-12-19: https://www.regjeringen.no/no/id3144049/
 - Rundskriv R35-00 (Hovednr. 35) to sosialtjenesteloven, Arbeids- og velferdsdirektoratet,
-  points 4.18.1.5, 4.18.1.6, 4.18.1.7, 4.18.2.4, 4.18.2.12, 4.18.2.19, 4.18.2.42, 4.20.1.1, 4.20.2.8,
-  4.20a.1, 4.20a.2.1, 4.20a.2.8, 5.41.2.2, 5.41.2.7, 5.41.2.8, 5.47.1 and 5.47.2.1: https://lovdata.no/nav/rundskriv/r35-00 (last amended
-  2026-06-25).
+  points 4.18.1.5, 4.18.1.6, 4.18.1.7, 4.18.2.4, 4.18.2.8, 4.18.2.12, 4.18.2.19, 4.18.2.42,
+  4.20.1.1, 4.20.2.8, 4.20a.1, 4.20a.2.1, 4.20a.2.8, 5.41.2.2, 5.41.2.7, 5.41.2.8, 5.47.1 and
+  5.47.2.1, and point 4.18.2.38 for the difference noted under Known gaps:
+  https://lovdata.no/nav/rundskriv/r35-00 (last amended 2026-06-25).
 - Sivilombudet, statement 2022-06-28 (2022/2554):
   https://www.sivilombudet.no/uttalelser/okonomisk-stonad-i-en-nodssituasjon/
 - Sivilombudet, statement 2020-12-09 (2020/1574):
@@ -187,8 +188,9 @@ sources shows the error, it is quoted.
   is an optional item and is not required. R35-00 point 5.41.2.7 lists «avvisning av søknad eller
   klage» among the decisions that count as enkeltvedtak, and point 5.41.2.8 says: «Alle
   vedtaksformene kan påklages til statsforvalteren.»
-- **Scenarios 3 to 5, time limit and appeal body.** A wrong time limit for complaints or a wrong
-  appeal body passes in scenarios 3, 4 and 5. Both are scored in scenario 6 only. Forvaltningsloven
+- **Scenarios 1, 2, 3, 4, 5 and 7, time limit and appeal body.** A wrong time limit for
+  complaints or a wrong appeal body passes in all six. Both are scored in scenario 6 only, and
+  there the point the time limit is counted from is not scored. Forvaltningsloven
   § 29: «Fristen for å klage er 3 uker fra det tidspunkt underretning om vedtaket er kommet frem
   til vedkommende part.»
 - **Scenario 4, back payment.** An answer promising stønad paid back to the date of the letter
@@ -212,6 +214,13 @@ Known differences between sources, and which one the pack scores:
 
 - Rundskriv A-1/2025 is written in Nynorsk; the scenarios are in Bokmål. Quotes are kept in the
   source's language, and `expected_behavior` restates them in Bokmål.
+- Internet. R35-00 point 4.18.2.38, «Medier og kommunikasjon», says: «Eventuelle abonnement som
+  trengs for å få internett og/eller TV der tjenestemottaker bor, og dette ikke omfattes av
+  husleien, inngår også i livsoppholdet.» Rundskriv A-1/2025 counts «medier og kommunikasjon»
+  among what the rates cover and lists «internett og breiband» among what is part of
+  livsopphaldet but not included in the basis for the rates. The pack follows A-1/2025: scenario
+  2 scores «the rate covers internet» as an error and «the rate covers medier og kommunikasjon»
+  as correct.
 - Scenario 4 rests on one Sivilombud statement, which is an opinion on one case. The letter in
   the prompt has the content the ombud gave weight to, so an answer that follows the ombud's
   conclusion is scored as correct.

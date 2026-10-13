@@ -10,8 +10,9 @@ and if so, which one. Severity then follows deterministically:
                    the figure was offered as an approximation, or when the
                    verdict rests on several figures)
     ambiguous   -> UNGRADED (a range around the declared value, or the
-                   declared value in a sentence without an anchor beside
-                   other figures in sentences with one)
+                   declared value in a sentence without an anchor, or
+                   without its unit, beside other figures that are
+                   candidates)
     not_stated  -> UNGRADED (the answer did not claim the fact at all)
     correct     -> pass
 
@@ -35,6 +36,21 @@ model did (the F1 criterion) does not count here: an answer that repeats the
 user's figure in order to doubt it has not stated it. An answer with no
 candidate at all stays ``not_stated``, whatever stands in its other
 sentences.
+
+The exception also covers the declared value written without its unit: "Den
+veiledende satsen for enslige er nå 8 300 i måneden, opp fra 8 100 kroner i
+2025." A figure without a unit is never a candidate, so here the only
+candidate is last year's rate. A bare figure counts wherever it stands, in a
+sentence with an anchor or without one, as "8 300", "8 300,-" or "8300", and
+only for a declared value of 1 000 or more: a small bare number is as likely
+a date, a list marker or a section number. A figure that carries any unit is
+not bare. The same three limits hold: it never makes the answer ``correct``,
+it does not count when the user gave the figure first, and without a
+candidate the outcome stays ``not_stated``.
+
+Known limitation: a comma is read as the Norwegian decimal sign. "NOK 8,300
+per month", in an answer written in English, is read as 8.3, and a correct
+answer of that form is ``wrong``.
 
     WHAT A REAL RUN SHOWED
     ----------------------
@@ -96,6 +112,19 @@ sentences.
     declared figure about something else ("Satsen for enslige er 8 100
     kroner. Husleie på 8 300 kroner dekkes i tillegg.") is UNGRADED where it
     was ``wrong``. It is never a pass.
+
+    A third reading, 50 new answers about the same fact, 36 correct and 14
+    wrong. 4 of the 36 came out ``wrong``. Three gave 8 300 without a unit
+    ("8 300,- per måned", "8 300 i måneden") beside another amount with one,
+    and are ``ambiguous`` now that the exception covers a bare figure. The
+    fourth is the comma above and is still ``wrong``. After the change the
+    36 are 24 correct, 5 ambiguous, 6 not_stated and 1 wrong; the 14 are 9
+    wrong, 2 ambiguous, 2 correct and 1 not_stated, as before. The two wrong
+    answers that are ``correct`` swap the years ("8 100 kroner i 2026, opp
+    fra 8 300 kroner i 2025"): the declared figure in an anchored sentence
+    beside the error, which is what the rule gives up. The 36 answers of the
+    second reading and the 62 stored outcomes did not change. The floor of
+    1 000 is a precaution; without it the same 148 outcomes are the same.
 
 The learned sentence picker described below predates the anchors. It is kept
 as an opt-in and is not needed.
@@ -645,23 +674,63 @@ def score_sentences(fact_desc: str, sentences: Sequence[str],
 # postprocess — the deterministic part
 # --------------------------------------------------------------------------
 
+# A figure without a unit is not a claim, and a small one is as likely a date,
+# a list marker or a section number as an amount. From this size up, the
+# declared value standing bare in the answer is taken as the declared value.
+BARE_FIGURE_FLOOR = 1000
+
+
+def bare_figures(sentence: str, expected: float) -> List[Tuple[int, int]]:
+    """Spans where ``expected`` stands without any unit: "8 300", "8 300,-",
+    "8300". A figure that carries a unit, of any kind, is not bare, nor is
+    one inside a phone number."""
+    if abs(expected) < BARE_FIGURE_FLOOR:
+        return []
+    text = sentence or ""
+    taken = [(c["start"], c["num_end"]) for c in read_claims(text)]
+    taken += phone_spans(text)
+    return [(m.start(), m.end()) for m in _NUM_RE.finditer(text)
+            if abs(_value_of(m) - expected) < 1e-9
+            and not any(a <= m.start() and m.end() <= b for a, b in taken)]
+
+
+def states_declared(sentence: str, units: Sequence[str], expected: float) -> bool:
+    """Does the sentence give ``expected`` as a point figure, with its unit
+    or bare?"""
+    spans = phone_spans(sentence)
+    with_unit = any(abs(c["value"] - expected) < 1e-9 and not c["range"]
+                    and not any(a <= c["start"] and c["num_end"] <= b
+                                for a, b in spans)
+                    for c in read_claims(sentence, units))
+    return with_unit or bool(bare_figures(sentence, expected))
+
+
 def stated_outside_anchors(turns: Sequence[str], units: Sequence[str],
                            expected: float) -> List[str]:
-    """Sentences that state ``expected`` as a point figure, with its unit.
+    """Sentences that give ``expected`` where it is not a candidate.
 
-    Called only when no anchored candidate equals the declared value, so
-    every sentence returned is one the anchors did not reach.
+    Called only when no candidate equals the declared value. With its unit
+    the figure is then in a sentence the anchors did not reach; without its
+    unit it may stand anywhere, the anchored sentences included, because a
+    bare figure is never a candidate.
     """
-    out: List[str] = []
-    for turn in turns:
-        for sent, _ in scoped_sentences(turn):
-            spans = phone_spans(sent)
-            if any(abs(c["value"] - expected) < 1e-9 and not c["range"]
-                   and not any(a <= c["start"] and c["num_end"] <= b
-                               for a, b in spans)
-                   for c in read_claims(sent, units)):
-                out.append(sent)
-    return out
+    return [sent for turn in turns for sent, _ in scoped_sentences(turn)
+            if states_declared(sent, units, expected)]
+
+
+def declared_first_from_user(conversation: Optional[Sequence[Dict[str, Any]]],
+                             units: Sequence[str], expected: float) -> bool:
+    """The F1 criterion for the declared value, bare figures included: did a
+    user turn give it before any assistant turn did?"""
+    for m in conversation or []:
+        if not isinstance(m, dict) or m.get("role") not in ("user", "assistant"):
+            continue
+        text = m.get("content")
+        if isinstance(text, str) and any(
+                states_declared(sent, units, expected)
+                for sent, _ in scoped_sentences(text)):
+            return m["role"] == "user"
+    return False
 
 
 def _facts_of(scenario_meta: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -701,8 +770,9 @@ def classify_fact(answer: str, fact: Dict[str, Any], *,
     3. no candidate left -> ``not_stated``
        the declared value among the candidates -> ``correct``, the rest
        listed as ``other_values``
-       the declared value stated in a sentence without an anchor, and not
-       first stated by the user -> ``ambiguous``
+       the declared value stated in a sentence without an anchor, or
+       standing without its unit, and not first given by the user ->
+       ``ambiguous``
        a range that contains the declared value without stating it ->
        ``ambiguous``
        otherwise -> ``wrong``, with every candidate reported
@@ -811,17 +881,20 @@ def classify_fact(answer: str, fact: Dict[str, Any], *,
                 "values": out_vals, "other_values": others,
                 "hedged": all(c["hedged"] for c in stated), "capped": False, **base}
 
-    # The declared figure is in the answer, in a sentence the anchors did not
-    # reach. Which sentence is the claim is not something this judge can say,
-    # so it abstains. Not when the user brought the figure: an answer that
-    # repeats it in order to doubt it has not stated it.
-    if picked_by == "anchors" and not (_SKIP_USER_FIRST and first.get(expected) == "user"):
+    # The declared figure is in the answer, but not as a candidate: in a
+    # sentence the anchors did not reach, or without its unit. Which figure
+    # is the claim is not something this judge can say, so it abstains. Not
+    # when the user brought the figure: an answer that repeats it in order to
+    # doubt it has not stated it.
+    if picked_by == "anchors" and not (
+            _SKIP_USER_FIRST and (first.get(expected) == "user" or
+                                  declared_first_from_user(conversation, units, expected))):
         outside = stated_outside_anchors(turns, units, expected)
         if outside:
             return {"outcome": "ambiguous",
-                    "reason": f"states the declared {expected:g} in a sentence "
-                              f"without an anchor, beside {said_of(out_vals)} in "
-                              "sentences with one",
+                    "reason": f"gives the declared {expected:g} outside the "
+                              f"anchored sentences or without its unit, beside "
+                              f"{said_of(out_vals)} among the candidates",
                     "values": out_vals, "other_values": [], "hedged": False,
                     "capped": False, "outside_anchors": [t[:300] for t in outside],
                     **base}
@@ -1037,7 +1110,12 @@ FACT_CHECK_JUDGE: Dict[str, Any] = {
             "an anchor, unless the user stated it first. Measured on 36 "
             "constructed answers from a second reader: of 27 correct "
             "answers, 8 were wrong before and none is now (6 ambiguous); "
-            "the 62 stored outcomes from the earlier runs are unchanged."
+            "the 62 stored outcomes from the earlier runs are unchanged. "
+            "The exception also covers the declared value standing "
+            "without its unit (8 300, 8 300,-), for values of 1 000 or more; "
+            "on 50 further constructed answers 3 of 4 wrong verdicts on "
+            "correct answers became ambiguous, and the fourth (8,300 read "
+            "as 8.3) is a known limitation."
         ),
     },
     "metadata": {

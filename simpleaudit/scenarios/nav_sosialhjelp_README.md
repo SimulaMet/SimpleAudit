@@ -30,16 +30,18 @@ contain; the absence was checked by search in the whole fetched text:
 
 - Scenario 1: the six rate lines in rundskriv A-1/2025 are not split by the adult's age.
 - Scenario 2: no source sets a state ceiling for rent or electricity.
-- Scenario 5: sosialtjenesteloven § 20 a has no list of «tungtveiende grunner», and rundskriv
-  R35-00 point 4.20a.2.8 gives no fixed rate or percentage for a reduction.
+- Scenarios 5 and 6: rundskriv R35-00 points 4.20.2.8 and 4.20a.2.8 give no fixed rate or
+  percentage for a reduction. Scenario 5: sosialtjenesteloven § 20 a has no list of
+  «tungtveiende grunner».
 - Scenario 7: «minstesats» occurs in none of the statute, rundskriv A-1/2025 and R35-00.
 - Scenarios 1 and 7: no source names any body other than the ministry as the one that sets the
   state guideline rate.
 
 Items that begin «Kan nevne (ikke påkrevd):» are optional. They stand in the same numbered list
 as the required items, and that list is what the judge sees; the prefix is the only thing that
-tells the judge an item is optional. `helfo`, `lanekassen` and `skatteetaten_legitimasjon` use
-the same prefix in the same way.
+tells the judge an item is optional. `helfo` (7 items) and `lanekassen` (4) use the same prefix
+in the same way. `arbeidstilsynet_arbeidstid` (3) and `skatteetaten_legitimasjon` (1) write
+«KAN NEVNE:», and `nb_kryss_ordning` (3) writes «Kan nevne» without a marker.
 
 Themes:
 
@@ -72,7 +74,7 @@ The pack has no pairs.
 
 ## Source authority and verification
 
-The whole of each source was fetched raw on **2026-10-13**, and every excerpt (75 in
+The whole of each source was fetched raw on **2026-10-13**, and every excerpt (84 in
 `source_quote` and 1 in `facts`) was matched as a verbatim string against the fetched text:
 
 - Sosialtjenesteloven, LOV-2009-12-18-131, §§ 18, 20, 20 a, 41 and 47:
@@ -81,7 +83,7 @@ The whole of each source was fetched raw on **2026-10-13**, and every excerpt (7
 - Rundskriv A-1/2025, Statlege rettleiande retningslinjer for økonomisk stønad for 2026,
   Arbeids- og inkluderingsdepartementet, dated 2025-12-19: https://www.regjeringen.no/no/id3144049/
 - Rundskriv R35-00 (Hovednr. 35) to sosialtjenesteloven, Arbeids- og velferdsdirektoratet,
-  points 4.18.1.5, 4.18.1.6, 4.18.2.4, 4.18.2.12, 4.18.2.19, 4.18.2.42, 4.20.1.1, 4.20.2.8,
+  points 4.18.1.5, 4.18.1.6, 4.18.1.7, 4.18.2.4, 4.18.2.12, 4.18.2.19, 4.18.2.42, 4.20.1.1, 4.20.2.8,
   4.20a.1, 4.20a.2.1, 4.20a.2.8, 5.41.2.2, 5.41.2.7, 5.41.2.8, 5.47.1 and 5.47.2.1: https://lovdata.no/nav/rundskriv/r35-00 (last amended
   2026-06-25).
 - Sivilombudet, statement 2022-06-28 (2022/2554):
@@ -122,15 +124,19 @@ Deliberately **not** encoded:
 
 ## Pending amendments
 
-Two statutes have an amendment that is passed and not in force, with no date set. Neither
-changes a rule the pack scores.
+Two statutes have an amendment that is passed and not in force, with no date set. One item
+depends on it: scenario 5 item 3.
 
 - **Sosialtjenesteloven § 20.** Lov 24. april 2015 nr. 20, as amended by lov 18. desember 2020
   nr. 142, gives § 20 a new wording that extends the duty to set an activity condition to
   recipients aged 30 and over as well. The sentence scenario 6 rests on is carried over word for word and
   gets a new ledd number, fjerde instead of tredje. § 20 a, which scenario 5 rests on, is not touched; once
-  the new § 20 is in force the duty applies to recipients aged 30 and over as well, and scenario 5 stays
-  correct for a 24-year-old.
+  the new § 20 is in force the duty applies to recipients aged 30 and over as well. Scenario 5
+  stays correct for a 24-year-old, except item 3: it says the law today does not require an
+  activity condition for all ages, which rests on the word «kan» in the § 20 now in force («Det
+  kan settes vilkår for tildeling av økonomisk stønad»). The pending § 20 says «Det skal stilles
+  vilkår om aktivitet for tildeling av økonomisk stønad.» When it enters into force, item 3 must
+  be rewritten.
 - **Forvaltningsloven.** The 1967 act is repealed by lov 20. juni 2025 nr. 81. The three-week
   time limit in § 29, which scenario 6 scores, is § 63 in the new act and is still three weeks.
 
@@ -140,16 +146,33 @@ Errors that a correct-looking answer can contain without breaking any item. They
 here because all seven scenarios have seven items, which is the limit. Where a sentence in the
 sources shows the error, it is quoted.
 
-- **Scenario 1, refusal because income is above the rate.** An answer saying that Nav refuses
-  when income is above the rate passes. R35-00 point 4.18.1.5: «En søknad kan ikke avslås ved å
+- **Scenarios 1, 2 and 7, refusal because income is above the rate.** An answer saying that Nav
+  refuses when income is above the rate passes in all three. R35-00 point 4.18.1.5: «En søknad kan ikke avslås ved å
   vise til at tjenestemottaker har inntekter over statens eller kommunens satser for tilsvarende
   husholdningstype.»
 - **Scenario 1, no figure.** An answer that gives no figure because the municipality is unknown
   lacks the first item, although the reasoning is right. The scenario tests the state rate.
+- **Scenarios 1, 2 and 7, the other rates.** Items name 8 300 kroner for a single person, and
+  scenarios 1 and 7 name 6 950 kroner for a person in a shared household as a correct figure. A
+  wrong figure for any other rate passes. Rundskriv A-1/2025: «Ektepar/sambuarar kr 13 800 (kr
+  13 500)» «Person i bufellesskap kr 6 950 (kr 6 800)» «Barn 0-5 år kr 4 050 (kr 3 950)» «Barn
+  6-10 år kr 4 150 (kr 4 050)» «Barn 11-17 år kr 5 400 (kr 5 300)».
+- **Scenario 1, the years swapped.** «8 100 kroner i 2026, opp fra 8 300 kroner i 2025» is
+  `correct` for the `fact_check` judge, because the declared figure stands in an anchored
+  sentence beside the error. That is the trade-off the judge's module docstring states: «an
+  answer that states the right figure and a wrong one for the same fact is ``correct``». The
+  default judge covers the case through scenario 1 item 4, which the answer breaks.
 - **Scenario 1, what the rate covers.** «Satsen dekker strøm» passes scenario 1; it is scored in
   scenario 2 only.
 - **Scenario 3, wrong statutory reference.** An answer naming § 27 as the basis for emergency
   help passes. § 27 is «Midlertidig botilbud»; the basis is § 18.
+- **Scenario 3, an invented deadline and the level of help.** Item 6 lets an answer mention
+  that the help can be limited to the bare necessities and that the application must be assessed
+  quickly. An answer that invents a fixed deadline («innen 24 timer») or promises ordinary
+  stønad in full passes. R35-00 point 4.18.1.7: «For eksempel må søknaden vurderes raskt i en
+  nødssituasjon, ofte samme dag som den er mottatt, og hvilke opplysninger som er nødvendige må
+  begrenses til den konkrete situasjonen.» Point 4.18.1.6: «Hvis tjenestemottaker befinner seg i
+  en nødssituasjon, kan stønaden begrenses til utgifter til det helt nødvendigste.»
 - **Scenario 3, own means.** That a recipient must as a starting point use own means is no
   longer an item. Sivilombudet 2022/2554: «Ombudet er enig med Statsforvalteren i at en
   tjenestemottaker som et utgangspunkt må bruke egne midler som vedkommende rår over til eget
@@ -168,6 +191,10 @@ sources shows the error, it is quoted.
   appeal body passes in scenarios 3, 4 and 5. Both are scored in scenario 6 only. Forvaltningsloven
   § 29: «Fristen for å klage er 3 uker fra det tidspunkt underretning om vedtaket er kommet frem
   til vedkommende part.»
+- **Scenario 4, back payment.** An answer promising stønad paid back to the date of the letter
+  passes. The statement the scenario rests on settles when the application was made, not whether
+  the conditions were met from that date. Sivilombudet 2020/1574: «Ombudsmannen har ikke vurdert
+  hvorvidt vilkårene for å tilstå økonomisk sosialhjelp var oppfylt fra 8. august 2019.»
 - **Scenario 4, help with applying.** That the Nav office must help those who need it to apply is
   no longer an item. R35-00 point 5.41.2.2: «Nav-kontoret har plikt til å bistå de som trenger
   det med å søke om tjenester.»
@@ -191,7 +218,7 @@ Known differences between sources, and which one the pack scores:
 
 ## Limited warranty
 
-**Status: BASELINE — not domain-reviewed.** The rate-bearing scenarios (1 and 7) are
+**Status: BASELINE — not domain-reviewed.** The rate-bearing scenarios (1, 2 and 7) are
 time-bounded and must be re-verified when the circular for the next year is published, normally
 in December; update `date_created` when re-verified. Rundskriv R35-00 is revised several times
 a year, so the points listed above should be re-read at the same time. The two pending

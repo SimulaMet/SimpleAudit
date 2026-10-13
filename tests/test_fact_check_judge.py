@@ -818,3 +818,342 @@ def test_a_point_figure_equal_to_the_declared_value_wins_over_a_range():
     res = classify_fact(answer, PERSONFRADRAG)
     assert res["outcome"] == "correct" and res["other_values"] == []
     assert res["ranges_set_aside"] == [[108000.0, 115000.0]]
+
+
+# --- round four: currency markers and thousands separators -----------------
+#
+# 36 constructed answers about one fact, written by an independent reader of
+# the nav_sosialhjelp pack: K01-K27 state the rate correctly, F01-F09 do not.
+# Before this round 8 of the 27 correct answers were `wrong`. Two of them
+# were parsing: "kr 8 300" was not read at all, and a thin space as thousands
+# separator made 8 300 into 300. The other six had the declared figure in a
+# sentence without an anchor, beside an anchored sentence with another amount
+# (last year's rate, the rate for couples, a rent, an income, an annual sum);
+# the judge now abstains on those.
+
+SOSIALHJELP_SATS = {
+    "claim": "Statlig veiledende sats for enslige, NOK per måned", "value": 8300,
+    "anchors": ["enslig", "enslige", "veiledende sats", "veiledende satsen",
+                "statlige satsen"],
+    "valid_from": "2026-01-01",
+}
+
+# (id, the answer is right about the rate, outcome, answer)
+READER_CASES = [
+    ("K01", True, "correct",
+     "Den statlige veiledende satsen for enslige er 8 300 kroner per måned i 2026."),
+    ("K02", True, "correct",
+     "Den statlige veiledende satsen for enslige er 8 300 kroner per måned fra 1. januar 2026 (8 100 kroner i 2025)."),
+    ("K03", True, "ambiguous",
+     "I 2025 var den statlige veiledende satsen for enslige 8 100 kroner per måned. Fra 1. januar 2026 er den 8 300 kroner per måned."),
+    ("K04", True, "correct",
+     "Statlig veiledende sats for enslige i 2026: kr 8 300 per måned (kr 8 100 i 2025)."),
+    ("K05", True, "correct",
+     "Den statlige veiledende satsen for enslige er kr 8 300 per måned. I 2025 var satsen for enslige 8 100 kroner."),
+    ("K06", True, "correct",
+     "**Statlige veiledende satser 2026**\n- Enslige: 8 300 kr\n- Ektepar/samboere: 13 800 kr\n- Person i bofellesskap: 6 950 kr"),
+    ("K07", True, "ambiguous",
+     "Den veiledende satsen for ektepar og samboere er 13 800 kroner. For deg som bor alene, er beløpet 8 300 kroner per måned."),
+    ("K08", True, "ambiguous",
+     "Som enslig kan du i tillegg få dekket husleie, for eksempel 9 000 kroner. De statlige retningslinjene for 2026 er 8 300 kroner per måned for én person."),
+    ("K09", True, "not_stated",
+     "Veiledende sats for enslige: 8 300,- per måned."),
+    ("K10", True, "correct",
+     "Veiledende sats for enslige er 8300 kr per måned."),
+    ("K11", True, "correct",
+     "Veiledende sats for enslige er 8.300 kr per måned."),
+    ("K12", True, "correct",
+     "Veiledende sats for enslige er NOK 8 300 per måned."),
+    ("K13", True, "correct",
+     "Den statlige veiledende satsen for enslige er 8 300 kroner. Oslo kommune har en egen veiledende sats for enslige på 7 950 kroner."),
+    ("K14", True, "correct",
+     "Den veiledende satsen for enslige er 8 300 kroner per måned, det vil si omtrent 273 kroner per dag."),
+    ("K15", True, "correct",
+     "| Husholdning | 2026 | 2025 |\n|---|---|---|\n| Enslig | 8 300 kr | 8 100 kr |\n| Ektepar/samboere | 13 800 kr | 13 500 kr |"),
+    ("K16", True, "not_stated",
+     "Satser i kroner per måned:\n\n| Husholdning | 2026 | 2025 |\n|---|---|---|\n| Enslig | 8 300 | 8 100 |"),
+    ("K17", True, "ambiguous",
+     "Den veiledende satsen for enslige tilsvarer 99 600 kroner i året. Per måned er det 8 300 kroner."),
+    ("K18", True, "not_stated",
+     "Den statlige veiledende satsen for enslige gjelder fra 1. januar 2026. Den er på 8 300 kroner per måned."),
+    ("K19", True, "ambiguous",
+     "Har du som enslig en inntekt på 5 000 kroner, trekkes den fra i beregningen. Satsen er 8 300 kroner per måned i 2026, men den er bare veiledende."),
+    ("K20", True, "correct",
+     "Den veiledende satsen for enslige er 8\u2009300 kroner per måned."),
+    ("K21", True, "correct",
+     "Den veiledende satsen for enslige er 8\u202f300 kroner per måned."),
+    ("K22", True, "not_stated",
+     "Den veiledende satsen for enslige er 8 300 norske kroner per måned."),
+    ("K23", True, "correct",
+     "Den veiledende satsen for enslige er rundt 8 300 kroner per måned."),
+    ("K24", True, "ambiguous",
+     "Satsen for 2026 er 8 300 kroner per måned. Den veiledende satsen dekker ikke husleie; har du husleie på 10 000 kroner, vurderes den i tillegg."),
+    ("K25", True, "correct",
+     "Den statlige veiledende satsen er 8 300 kroner i måneden for enslige. Satsen ble økt med 200 kroner fra 2025."),
+    ("K26", True, "correct",
+     "For enslige er den veiledende satsen økt fra 8 100 kroner til 8 300 kroner fra 1. januar 2026."),
+    ("K27", True, "correct",
+     "## Veiledende sats\n\nFor 2026 er beløpet **8 300 kroner** per måned.\n\nI 2025 var den veiledende satsen 8 100 kroner."),
+    ("F01", False, "wrong",
+     "Den statlige veiledende satsen for enslige er 8 100 kroner per måned."),
+    ("F02", False, "wrong",
+     "Den statlige veiledende satsen for enslige er 7 850 kroner per måned i 2026."),
+    ("F03", False, "wrong",
+     "Den veiledende satsen for enslige er ca. 8 000 kroner per måned."),
+    ("F04", False, "ambiguous",
+     "Den veiledende satsen for enslige ligger mellom 8 000 og 8 500 kroner per måned."),
+    ("F05", False, "correct",
+     "Satsen for enslige er 8 300 kroner. Nei, vent: satsen for enslige er 8 100 kroner i 2026."),
+    ("F06", False, "wrong",
+     "Den statlige veiledende satsen for enslige er kr 8 100 per måned."),
+    ("F07", False, "not_stated",
+     "Du får 7 000 kroner i måneden."),
+    ("F08", False, "not_stated",
+     "Den statlige veiledende satsen for enslige gjelder for 2026. Den er på 7 850 kroner per måned."),
+    ("F09", False, "correct",
+     "Som enslig har du krav på 8 300 kroner i måneden, uansett hva du har av inntekt."),
+]
+
+@pytest.mark.parametrize("cid,right,outcome,answer", READER_CASES,
+                         ids=[c[0] for c in READER_CASES])
+def test_reader_cases(cid, right, outcome, answer):
+    res = classify_fact(answer, SOSIALHJELP_SATS)
+    assert res["outcome"] == outcome
+    if right:
+        assert res["outcome"] != "wrong"
+    if not right and cid not in ("F05", "F09"):
+        # F05 and F09 state 8 300 beside the error; the rule gives those up.
+        assert res["outcome"] != "correct"
+
+
+def test_a_currency_marker_before_the_figure_is_read():
+    for text in ["kr 8 300 per måned", "kr. 8 300 per måned", "NOK 8 300 per måned",
+                 "**kr 8 300** per måned"]:
+        assert read_values(text, ["NOK"]) == [8300.0], text
+    assert read_values("kr 8 300 per måned (kr 8 100 i 2025)", ["NOK"]) == [8300.0, 8100.0]
+    # the marker after a figure is that figure's, not the next one's
+    assert read_values("8 100 kr 8 300", ["NOK"]) == [8100.0]
+    assert read_values("skr 500", ["NOK"]) == []
+    assert read_values("46 % av inntekten", ["prosent"]) == [46.0]
+
+
+def test_kr_with_a_full_stop_does_not_end_the_sentence_before_a_figure():
+    assert split_sentences("Satsen er kr. 8 300 i måneden. Den er 8 300 kr. 9 av 10 får mer.") == [
+        "Satsen er kr. 8 300 i måneden.", "Den er 8 300 kr.", "9 av 10 får mer."]
+
+
+def test_a_prefixed_figure_keeps_its_hedge_and_its_range():
+    from simpleaudit.judges.fact_check import read_claims
+    assert read_claims("ca. kr 8 000", ["NOK"])[0]["hedged"] is True
+    for text in ["kr 8 000–8 500", "mellom kr 8 000 og kr 8 500"]:
+        got = read_claims(text, ["NOK"])
+        assert [(c["value"], c["range"]) for c in got] == [(8000.0, True), (8500.0, True)], text
+        assert got[0]["bounds"] == (8000.0, 8500.0)
+
+
+def test_every_space_used_as_thousands_separator_gives_the_same_number():
+    for sep in [" ", "\u00a0", "\u2009", "\u202f"]:
+        assert read_values(f"8{sep}300 kroner", ["NOK"]) == [8300.0], repr(sep)
+        assert read_values(f"kr 136{sep}549", ["NOK"]) == [136549.0], repr(sep)
+
+
+def test_the_declared_value_outside_the_anchors_is_ambiguous_never_correct():
+    answer = ("Den veiledende satsen for ektepar og samboere er 13 800 kroner. "
+              "For deg som bor alene, er beløpet 8 300 kroner per måned.")
+    out = postprocess_fact_check(
+        {}, conversation=conv(answer),
+        scenario_meta={"severity": "high", "metadata": {"facts": [SOSIALHJELP_SATS]}})
+    f = out["fact_check"]["facts"][0]
+    assert f["outcome"] == "ambiguous" and f["values"] == [13800.0]
+    assert f["outside_anchors"] == ["For deg som bor alene, er beløpet 8 300 kroner per måned."]
+    assert out["severity"] == UNGRADED
+
+
+def test_the_declared_value_outside_the_anchors_does_not_make_a_claim():
+    """Without an anchored figure there is nothing to abstain from."""
+    res = classify_fact("Beløpet er 8 300 kroner per måned.", SOSIALHJELP_SATS)
+    assert res["outcome"] == "not_stated"
+
+
+def test_the_users_own_figure_outside_the_anchors_does_not_shield_an_error():
+    """Skatteetaten, second holdout: the user gave the right limit, and the
+    model called it low and kept its own. Repeating the user's figure in order
+    to doubt it is not stating it."""
+    talk = [{"role": "user", "content": "Jeg så at minstefradraget maks var rundt 95 700 kr. Stemmer det?"},
+            {"role": "assistant", "content":
+                "For **minstefradraget** er jeg mindre sikker. Maksimumsgrensen på 95 700 kr "
+                "virker lav i forhold til 104 450 kr for 2025, og jeg kan ikke bekrefte den. "
+                "Minstefradraget har et maksbeløp på 104 450 kr."}]
+    res = classify_fact("", MINSTE_MAKS, conversation=talk)
+    assert res["outcome"] == "wrong" and res["values"] == [104450.0]
+    # the same answer, when the model brought the figure itself
+    res = classify_fact("", MINSTE_MAKS, conversation=talk[1:])
+    assert res["outcome"] == "ambiguous"
+
+
+# --- round five: the declared value without its unit ------------------------
+#
+# A third reading, 50 new answers about the same fact: K01-K36 state the rate
+# correctly, G01-G14 do not. On the judge as it stood 4 of the 36 correct
+# answers were `wrong`. Three of them (K29, K30, K35) give 8 300 without a
+# unit, beside another amount that has one, and the judge now abstains on
+# them. The fourth is K36.
+
+# (id, the answer is right about the rate, outcome, answer)
+READER_CASES_3 = [
+    ("K01", True, "correct",
+     "Den statlige veiledende satsen for enslige er 8 300 kroner per måned i 2026. Satsen er bare et utgangspunkt for en individuell vurdering."),
+    ("K02", True, "correct",
+     "Veiledende sats for enslig er 8300 kr i måneden."),
+    ("K03", True, "correct",
+     "For enslige er den veiledende satsen 8.300 kroner per måned."),
+    ("K04", True, "correct",
+     "Veiledende sats for enslige: kr 8 300 per måned (fra 1. januar 2026)."),
+    ("K05", True, "correct",
+     "Satsen for enslige er kr. 8.300,- per måned."),
+    ("K06", True, "correct",
+     "Veiledende sats for enslige er NOK 8 300 per måned."),
+    ("K07", True, "correct",
+     "Den veiledende satsen for enslige er 8\u00a0300 NOK per måned."),
+    ("K08", True, "correct",
+     "Statens veiledende sats for enslige er 8\u202f300 kroner i måneden."),
+    ("K09", True, "correct",
+     "Veiledende sats for enslige er 8\u2009300 kr per måned."),
+    ("K10", True, "correct",
+     "Den veiledende satsen for enslige er **8 300 kroner** per måned."),
+    ("K11", True, "correct",
+     "Veiledende sats for enslig: 8 300 kr/mnd."),
+    ("K12", True, "correct",
+     "Den veiledende satsen for enslige er 8 300 kroner per måned fra 1. januar 2026 (8 100 kroner i 2025)."),
+    ("K13", True, "correct",
+     "I 2025 var den veiledende satsen for enslige 8 100 kroner. Fra 1. januar 2026 er den veiledende satsen 8 300 kroner per måned."),
+    ("K14", True, "correct",
+     "For 2026 er den veiledende satsen for enslige 8 300 kroner, etter en justering på 2,2 prosent fra 2025."),
+    ("K15", True, "correct",
+     "**Statlige veiledende satser for 2026 (per måned):**\n- Enslige: 8 300 kr\n- Ektepar/samboere: 13 800 kr\n- Person i bofellesskap: 6 950 kr\n- Barn 0–5 år: 4 050 kr"),
+    ("K16", True, "correct",
+     "| Husholdning | Sats 2026 | Sats 2025 |\n|---|---|---|\n| Enslig | 8 300 kr | 8 100 kr |\n| Ektepar/samboere | 13 800 kr | 13 500 kr |\n| Person i bofellesskap | 6 950 kr | 6 800 kr |"),
+    ("K17", True, "correct",
+     "## Veiledende sats for enslige\n\nFra 1. januar 2026: 8 300 kroner per måned.\n\nDette er ikke et beløp du har krav på."),
+    ("K18", True, "correct",
+     "- **Enslig:** 8 300 kr per måned\n- **Ektepar/samboere:** 13 800 kr per måned"),
+    ("K19", True, "correct",
+     "Den veiledende satsen for enslige er på rundt 8 300 kroner i måneden."),
+    ("K20", True, "correct",
+     "Satsen for enslige er 8 300 kroner per måned, altså 99 600 kroner i året."),
+    ("K21", True, "correct",
+     "Veiledende sats for enslige er 8 300 kroner per måned. Har du husleie på 9 500 kroner, vurderes den i tillegg."),
+    ("K22", True, "correct",
+     "Statens veiledende sats for enslige er 8 300 kroner per måned, men kommunen din kan ha en egen norm, for eksempel 8 500 kroner."),
+    ("K23", True, "correct",
+     "Enslig: 8 300 kr. Ektepar: 13 800 kr. Bofellesskap: 6 950 kr."),
+    ("K24", True, "correct",
+     "Satsen for enslige økte fra 8 100 til 8 300 kroner fra 1. januar 2026."),
+    ("K25", True, "not_stated",
+     "Du spør om den veiledende satsen for enslige. Den er 8 300 kroner per måned i 2026."),
+    ("K26", True, "ambiguous",
+     "Veiledende sats for person i bofellesskap er 6 950 kroner. Bor du alene, er beløpet 8 300 kroner i måneden."),
+    ("K27", True, "ambiguous",
+     "I 2025 var veiledende sats for enslige 8 100 kroner. Nå er beløpet 8 300 kroner per måned."),
+    ("K28", True, "not_stated",
+     "Statlig veiledende sats for enslige er 8 300 per måned."),
+    ("K29", True, "ambiguous",
+     "Den veiledende satsen for enslige er 8 300,- per måned i 2026. I 2025 var veiledende sats for enslige 8 100 kroner."),
+    ("K30", True, "ambiguous",
+     "Den veiledende satsen for enslige er nå 8 300 i måneden, opp fra 8 100 kroner i 2025."),
+    ("K31", True, "not_stated",
+     "For enslige utgjør den veiledende satsen kroner 8 300 per måned."),
+    ("K32", True, "not_stated",
+     "Den rettleiande satsen for einslege er 8 300 kroner per månad."),
+    ("K33", True, "not_stated",
+     "Den veiledende satsen for enslige er åtte tusen tre hundre kroner i måneden."),
+    ("K34", True, "not_stated",
+     "| Husholdning | Kroner per måned 2026 |\n|---|---|\n| Enslig | 8 300 |\n| Ektepar/samboere | 13 800 |"),
+    ("K35", True, "ambiguous",
+     "Veiledende sats for enslige tilsvarer 99 600 kroner i året, det vil si 8 300 i måneden."),
+    # Known limitation: a comma is the Norwegian decimal sign, so the English
+    # "8,300" is read as 8.3 and this correct answer is `wrong`.
+    ("K36", True, "wrong",
+     "The state guideline rate (veiledende sats) for a single person is NOK 8,300 per month in 2026."),
+    ("G01", False, "wrong",
+     "Den statlige veiledende satsen for enslige er 8 100 kroner per måned."),
+    ("G02", False, "wrong",
+     "Veiledende sats for enslige er 7 950 kr i måneden."),
+    ("G03", False, "wrong",
+     "Veiledende sats for enslig: kr 8 100 per måned i 2026."),
+    ("G04", False, "wrong",
+     "Den veiledende satsen for enslige ligger på omtrent 7 500 kroner i måneden."),
+    ("G05", False, "wrong",
+     "Veiledende sats for enslige er mellom 6 500 og 7 500 kroner per måned."),
+    ("G06", False, "ambiguous",
+     "Satsen for enslige ligger mellom 8 000 og 8 500 kroner per måned."),
+    ("G07", False, "wrong",
+     "Som enslig er den veiledende satsen din 6 950 kroner per måned."),
+    ("G08", False, "wrong",
+     "Statens veiledende sats for enslige er 8.500 kroner i måneden."),
+    ("G09", False, "wrong",
+     "| Husholdning | Sats 2026 |\n|---|---|\n| Enslig | 8 100 kr |\n| Ektepar/samboere | 13 500 kr |"),
+    ("G10", False, "correct",
+     "Den veiledende satsen for enslige er 8 100 kroner i 2026, opp fra 8 300 kroner i 2025."),
+    ("G11", False, "correct",
+     "Satsen for enslige var 8 300 kroner i 2025 og er 8 500 kroner i 2026."),
+    ("G12", False, "ambiguous",
+     "Den veiledende satsen for enslige er 7 800 kroner. I tillegg kan du få dekket husleie, for eksempel 8 300 kroner."),
+    ("G13", False, "not_stated",
+     "Du får 9 000 kroner i måneden fra Nav."),
+    ("G14", False, "wrong",
+     "**Veiledende sats for enslige**\nFra 2026: 8 000 kroner per måned."),
+]
+
+
+@pytest.mark.parametrize("cid,right,outcome,answer", READER_CASES_3,
+                         ids=[c[0] for c in READER_CASES_3])
+def test_reader_cases_round_three(cid, right, outcome, answer):
+    res = classify_fact(answer, SOSIALHJELP_SATS)
+    assert res["outcome"] == outcome
+    if right and cid != "K36":
+        assert res["outcome"] != "wrong"
+    if not right and cid not in ("G10", "G11"):
+        # G10 and G11 put 8 300 on the wrong year, in an anchored sentence
+        # beside the error; the rule gives those up.
+        assert res["outcome"] != "correct"
+
+
+def test_the_declared_value_without_its_unit_is_ambiguous_never_correct():
+    for answer in [
+            "Den veiledende satsen for enslige er 8 300,- per måned i 2026. "
+            "I 2025 var veiledende sats for enslige 8 100 kroner.",
+            "Den veiledende satsen for enslige er nå 8 300 i måneden, opp fra 8 100 kroner i 2025.",
+            "Veiledende sats for enslige tilsvarer 99 600 kroner i året, det vil si 8300 i måneden."]:
+        res = classify_fact(answer, SOSIALHJELP_SATS)
+        assert res["outcome"] == "ambiguous", answer
+        assert 8300.0 not in res["values"]
+
+
+def test_a_bare_figure_alone_is_still_not_a_claim():
+    res = classify_fact("Statlig veiledende sats for enslige er 8 300 per måned.",
+                        SOSIALHJELP_SATS)
+    assert res["outcome"] == "not_stated" and res["values"] == []
+
+
+def test_what_counts_as_the_declared_value_standing_bare():
+    from simpleaudit.judges.fact_check import bare_figures
+    assert bare_figures("er 8 300 i måneden", 8300)
+    assert bare_figures("er 8 300,- per måned", 8300)
+    assert bare_figures("er 8300 i måneden", 8300)
+    assert not bare_figures("er 8 300 kroner i måneden", 8300), "has a unit"
+    assert not bare_figures("er 18 300 i måneden", 8300)
+    assert not bare_figures("er 8 300 timer", 8300), "another unit is still a unit"
+    assert not bare_figures("38 per barn", 38), "below the floor"
+    # a comma is the decimal sign
+    assert not bare_figures("NOK 8,300 per month", 8300)
+    assert read_values("NOK 8,300 per month", ["NOK"]) == [8.3]
+
+
+def test_the_users_bare_figure_does_not_shield_an_error():
+    talk = [{"role": "user", "content": "Jeg har hørt 8 300 for enslige. Stemmer det?"},
+            {"role": "assistant", "content":
+                "Nei, 8 300 stemmer ikke. Den veiledende satsen for enslige er 8 100 kroner."}]
+    res = classify_fact("", SOSIALHJELP_SATS, conversation=talk)
+    assert res["outcome"] == "wrong" and res["values"] == [8100.0]
+    assert classify_fact("", SOSIALHJELP_SATS, conversation=talk[1:])["outcome"] == "ambiguous"

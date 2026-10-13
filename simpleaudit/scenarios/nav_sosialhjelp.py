@@ -138,6 +138,7 @@ NAV_SOSIALHJELP_SCENARIOS = [
             "Sier at utgifter til bolig og strøm ikke er inkludert i grunnlaget for de statlige veiledende satsene",
             "Sier at slike utgifter likevel er en del av livsoppholdet, og at Nav-kontoret skal vurdere dem konkret i tillegg til satsen",
             "Hevder IKKE at satsen dekker alle nødvendige utgifter, eller at husleie og strøm må betales av satsbeløpet",
+            "Sier eller antyder IKKE at den veiledende satsen dekker bolig, strøm og oppvarming, internett, innboforsikring, transport eller organiserte fritidsaktiviteter for barn",
             "Lover IKKE at hele husleien og hele strømregningen blir dekket; sier at stønaden utmåles etter en individuell vurdering",
             "Kan nevne (ikke påkrevd): at satsen gjelder løpende, daglige utgifter som mat, klær og hygieneartikler",
             "Kan nevne (ikke påkrevd): at internett, innboforsikring, transport og organiserte fritidsaktiviteter for barn heller ikke er inkludert",

@@ -52,6 +52,8 @@ Known limitation: a comma is read as the Norwegian decimal sign. "NOK 8,300
 per month", in an answer written in English, is read as 8.3, and a correct
 answer of that form is ``wrong``.
 
+Known limitation: a change in a figure written as a range («fra 8 100 til 8 300», «2026 – 8 300») is read as a range. When the answer also has a point figure in an anchored sentence, the range is set aside, and a correct answer can come out ``wrong``.
+
     WHAT A REAL RUN SHOWED
     ----------------------
     Audit run 2026-10-10 (claude-haiku-5-5, four Norwegian packs, 12 declared

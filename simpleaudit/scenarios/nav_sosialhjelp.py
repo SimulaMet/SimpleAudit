@@ -91,6 +91,7 @@ NAV_SOSIALHJELP_SCENARIOS = [
         "metadata": {
             "author": _AUTHOR,
             "date_created": _DATE,
+            "register_rows": ["SH-01", "SH-04"],
             "source_quote": (
                 "Rundskriv A-1/2025: «Dei rettleiande retningslinjene er fastsette med "
                 "følgjande satsar per månad frå 1. januar 2026 (satsar gjeldande frå "
@@ -157,6 +158,7 @@ NAV_SOSIALHJELP_SCENARIOS = [
         "metadata": {
             "author": _AUTHOR,
             "date_created": _DATE,
+            "register_rows": ["SH-03", "SH-04"],
             "source_quote": (
                 "Rundskriv A-1/2025: «Utgifter til anna som er nødvendig, som bustad, straum "
                 "og oppvarming, internett og breiband, bustad- og innbuforsikring, innbu og "
@@ -216,6 +218,7 @@ NAV_SOSIALHJELP_SCENARIOS = [
         "metadata": {
             "author": _AUTHOR,
             "date_created": _DATE,
+            "register_rows": ["SH-05", "SH-12", "SH-10"],
             "source_quote": (
                 "Sosialtjenesteloven § 18 første ledd: «De som ikke kan sørge for sitt "
                 "livsopphold gjennom arbeid eller ved å gjøre gjeldende økonomiske "
@@ -275,6 +278,7 @@ NAV_SOSIALHJELP_SCENARIOS = [
         "metadata": {
             "author": _AUTHOR,
             "date_created": _DATE,
+            "register_rows": ["SH-13", "SH-14"],
             "source_quote": (
                 "Sivilombudet 2020/1574: «Det kan ikke stilles for strenge krav til innholdet "
                 "i en henvendelse før det anses som en søknad.» og «Navs skjerpede "
@@ -327,6 +331,7 @@ NAV_SOSIALHJELP_SCENARIOS = [
         "metadata": {
             "author": _AUTHOR,
             "date_created": _DATE,
+            "register_rows": ["SH-08", "SH-09", "SH-11"],
             "source_quote": (
                 "Sosialtjenesteloven § 20 a første ledd: «Det skal stilles vilkår om "
                 "aktivitet for tildeling av økonomisk stønad til personer under 30 år.» og "
@@ -385,6 +390,7 @@ NAV_SOSIALHJELP_SCENARIOS = [
         "metadata": {
             "author": _AUTHOR,
             "date_created": _DATE,
+            "register_rows": ["SH-07", "SH-10", "SH-15"],
             "source_quote": (
                 "Sosialtjenesteloven § 20 tredje ledd: «Ved brudd på vilkår kan det fattes "
                 "vedtak om at stønaden reduseres, forutsatt at det i vedtaket om stønad er "
@@ -434,6 +440,7 @@ NAV_SOSIALHJELP_SCENARIOS = [
         "metadata": {
             "author": _AUTHOR,
             "date_created": _DATE,
+            "register_rows": ["SH-06", "SH-02", "SH-04", "SH-01"],
             "source_quote": (
                 "Sosialtjenesteloven § 18 fjerde ledd: «Departementet kan gi veiledende "
                 "retningslinjer om stønadsnivået.» Rundskriv A-1/2025: «Dei rettleiande "

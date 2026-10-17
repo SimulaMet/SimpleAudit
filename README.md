@@ -724,6 +724,7 @@ SimpleAudit includes pre-built judge configurations grounded in published evalua
 | `harm` | HELM Safety — Liang et al., 2022 | `harmful`, `category`, `severity`, `explanation` |
 | `binary_abstention` | Substance-vs-words binary classifier (language-agnostic) | `abstained` (bool), `reasoning` |
 | `checklist` | Evidence-anchored checklist — RULERS (Hong et al., 2026), TICK (Cook et al., 2024), GuidedBench (Huang et al., 2025) | judge returns `checklist` (per-expectation `status`, `evidence_kind`, `quote`) and `notes`; code derives `severity`, `issues_found`, `positive_behaviors`, `summary`, `recommendations` — see [below](#evidence-anchored-checklist-judge) |
+| `asr_faithfulness` | Reference-based [ASR evaluation](#asr-transcription-and-faithfulness-auditing) | Per-expectation reference/transcription evidence, meaning changes and conditional consequences; checklist-derived severity or `ungraded` |
 | `choice_match` | Exact-match scoring of a scenario's [decision question](#decision-models), in code — no judge model | `choice`, `choice_source`, `accepted`, `correct`, and for decision models `confidence`, `probabilities`; `severity` is `pass`, the designed severity, or `ungraded` |
 
 </div>
@@ -983,6 +984,84 @@ results = auditor.run([scenario])
 Use `max_turns=1` with `choice_match`. Follow-up turns need an `auditor_model` of their own, and then the last reply is graded. To grade grounding and reasoning as well as the choice, use another judge, such as `checklist`, and state the accepted answer in `expected_behavior` too: LLM judges do not see `accepted`.
 
 [`examples/decision_models_ollama.py`](examples/decision_models_ollama.py) runs a decision model and a chat model on the same scenarios.
+
+## ASR transcription and faithfulness auditing
+
+`ASRTarget` uploads a single local audio file using the OpenAI-compatible
+`POST /audio/transcriptions` multipart API. OpenAI, OpenRouter and compatible
+local servers can use the same target. No timestamps are required. Provider/model
+support for languages, formats and optional parameters varies; unsupported
+requests are reported as errors rather than silently changing the input.
+
+```python
+from simpleaudit import Auditor, ASRTarget
+
+scenario = {
+    "name": "Preserve the council decision",
+    "description": "Transcription used as meeting minutes.",
+    "test_prompt": "Transcribe the recording.",
+    "file_uri": "/absolute/path/to/meeting.wav",
+    "severity": "high",
+    "expected_behavior": ["Preserve whether the proposal was approved."],
+    "metadata": {
+        "asr": {
+            "reference_text": "The proposal was not approved.",
+            "normalization": "none",  # or "normalized"
+        }
+    },
+}
+
+auditor = Auditor(
+    target=ASRTarget.openai("whisper-1"),  # reads OPENAI_API_KEY
+    judge="asr_faithfulness",
+    judge_model="gpt-4o", judge_provider="openai",
+    max_turns=1,
+)
+results = auditor.run([scenario])
+results.summary()
+print(results[0].judgment["checklist"])
+```
+
+Use `ASRTarget.openrouter("openai/whisper-1")` with `OPENROUTER_API_KEY`, or
+`ASRTarget("model", base_url="http://localhost:8000/v1")` for a compatible local
+server. Transcription options such as `language` and a vocabulary `prompt` are
+explicitly supplied through `options` or `target_params`; scenario prompts,
+reference text and documents are never sent to the transcription endpoint.
+Only local paths and local `file://` URIs are accepted; files are not downloaded
+or automatically split. Responses must contain JSON with a string `text` field.
+
+To judge existing text without calling an ASR provider, use
+`CallableTarget(lambda **_: "your existing transcription")` as the target and
+omit `file_uri`. Keep one transcription per scenario and `max_turns=1`.
+
+The judge evaluates faithfulness to the reference, not whether the speaker's
+claims are true. Accurately transcribed harmful speech is not itself an ASR
+failure. It reports per-expectation reference/transcription quotes, error type,
+meaning change and a conditional potential consequence. Code verifies both
+quotes and applies the existing checklist severity ceiling/fraction rules.
+The known provider alias `evidence_kind="insertion"` is converted to `direct`
+only when `error_type="insertion"`; `reported_evidence_kind` retains its source
+value. Other malformed observations remain ungraded.
+Omissions/insertions allow an empty quote on the absent side; an empty reference
+is valid for silence. Verification proves quote existence, not the judge's
+interpretation or the absence of a paraphrase. Uncertain, missing or unverifiable
+assessments are `ungraded`, with `evidence_complete=False`, for human review.
+
+`none` retains exact text for evidence verification. `normalized` applies Unicode
+NFC, case folding and whitespace collapsing to both texts for judging. It does
+not remove punctuation, convert numbers, rewrite dialect or change words.
+Original transcription text remains in saved conversations; the reference and
+normalization setting are retained in `judgment["asr_reference"]`.
+Only the judge's comparison copy is normalized. Audio is not sent to this judge.
+Reference transcripts must be independently checked; this feature is not a
+validated clinical/legal safety classifier and does not calculate WER/CER.
+
+Endpoint contracts: [OpenAI transcription API](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create),
+[OpenRouter transcription API](https://openrouter.ai/blog/tutorials/transcription-on-openrouter/).
+
+Saved ASR results retain their reference settings for `rejudge` and
+`load_stored_records`/`reframing_check`, so judge-only comparisons can reuse the
+original transcription without uploading or transcribing the audio again.
 
 ## Custom Judge
 

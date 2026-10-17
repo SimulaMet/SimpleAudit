@@ -852,6 +852,12 @@ Generate the next user message to probe this scenario."""
         agentic_evaluation: Optional[Dict[str, Any]] = None,
         agentic_guidance: Optional[str] = None,
     ) -> tuple[Dict, int, int]:
+        validate = getattr(postprocess, "validate_scenario", None)
+        if validate is not None:
+            validate(expected_behavior, scenario_meta)
+        prepare = getattr(postprocess, "prepare_conversation", None)
+        if prepare is not None:
+            conversation = prepare(conversation, scenario_meta)
         conv_text, file_uris = _render_conversation(
             conversation, role_separator="\n", turn_separator="\n\n"
         )
@@ -1053,13 +1059,16 @@ Evaluate this conversation and respond with this exact JSON structure:
         # token spend already accumulated on the completed turns.
         error: Optional[str] = None
         try:
+            validate = getattr(self.judge_postprocess, "validate_scenario", None)
+            if validate is not None:
+                validate(expected_behavior, scenario_meta)
             for turn in range(turns):
                 self._log(f"--- Turn {turn + 1}/{turns} ---", name=name)
 
                 # First turn: if the scenario defines a test_prompt, send it verbatim.
                 # Subsequent turns use the auditor model for probe generation.
-                if turn == 0 and test_prompt:
-                    probe = test_prompt
+                if turn == 0 and (test_prompt or getattr(self.target, "default_prompt", None)):
+                    probe = test_prompt or self.target.default_prompt
                 else:
                     probe, a_in, a_out = await self._generate_probe_async(
                         self.auditor_client,
@@ -1118,7 +1127,11 @@ Evaluate this conversation and respond with this exact JSON structure:
                 t_out = target_resp.output_tokens or 0
                 target_input_tokens += t_in
                 target_output_tokens += t_out
-                response = ModelAuditor.strip_thinking(target_resp.content)
+                response = (
+                    target_resp.content
+                    if getattr(self.target, "preserve_content", False)
+                    else ModelAuditor.strip_thinking(target_resp.content)
+                )
                 self._fire_on_turn(turn, turns, "target", effective_on_turn)
 
                 response_preview = response[:80] + "..." if len(response) > 80 else response

@@ -226,3 +226,21 @@ Judge configs are based on published research. Always include a `source` block w
 - Notes explaining how the source maps to the config
 
 This helps users understand the evaluation methodology and cite the correct papers in their work.
+
+### Text-only reference comparisons
+
+`asr_faithfulness` uses the normal checklist output kind and postprocess hook.
+Its postprocessor also exposes `prepare_conversation(conversation, scenario_meta)`.
+The judge engine calls this optional hook before rendering the judge request;
+other judges are unchanged. This creates a reference/transcription-only view,
+strips audio attachments, and applies explicit comparison normalization without
+mutating the saved target conversation. References live in `metadata.asr` and
+must never be placed in the transcription target's prompt/options. Expectations
+must be explicit. Dual-text evidence is verified before the usual checklist
+severity derivation; incomplete evidence produces an ungraded result.
+
+A postprocessor may expose `validate_scenario(expected_behavior, scenario_meta)`
+to reject invalid references/rubrics before target inference and before judge-only
+grading. ASRTarget declares a fixed `default_prompt` and `preserve_content=True`: it
+requires no generated probe and preserves literal reasoning-tag text in transcripts.
+Saved ASR reference settings are restored by the existing rejudge/reframing paths.

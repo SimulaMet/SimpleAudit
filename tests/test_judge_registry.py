@@ -26,6 +26,7 @@ EXPECTED_JUDGES = {
     "helsedir_sexhealth_no",
     "helsedir_sexhealth_no_rag",
     "checklist",
+    "asr_faithfulness",
     "choice_match",
     "groundedness",
     "fact_check",

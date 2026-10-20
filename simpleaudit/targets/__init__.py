@@ -17,6 +17,7 @@ The model integration (AnyLLM) is an implementation detail of
 ``ModelTarget``; it is not the architectural center of the engine.
 """
 
+from .asr import ASRTarget
 from .base import Target, TargetContext, TargetResponse
 from .callable import CallableTarget
 from .decision import DecisionTarget
@@ -31,4 +32,5 @@ __all__ = [
     "HTTPAppTarget",
     "CallableTarget",
     "DecisionTarget",
+    "ASRTarget",
 ]

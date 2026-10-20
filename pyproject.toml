@@ -27,6 +27,7 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
     "any-llm-sdk>=1.14.0",
     "fsspec>=2023.1.0",
+    "httpx>=0.27",
     "tqdm>=4.66.0",
 ]
 

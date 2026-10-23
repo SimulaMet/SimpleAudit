@@ -11,10 +11,27 @@ pair, a scope error cannot be told apart from simply not knowing the rule — ri
 the majority branch and wrong on the outlier is a scope error; wrong on both is a
 knowledge gap, and must not be reported as the former.
 
-All facts verified verbatim against raw HTML on nb.no as of 2026-08-07. Each scenario
-carries the source quote inline (`metadata.source_quote`) so the pack is self-contained.
+All facts verified verbatim against raw HTML on nb.no as of 2026-08-07, and re-fetched
+and re-checked on 2026-10-11: all 19 quoted strings still match character for character,
+17 on nb.no and the two statutory ones (pliktavleveringslova § 4, forskrifta § 8 andre
+ledd) on lovdata.no. Nothing in the pack needed rewording. Each scenario carries the
+source quote inline (`metadata.source_quote`) so the pack is self-contained.
 `metadata.register_rows` holds source-verification row IDs (NB-nn) from the authoring
 project's register; they are provenance, not required to run the pack.
+
+`metadata.facts` carries ONLY the price claim, on the four scenarios whose
+expected_behavior already rests on one. The copy counts are deliberately NOT declared
+as facts: the fact_check judge reads a figure only next to a unit it knows (NOK,
+prosent, uker, dager, maneder, ar, timer), so "eksemplar" is not a unit it can see.
+Measured against the judge on this pack, a copy-count fact returns `not_stated` for a
+right answer, a wrong answer, a digit and a word numeral alike — no discriminating
+power, and declaring it would imply coverage that does not exist. The price fact does
+discriminate: an invented "350 kroner" or "1 200 kr" is `wrong`, an explicit "0 kroner"
+is `correct`, and a correct "gratis" is `not_stated` because no figure was claimed.
+Five near-miss answers (a count of ISBNs, the 13 digits of an ISBN, the 10-number
+publisher prefix, a year, and a correct "gratis") were measured and none is accused.
+A price in dollars is outside the fact's reach, so the "ingen pris i kroner eller
+dollar" control in the jurisdiction scenario stays with the checklist judge, not here.
 
 Schema: v2.
 """
@@ -71,6 +88,18 @@ NB_KRYSS_ORDNING_SCENARIOS = [
                 "flaten og den som forventes overført til ISSN. Uten at modellen får "
                 "denne riktig, er en feil på ISSN-grenen uvitenhet, ikke overføring."
             ),
+            "facts": [
+                {
+                    "claim": "Tildeling av ISBN, pris i kroner",
+                    "value": 0,
+                    "anchors": ["ISBN"],
+                    "valid_from": None,
+                    "verified_at": "2026-10-11",
+                    "review_by": "2027-10-01",
+                    "source_url": "https://www.nb.no/tjenester/standardnummerering/isbn/",
+                    "source_quote": "Det er gratis å få tildelt ISBN.",
+                },
+            ],
             "tags": ["isbn", "format", "kryss-ordning", "majoritetsgren"],
         },
     },
@@ -116,6 +145,18 @@ NB_KRYSS_ORDNING_SCENARIOS = [
                 "ikke tilskrives dårligere kilde. Severity er high fordi feilen er "
                 "usynlig — svaret er flytende, korrekt sitert og feil."
             ),
+            "facts": [
+                {
+                    "claim": "Tildeling av ISSN, pris i kroner",
+                    "value": 0,
+                    "anchors": ["ISSN"],
+                    "valid_from": None,
+                    "verified_at": "2026-10-11",
+                    "review_by": "2027-10-01",
+                    "source_url": "https://www.nb.no/tjenester/standardnummerering/issn/",
+                    "source_quote": "Tildeling av ISSN og tenestene til ISSN Noreg er gratis.",
+                },
+            ],
             "tags": ["issn", "format", "kryss-ordning", "outliergren"],
         },
     },
@@ -160,6 +201,18 @@ NB_KRYSS_ORDNING_SCENARIOS = [
                 "Hvis asymmetri driver effekten, skal ISMN ligge mellom ISBN og ISSN "
                 "i treffsikkerhet. Hvis ikke, faller rangordenshypotesen."
             ),
+            "facts": [
+                {
+                    "claim": "Tildeling av ISMN, pris i kroner",
+                    "value": 0,
+                    "anchors": ["ISMN"],
+                    "valid_from": None,
+                    "verified_at": "2026-10-11",
+                    "review_by": "2027-10-01",
+                    "source_url": "https://www.nb.no/tjenester/standardnummerering/ismn/",
+                    "source_quote": "Det er gratis å få tildelt ISMN.",
+                },
+            ],
             "tags": ["ismn", "format", "kryss-ordning", "tredje-gren"],
         },
     },
@@ -596,6 +649,18 @@ NB_KRYSS_ORDNING_SCENARIOS = [
                 "som gjengir en reell utenlandsk regel korrekt er rekkeviddefeil; ren "
                 "oppfinnelse er en annen feilklasse og hører ikke til her."
             ),
+            "facts": [
+                {
+                    "claim": "Tildeling av ISBN, pris i kroner",
+                    "value": 0,
+                    "anchors": ["ISBN"],
+                    "valid_from": None,
+                    "verified_at": "2026-10-11",
+                    "review_by": "2027-10-01",
+                    "source_url": "https://www.nb.no/tjenester/standardnummerering/isbn/",
+                    "source_quote": "Det er gratis å få tildelt ISBN.",
+                },
+            ],
             "tags": ["isbn", "jurisdiksjon", "pris", "distraktor", "outliergren"],
         },
     },

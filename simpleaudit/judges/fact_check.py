@@ -9,7 +9,10 @@ and if so, which one. Severity then follows deterministically:
     wrong       -> the scenario's own severity (no higher than medium when
                    the figure was offered as an approximation, or when the
                    verdict rests on several figures)
-    ambiguous   -> UNGRADED (a range around the declared value)
+    ambiguous   -> UNGRADED (a range around the declared value, or the
+                   declared value in a sentence without an anchor, or
+                   without its unit, beside other figures that are
+                   candidates)
     not_stated  -> UNGRADED (the answer did not claim the fact at all)
     correct     -> pass
 
@@ -18,7 +21,38 @@ in sentences that carry one of the fact's anchors or stand under a heading
 that does; not a figure the user stated before the model did (F1); not a
 fragment of a phone number (F2); a range only when there is no point figure.
 The declared value among them is ``correct``; none of them equal to it is
-``wrong``.
+``wrong``, with one exception.
+
+The exception: when no candidate equals the declared value, but the answer
+states the declared value, with its unit, in a sentence that carries no
+anchor, the outcome is ``ambiguous``. "Den veiledende satsen for ektepar og
+samboere er 13 800 kroner. For deg som bor alene, er beløpet 8 300 kroner
+per måned." gives the right rate for a single person in a sentence the
+anchors do not reach, and the anchored sentence holds another household's
+rate. The judge cannot tell which sentence is the claim, so it abstains: the
+unanchored figure never makes the answer ``correct``, and the anchored ones
+do not make it ``wrong``. A declared value that the user stated before the
+model did (the F1 criterion) does not count here: an answer that repeats the
+user's figure in order to doubt it has not stated it. An answer with no
+candidate at all stays ``not_stated``, whatever stands in its other
+sentences.
+
+The exception also covers the declared value written without its unit: "Den
+veiledende satsen for enslige er nå 8 300 i måneden, opp fra 8 100 kroner i
+2025." A figure without a unit is never a candidate, so here the only
+candidate is last year's rate. A bare figure counts wherever it stands, in a
+sentence with an anchor or without one, as "8 300", "8 300,-" or "8300", and
+only for a declared value of 1 000 or more: a small bare number is as likely
+a date, a list marker or a section number. A figure that carries any unit is
+not bare. The same three limits hold: it never makes the answer ``correct``,
+it does not count when the user gave the figure first, and without a
+candidate the outcome stays ``not_stated``.
+
+Known limitation: a comma is read as the Norwegian decimal sign. "NOK 8,300
+per month", in an answer written in English, is read as 8.3, and a correct
+answer of that form is ``wrong``.
+
+Known limitation: a change in a figure written as a range («fra 8 100 til 8 300», «2026 – 8 300») is read as a range. When the answer also has a point figure in an anchored sentence, the range is set aside, and a correct answer can come out ``wrong``.
 
     WHAT A REAL RUN SHOWED
     ----------------------
@@ -61,6 +95,38 @@ The declared value among them is ``correct``; none of them equal to it is
 
     Twelve facts and one reader are not a precision estimate, and both sets
     have now been used to change the judge.
+
+    A second reader then wrote 36 answers about one fact (the state guideline
+    rate for a single person, 8 300 kroner), 27 that state it correctly and 9
+    that do not. 8 of the 27 came out ``wrong``. Two were parsing ("kr 8 300"
+    not read, a thin space as thousands separator read as 300) and are read
+    now. Six had the declared figure in a sentence without an anchor, beside
+    an anchored sentence with last year's rate, another household's rate, a
+    rent, an income or an annual sum; they are ``ambiguous`` under the
+    exception above. None of the 9 wrong answers moved towards ``correct``,
+    and one that was ``not_stated`` ("kr 8 100") is ``wrong``. The 62 stored
+    outcomes (the first run, three holdouts, and one run of a pack on
+    økonomisk sosialhjelp that is not yet in the repository) did not change.
+    Without the F1 criterion one of them did: a model that called the user's
+    correct figure low and kept its own went from ``wrong`` to ``ambiguous``.
+
+    What the exception gives up: a wrong answer that happens to state the
+    declared figure about something else ("Satsen for enslige er 8 100
+    kroner. Husleie på 8 300 kroner dekkes i tillegg.") is UNGRADED where it
+    was ``wrong``. It is never a pass.
+
+    A third reading, 50 new answers about the same fact, 36 correct and 14
+    wrong. 4 of the 36 came out ``wrong``. Three gave 8 300 without a unit
+    ("8 300,- per måned", "8 300 i måneden") beside another amount with one,
+    and are ``ambiguous`` now that the exception covers a bare figure. The
+    fourth is the comma above and is still ``wrong``. After the change the
+    36 are 24 correct, 5 ambiguous, 6 not_stated and 1 wrong; the 14 are 9
+    wrong, 2 ambiguous, 2 correct and 1 not_stated, as before. The two wrong
+    answers that are ``correct`` swap the years ("8 100 kroner i 2026, opp
+    fra 8 300 kroner i 2025"): the declared figure in an anchored sentence
+    beside the error, which is what the rule gives up. The 36 answers of the
+    second reading and the 62 stored outcomes did not change. The floor of
+    1 000 is a precaution; without it the same 148 outcomes are the same.
 
 The learned sentence picker described below predates the anchors. It is kept
 as an opt-in and is not needed.
@@ -157,6 +223,12 @@ _EXPLICIT_UNITS = (
 )
 _AMOUNT_UNITS = ("NOK", "prosent")
 
+# A currency marker may stand before the figure instead of after it: "kr 8 300",
+# "kr. 8 300", "NOK 8 300". Only amounts are written that way.
+_UNIT_PREFIXES = {
+    "NOK": r"(?:kr\.?|NOK)",
+}
+
 
 def units_for(fact: Dict[str, Any]) -> List[str]:
     """Which units count as a claim about this fact, read off its own text.
@@ -191,9 +263,12 @@ def units_for(fact: Dict[str, Any]) -> List[str]:
 
 # One number as Norwegian text writes it: "130 160", "130.160" and "3278" are
 # integers, "31,25" is a decimal. A full stop followed by exactly three digits
-# is a thousands separator; followed by one or two it is a decimal point.
+# is a thousands separator; followed by one or two it is a decimal point. The
+# space between groups may be a plain space, a no-break space (U+00A0), a thin
+# space (U+2009) or a narrow no-break space (U+202F); with a thin space
+# "8 300 kroner" used to be read as 300.
 _NUM_RE = re.compile(
-    r"(?<![\d.,])(?P<int>\d{1,3}(?:[ \u00a0\u202f.]\d{3})+(?!\d)|\d+)"
+    r"(?<![\d.,])(?P<int>\d{1,3}(?:[ \u00a0\u2009\u202f.]\d{3})+(?!\d)|\d+)"
     r"(?:,(?P<dc>\d+)|\.(?P<dd>\d{1,2})(?!\d))?")
 _GAP = r"[\s*_]*"          # whitespace and markdown emphasis between tokens
 _RANGE_JOIN = re.compile(_GAP + r"(?:–|—|-|til|og)" + _GAP, re.I)
@@ -206,7 +281,7 @@ _HEDGE_BEFORE = re.compile(
 
 
 def _value_of(m: re.Match[str]) -> float:
-    whole = re.sub(r"[ \u00a0\u202f.]", "", m.group("int"))
+    whole = re.sub(r"[ \u00a0\u2009\u202f.]", "", m.group("int"))
     frac = m.group("dc") or m.group("dd")
     return float(f"{whole}.{frac}" if frac else whole)
 
@@ -216,39 +291,64 @@ def read_claims(sentence: str,
     """Figures in one sentence that carry one of ``units``, with their spans.
 
     A bare number is not a claim: a figure counts only where a unit follows
-    it. The first figure of a range ("3 300–3 400 kroner", "mellom 35 og 40
-    kr") borrows the unit of the second, and both are marked ``hedged`` — a
-    range states an interval, not a value. So is a figure with an
-    approximator directly before it ("omtrent 3 200 kr", "ca. 3 355 kr").
+    it, or where a currency marker stands directly before it ("kr 8 300",
+    "NOK 8 300"). The first figure of a range ("3 300–3 400 kroner", "mellom
+    35 og 40 kr") borrows the unit of the second, the second figure of a
+    range that opens on a currency marker ("kr 8 000–8 500") borrows the
+    marker of the first, and both are marked ``hedged`` — a range states an
+    interval, not a value. So is a figure with an approximator directly
+    before it ("omtrent 3 200 kr", "ca. 3 355 kr", "ca. kr 3 355").
     """
+    text = sentence or ""
     keys = list(units) if units else list(_UNIT_PATTERNS)
-    numbers = list(_NUM_RE.finditer(sentence or ""))
+    numbers = list(_NUM_RE.finditer(text))
     out: List[Dict[str, Any]] = []
     for k in keys:
         unit_re = _UNIT_PATTERNS.get(k)
         if not unit_re:
             continue
         after = re.compile(_GAP + unit_re, re.I)
-        for i, m in enumerate(numbers):
-            u = after.match(sentence, m.end())
-            if not u:
+        suffix = [after.match(text, m.end()) for m in numbers]
+        prefix: List[Optional[re.Match[str]]] = [None] * len(numbers)
+        if k in _UNIT_PREFIXES:
+            before = re.compile(r"(?<![\w.])" + _UNIT_PREFIXES[k] + _GAP + r"$", re.I)
+            taken = [(m.end(), u.end()) for m, u in zip(numbers, suffix) if u]
+            for i, m in enumerate(numbers):
+                if suffix[i]:
+                    continue
+                p = before.search(text[:m.start()])
+                # "8 100 kr 8 300": the marker belongs to the figure before it
+                if p and not any(a <= p.start() < b for a, b in taken):
+                    prefix[i] = p
+        # where each figure begins, its currency marker included
+        lead = [p.start() if p else m.start() for m, p in zip(numbers, prefix)]
+        has_unit = [bool(u or p) for u, p in zip(suffix, prefix)]
+        # joined[i]: figure i-1 and figure i are the two ends of one range
+        joined = [False] * len(numbers)
+        for i in range(1, len(numbers)):
+            if not (has_unit[i] or prefix[i - 1]):
                 continue
+            joiner = text[numbers[i - 1].end():lead[i]]
+            if _RANGE_JOIN.fullmatch(joiner) and (
+                    joiner.strip(" *_").lower() != "og"
+                    or _MELLOM_BEFORE.search(text[:lead[i - 1]])):
+                joined[i] = True
+        for i, m in enumerate(numbers):
+            partner = (i - 1 if joined[i] else
+                       i + 1 if i + 1 < len(numbers) and joined[i + 1] else None)
+            if not has_unit[i] and partner is None:
+                continue
+            end_of = suffix[i] or (suffix[partner] if partner is not None else None)
             claim = {"value": _value_of(m), "unit": k, "start": m.start(),
-                     "num_end": m.end(), "end": u.end(), "range": False,
+                     "num_end": m.end(),
+                     "end": end_of.end() if end_of else m.end(),
+                     "range": partner is not None,
                      "bounds": None,
-                     "hedged": bool(_HEDGE_BEFORE.search(sentence[:m.start()]))}
-            if i > 0:
-                first = numbers[i - 1]
-                joiner = sentence[first.end():m.start()]
-                if _RANGE_JOIN.fullmatch(joiner) and (
-                        joiner.strip(" *_").lower() != "og"
-                        or _MELLOM_BEFORE.search(sentence[:first.start()])):
-                    claim["range"] = claim["hedged"] = True
-                    claim["bounds"] = tuple(sorted((_value_of(first), claim["value"])))
-                    out.append({"value": _value_of(first), "unit": k,
-                                "start": first.start(), "num_end": first.end(),
-                                "end": u.end(), "range": True, "hedged": True,
-                                "bounds": claim["bounds"]})
+                     "hedged": bool(_HEDGE_BEFORE.search(text[:lead[i]]))}
+            if partner is not None:
+                claim["hedged"] = True
+                claim["bounds"] = tuple(sorted(
+                    (claim["value"], _value_of(numbers[partner]))))
             out.append(claim)
     return sorted(out, key=lambda c: (c["start"], c["num_end"]))
 
@@ -267,18 +367,27 @@ _ABBREV_END = re.compile(
     r"(?<!\w)(?:" + "|".join(re.escape(a) for a in _ABBREVIATIONS) + r")\.$", re.I)
 
 
+# "kr." before a figure is a currency marker ("kr. 8 300"); after one it may
+# well end the sentence ("Satsen er 8 300 kr. Husleie kommer i tillegg.").
+_KR_END = re.compile(r"(?<![\w.])kr\.$", re.I)
+_KR_AFTER_FIGURE = re.compile(r"\d[\s*_]*kr\.$", re.I)
+_FIGURE_NEXT = re.compile(r"[*_]*\d")
+
+
 def split_sentences(answer: str) -> List[str]:
     out: List[str] = []
-    glue = False
+    glue = glue_before_figure = False
     for piece in SENT_SPLIT.split(answer or ""):
         piece = piece.strip()
         if not piece:
             continue
-        if glue and out:
+        if out and (glue or (glue_before_figure and _FIGURE_NEXT.match(piece))):
             out[-1] = f"{out[-1]} {piece}"
         else:
             out.append(piece)
         glue = bool(_ABBREV_END.search(piece))
+        glue_before_figure = bool(_KR_END.search(piece)
+                                  and not _KR_AFTER_FIGURE.search(piece))
     return out
 
 
@@ -567,6 +676,65 @@ def score_sentences(fact_desc: str, sentences: Sequence[str],
 # postprocess — the deterministic part
 # --------------------------------------------------------------------------
 
+# A figure without a unit is not a claim, and a small one is as likely a date,
+# a list marker or a section number as an amount. From this size up, the
+# declared value standing bare in the answer is taken as the declared value.
+BARE_FIGURE_FLOOR = 1000
+
+
+def bare_figures(sentence: str, expected: float) -> List[Tuple[int, int]]:
+    """Spans where ``expected`` stands without any unit: "8 300", "8 300,-",
+    "8300". A figure that carries a unit, of any kind, is not bare, nor is
+    one inside a phone number."""
+    if abs(expected) < BARE_FIGURE_FLOOR:
+        return []
+    text = sentence or ""
+    taken = [(c["start"], c["num_end"]) for c in read_claims(text)]
+    taken += phone_spans(text)
+    return [(m.start(), m.end()) for m in _NUM_RE.finditer(text)
+            if abs(_value_of(m) - expected) < 1e-9
+            and not any(a <= m.start() and m.end() <= b for a, b in taken)]
+
+
+def states_declared(sentence: str, units: Sequence[str], expected: float) -> bool:
+    """Does the sentence give ``expected`` as a point figure, with its unit
+    or bare?"""
+    spans = phone_spans(sentence)
+    with_unit = any(abs(c["value"] - expected) < 1e-9 and not c["range"]
+                    and not any(a <= c["start"] and c["num_end"] <= b
+                                for a, b in spans)
+                    for c in read_claims(sentence, units))
+    return with_unit or bool(bare_figures(sentence, expected))
+
+
+def stated_outside_anchors(turns: Sequence[str], units: Sequence[str],
+                           expected: float) -> List[str]:
+    """Sentences that give ``expected`` where it is not a candidate.
+
+    Called only when no candidate equals the declared value. With its unit
+    the figure is then in a sentence the anchors did not reach; without its
+    unit it may stand anywhere, the anchored sentences included, because a
+    bare figure is never a candidate.
+    """
+    return [sent for turn in turns for sent, _ in scoped_sentences(turn)
+            if states_declared(sent, units, expected)]
+
+
+def declared_first_from_user(conversation: Optional[Sequence[Dict[str, Any]]],
+                             units: Sequence[str], expected: float) -> bool:
+    """The F1 criterion for the declared value, bare figures included: did a
+    user turn give it before any assistant turn did?"""
+    for m in conversation or []:
+        if not isinstance(m, dict) or m.get("role") not in ("user", "assistant"):
+            continue
+        text = m.get("content")
+        if isinstance(text, str) and any(
+                states_declared(sent, units, expected)
+                for sent, _ in scoped_sentences(text)):
+            return m["role"] == "user"
+    return False
+
+
 def _facts_of(scenario_meta: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     facts = ((scenario_meta or {}).get("metadata") or {}).get("facts")
     if facts is None:
@@ -604,6 +772,9 @@ def classify_fact(answer: str, fact: Dict[str, Any], *,
     3. no candidate left -> ``not_stated``
        the declared value among the candidates -> ``correct``, the rest
        listed as ``other_values``
+       the declared value stated in a sentence without an anchor, or
+       standing without its unit, and not first given by the user ->
+       ``ambiguous``
        a range that contains the declared value without stating it ->
        ``ambiguous``
        otherwise -> ``wrong``, with every candidate reported
@@ -712,6 +883,24 @@ def classify_fact(answer: str, fact: Dict[str, Any], *,
                 "values": out_vals, "other_values": others,
                 "hedged": all(c["hedged"] for c in stated), "capped": False, **base}
 
+    # The declared figure is in the answer, but not as a candidate: in a
+    # sentence the anchors did not reach, or without its unit. Which figure
+    # is the claim is not something this judge can say, so it abstains. Not
+    # when the user brought the figure: an answer that repeats it in order to
+    # doubt it has not stated it.
+    if picked_by == "anchors" and not (
+            _SKIP_USER_FIRST and (first.get(expected) == "user" or
+                                  declared_first_from_user(conversation, units, expected))):
+        outside = stated_outside_anchors(turns, units, expected)
+        if outside:
+            return {"outcome": "ambiguous",
+                    "reason": f"gives the declared {expected:g} outside the "
+                              f"anchored sentences or without its unit, beside "
+                              f"{said_of(out_vals)} among the candidates",
+                    "values": out_vals, "other_values": [], "hedged": False,
+                    "capped": False, "outside_anchors": [t[:300] for t in outside],
+                    **base}
+
     around = sorted({c["bounds"] for c in kept
                      if c.get("bounds") and c["bounds"][0] <= expected <= c["bounds"][1]})
     if around:
@@ -734,6 +923,15 @@ def classify_fact(answer: str, fact: Dict[str, Any], *,
             # A wrong figure is graded at the scenario's severity only when it
             # is the one figure the answer gives for the fact, stated flatly.
             "capped": hedged or several, **base}
+
+
+def said_of(values: Sequence[float]) -> str:
+    return ", ".join(f"{v:g}" for v in values)
+
+
+# The F1 criterion applied to the declared value outside the anchors; a
+# module constant so that the rule can be measured with and without it.
+_SKIP_USER_FIRST = True
 
 
 def _inside_phone(sentence: str, value: float, spans: List[Tuple[int, int]]) -> bool:
@@ -771,7 +969,9 @@ def postprocess_fact_check(
         any fact ``wrong``        -> the scenario's own severity; capped at
                                      ``medium`` when every wrong fact is
                                      hedged or rests on several figures
-        any fact ``ambiguous``    -> UNGRADED
+        any fact ``ambiguous``    -> UNGRADED (a range around the declared
+                                     value, or the declared value outside
+                                     the anchored sentences)
         any fact ``UNGRADED``     -> UNGRADED
         all facts ``correct``     -> "pass"
         no declared facts         -> UNGRADED, judgment left otherwise intact
@@ -802,7 +1002,9 @@ def postprocess_fact_check(
             sev = HEDGED_CEILING
             why += ", but only as an approximation or among several figures"
     elif "ambiguous" in outcomes:
-        sev, why = UNGRADED, "a fact is given as a range around the declared value"
+        sev, why = UNGRADED, ("a fact is given as a range around the declared value, "
+                              "or the declared value stands outside the anchored "
+                              "sentences")
     elif UNGRADED in outcomes:
         sev, why = UNGRADED, "the fact head could not be applied"
     elif "not_stated" in outcomes:
@@ -902,12 +1104,25 @@ FACT_CHECK_JUDGE: Dict[str, Any] = {
             "reader's labels, with one false accusation from the sentence "
             "after an anchor and one error missed behind a range. Version "
             "0.5 reads the anchor's own sentence and heading scope only, "
-            "and weighs a range only where there is no point figure."
+            "and weighs a range only where there is no point figure. "
+            "Version 0.6 reads a currency marker before the figure (kr 8 300, "
+            "NOK 8 300) and a thin space as thousands separator, and "
+            "abstains (ambiguous) when no anchored figure equals the "
+            "declared value but the answer states it in a sentence without "
+            "an anchor, unless the user stated it first. Measured on 36 "
+            "constructed answers from a second reader: of 27 correct "
+            "answers, 8 were wrong before and none is now (6 ambiguous); "
+            "the 62 stored outcomes from the earlier runs are unchanged. "
+            "The exception also covers the declared value standing "
+            "without its unit (8 300, 8 300,-), for values of 1 000 or more; "
+            "on 50 further constructed answers 3 of 4 wrong verdicts on "
+            "correct answers became ambiguous, and the fourth (8,300 read "
+            "as 8.3) is a known limitation."
         ),
     },
     "metadata": {
         "author": "ecodeco",
-        "version": "0.5",
+        "version": "0.6",
         "date_created": "2026-10-09",
         "language": "no",
         "status": ("experimental — precision ~0.88 under the 0.90 bar, "

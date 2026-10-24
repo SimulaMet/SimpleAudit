@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from ._http import make_client, warn_if_cleartext, with_endpoint
 from .base import TargetContext, TargetResponse
 
 
@@ -35,6 +36,7 @@ class ASRTarget:
     ) -> None:
         self.model = model
         self.url = base_url.rstrip("/") + "/audio/transcriptions"
+        warn_if_cleartext(self.url)
         self.api_key = api_key
         self.timeout = timeout
         self.options = dict(options or {})
@@ -63,8 +65,6 @@ class ASRTarget:
         documents: list[str | dict[str, Any]] | None = None,
         response_format: dict[str, Any] | None = None,
     ) -> TargetResponse:
-        import httpx
-
         if file_uri is None:
             file_uri = next(
                 (
@@ -102,9 +102,7 @@ class ASRTarget:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         if context:
             headers.update(context.trace_headers)
-        client = (
-            self._client if self._client is not None else httpx.AsyncClient(timeout=self.timeout)
-        )
+        client = self._client if self._client is not None else make_client(self.timeout)
         try:
             with path.open("rb") as audio:
                 response = await client.post(
@@ -113,7 +111,8 @@ class ASRTarget:
                     headers=headers,
                     files={
                         "file": (
-                            path.name,
+                            # Neutral name: the local filename stays local.
+                            "audio" + path.suffix.lower(),
                             audio,
                             mimetypes.guess_type(path.name)[0] or "application/octet-stream",
                         )
@@ -124,7 +123,7 @@ class ASRTarget:
             payload = response.json()
             if not isinstance(payload, dict) or not isinstance(payload.get("text"), str):
                 raise ValueError("Transcription response must contain a string 'text' field")
-            return TargetResponse(content=payload["text"], raw=payload)
+            return TargetResponse(content=payload["text"], raw=with_endpoint(payload, self.url))
         finally:
             if self._client is None:
                 await client.aclose()

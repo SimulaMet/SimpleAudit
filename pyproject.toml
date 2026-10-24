@@ -82,6 +82,8 @@ target-version = ["py311", "py312", "py313"]
 testpaths = ["tests"]
 addopts = "--cov=simpleaudit --cov-report=html --cov-report=term-missing"
 asyncio_mode = "auto"
+# Tests use plain-http stub hosts; the targets' cleartext warning is expected there.
+filterwarnings = ['ignore:target endpoint http\S+ uses plain http:UserWarning']
 
 [tool.coverage.run]
 source = ["simpleaudit"]

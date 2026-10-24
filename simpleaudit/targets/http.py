@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Dict, List, Optional, Union
 
+from ._http import make_client, warn_if_cleartext, with_endpoint
 from .base import Target, TargetContext, TargetResponse
 
 
@@ -67,6 +68,7 @@ class HTTPAppTarget:
         token_paths: Optional[tuple] = None,
     ) -> None:
         self.url = url
+        warn_if_cleartext(url)
         self.method = method.upper()
         self.headers = dict(headers or {})
         self.request_template = dict(request_template or {})
@@ -145,9 +147,7 @@ class HTTPAppTarget:
         if client := self._client:
             pass
         else:
-            import httpx
-
-            client = httpx.AsyncClient(timeout=self.timeout)
+            client = make_client(self.timeout)
         try:
             resp = await client.request(self.method, self.url, json=body, headers=headers)
             resp.raise_for_status()
@@ -172,7 +172,7 @@ class HTTPAppTarget:
 
         return TargetResponse(
             content=content,
-            raw=data,
+            raw=with_endpoint(data, self.url),
             input_tokens=int(in_tok) if in_tok is not None else None,
             output_tokens=int(out_tok) if out_tok is not None else None,
         )

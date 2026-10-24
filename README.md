@@ -958,7 +958,7 @@ r = results[0]
 r.judgment["choice"], r.judgment["confidence"], r.judgment["probabilities"]
 ```
 
-For Jev on OpenRouter, use `DecisionTarget.openrouter("typesafe/jev-1.13")`, with the key in `OPENROUTER_API_KEY`. Provider routing, for example `{"provider": {"zdr": True}}`, goes in `extra_body`.
+For Jev on OpenRouter, use `DecisionTarget.openrouter("typesafe/jev-1.13")`, with the key in `OPENROUTER_API_KEY`. Provider routing, for example `{"provider": {"zdr": True}}`, goes in `extra_body`. Each response's `raw` gains an `endpoint` block (scheme, host, port, and whether the standard proxy settings route it through a proxy), and a plain `http://` URL to a host other than loopback raises a warning.
 
 `DecisionTarget`:
 - checks the endpoint's limits before sending: 2–26 options per question, and 64 KiB per request for Ollama. A scenario over a limit is recorded as an error; its documents are never shortened.
@@ -992,6 +992,8 @@ Use `max_turns=1` with `choice_match`. Follow-up turns need an `auditor_model` o
 local servers can use the same target. No timestamps are required. Provider/model
 support for languages, formats and optional parameters varies; unsupported
 requests are reported as errors rather than silently changing the input.
+The file is uploaded as `audio` plus its lowercased extension, so the local
+filename is not sent with the upload.
 
 ```python
 from simpleaudit import Auditor, ASRTarget

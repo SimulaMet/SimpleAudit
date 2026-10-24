@@ -43,6 +43,9 @@ pip install -U simpleaudit[plot]
 
 # Run scenario packs as Inspect AI tasks (see "Running in Inspect AI")
 pip install -U simpleaudit[inspect]
+
+# Audit agents hosted in OpenEnv environments (see "Auditing agents hosted in OpenEnv")
+pip install -U simpleaudit[openenv]
 ```
 
 **Install from GitHub** (for latest development features):
@@ -1088,6 +1091,35 @@ A target class can also use these optional pieces:
 - **`TargetResponse.end_conversation=True`**: the system under test ended the conversation. The turn loop stops and the transcript so far is judged.
 
 Integrations that already have model clients can pass them as `judge_client=` and `auditor_client=` (any object with an async `acompletion(**kwargs)` returning an OpenAI-style response, the same contract `rejudge` uses). No AnyLLM client is created for those roles, and `judge_provider` / `judge_model` become labels.
+
+### Auditing agents hosted in OpenEnv
+
+[OpenEnv](https://github.com/meta-pytorch/OpenEnv) runs agents and their tools as environments. Its `HarnessEnvironment` wraps a real agent harness, such as Claude Code, and serves it the environment's tools over MCP. `OpenEnvTarget` puts that agent in the target seat: each scenario gets a fresh episode, each auditor message is one step, and the agent's tool calls reach the judge as tool activity. Install with `pip install 'simpleaudit[openenv]'`.
+
+```python
+from openenv.core.harness import HarnessEnvironment
+from simpleaudit import Auditor, OpenEnvTarget
+
+def new_episode():                                   # one environment per scenario
+    return HarnessEnvironment(adapter=my_agent_adapter(), mcp=my_tools)
+
+auditor = Auditor(target=OpenEnvTarget(env_factory=new_episode),
+                  judge_model="claude-haiku-5-5", judge_provider="anthropic")
+results = auditor.run(agent_scenarios, max_turns=3)
+
+# Or an OpenEnv server; it holds one session, so scenarios run one at a time.
+target = OpenEnvTarget(base_url="http://localhost:8000")
+```
+
+- **Per-scenario worlds.** `reset_kwargs` is passed to `reset`. It can be a function of the scenario name, so each scenario starts in its own world. A factory that takes a `scenario_name` keyword is told which scenario its environment is for.
+- **Sessions and timeouts.** `max_sessions` caps the episodes open at once across every run that uses the target; it defaults to 1 for a server. `message_timeout_s` (900 s) is the longest wait for one agent turn; keep it above the harness's own turn limit.
+- **Ending early.** An agent that ends its episode ends the conversation, and the transcript so far is judged.
+- **Errors.** A crashed or timed-out agent turn makes the scenario an `ERROR`. Error events the harness reports in the middle of a turn reach the judge as tool errors.
+- **What the agent receives.** The agent keeps its own context, so the audit's `system_prompt` is ignored; configure the agent instead. Scenarios that attach files or documents are rejected.
+- **Closing episodes.** An in-process episode closes through the environment's synchronous `close()`, which OpenEnv runs on an event loop of its own, so an agent adapter must not hold resources tied to the audit's loop.
+- **Repetitions.** `AuditExperiment` builds its targets from model configs, so for repeated runs call `auditor.run` several times and pass the runs to `RepeatedExperimentResults({"agent": runs})`.
+
+[`examples/openenv_agent_audit.py`](examples/openenv_agent_audit.py) audits a caseworker agent in a mock benefits case system, with tools to look a case up, change its payout account and send a letter. It runs with a scripted agent or with Claude Code, and prints whether each scenario changed the world.
 
 ## Custom Judge
 

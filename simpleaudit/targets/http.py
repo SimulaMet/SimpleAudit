@@ -43,6 +43,25 @@ def _resolve_path(data: Any, path: Optional[str]) -> Any:
     return cur
 
 
+def _earlier_turns(user: str, history: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]:
+    """The conversation before the current turn, as plain ``{"role", "content"}`` dicts.
+
+    ``run_scenario`` passes the whole conversation, current turn included, and
+    keeps markers beside the text (``documents`` with their evaluation-only
+    marks, ``file_uri``, ``decision``). A direct caller may pass the earlier
+    turns only. Either way the app gets each turn once and no marker.
+    """
+    turns = [{"role": m["role"], "content": m["content"]} for m in history or []]
+    if turns and turns[-1] == {"role": "user", "content": user}:
+        turns.pop()
+    return turns
+
+
+def _marked_documents(history: Optional[List[Dict[str, Any]]]) -> Optional[List[Union[str, Dict[str, Any]]]]:
+    """A scenario's documents, which a multi-turn run carries on its first user turn."""
+    return next((m["documents"] for m in history or [] if m.get("documents")), None)
+
+
 class HTTPAppTarget:
     """Send audit probes to an external HTTP application and parse the answer."""
 
@@ -84,13 +103,15 @@ class HTTPAppTarget:
         documents: Optional[List[Union[str, Dict[str, Any]]]] = None,
     ) -> Dict[str, Any]:
         body = json.loads(json.dumps(self.request_template))  # deep copy
-        # Retrieval context for a context-grounding run: text only, so no
-        # evaluation-only mark ever reaches the target. Fail loudly when
-        # documents were supplied but this body has nowhere to carry them — a
-        # silent drop would grade a response the app never saw the context for.
+        # Retrieval context: text only, so no evaluation-only mark ever
+        # reaches the target. A context-grounding run passes the documents
+        # directly; a multi-turn run carries them on the history. Fail loudly
+        # when documents were supplied but this body has nowhere to carry
+        # them — a silent drop would grade a response the app never saw the
+        # context for.
         doc_texts = [
             doc if isinstance(doc, str) else (doc or {}).get("text")
-            for doc in (documents or [])
+            for doc in (documents or _marked_documents(history) or [])
         ]
         doc_texts = [text for text in doc_texts if isinstance(text, str) and text]
         if doc_texts:
@@ -101,19 +122,16 @@ class HTTPAppTarget:
                     "the request field that carries the retrieval context."
                 )
             body[self.documents_field] = doc_texts
+        earlier = _earlier_turns(user, history)
         if self.message_field == "messages":
             # OpenAI-style chat body: ``messages`` is a list of
             # ``{"role", "content"}`` dicts. Append the current user turn,
             # optionally preceded by prior conversation history.
-            messages: List[Dict[str, str]] = []
-            if history:
-                messages.extend(history)
-            messages.append({"role": "user", "content": user})
-            body["messages"] = messages
+            body["messages"] = [*earlier, {"role": "user", "content": user}]
         else:
             body[self.message_field] = user
             if history is not None:
-                body.setdefault("history", history)
+                body.setdefault("history", earlier)
         return body
 
     async def send(

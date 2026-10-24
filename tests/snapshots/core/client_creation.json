@@ -1,0 +1,116 @@
+{
+  "default": {
+    "create_calls": [
+      {
+        "api_key": null,
+        "base_url": null,
+        "provider": "openai",
+        "client_kwargs": null
+      },
+      {
+        "api_key": null,
+        "base_url": null,
+        "provider": "anthropic",
+        "client_kwargs": null
+      }
+    ],
+    "target_client": "MagicMock",
+    "judge_client": "MagicMock",
+    "auditor_client": "MagicMock",
+    "auditor_is_judge": true
+  },
+  "auditor_equals_judge": {
+    "create_calls": [
+      {
+        "api_key": null,
+        "base_url": null,
+        "provider": "openai",
+        "client_kwargs": null
+      },
+      {
+        "api_key": null,
+        "base_url": null,
+        "provider": "anthropic",
+        "client_kwargs": null
+      }
+    ],
+    "target_client": "MagicMock",
+    "judge_client": "MagicMock",
+    "auditor_client": "MagicMock",
+    "auditor_is_judge": true
+  },
+  "distinct_auditor": {
+    "create_calls": [
+      {
+        "api_key": null,
+        "base_url": null,
+        "provider": "openai",
+        "client_kwargs": null
+      },
+      {
+        "api_key": null,
+        "base_url": null,
+        "provider": "anthropic",
+        "client_kwargs": null
+      },
+      {
+        "api_key": "k",
+        "base_url": null,
+        "provider": "openai",
+        "client_kwargs": null
+      }
+    ],
+    "target_client": "MagicMock",
+    "judge_client": "MagicMock",
+    "auditor_client": "MagicMock",
+    "auditor_is_judge": false
+  },
+  "code_judge_without_auditor": {
+    "create_calls": [
+      {
+        "api_key": null,
+        "base_url": null,
+        "provider": "openai",
+        "client_kwargs": null
+      }
+    ],
+    "target_client": "MagicMock",
+    "judge_client": "_NoModelClient",
+    "auditor_client": "_NoModelClient",
+    "auditor_is_judge": false
+  },
+  "code_judge_with_auditor": {
+    "create_calls": [
+      {
+        "api_key": null,
+        "base_url": null,
+        "provider": "openai",
+        "client_kwargs": null
+      },
+      {
+        "api_key": null,
+        "base_url": null,
+        "provider": "openai",
+        "client_kwargs": null
+      }
+    ],
+    "target_client": "MagicMock",
+    "judge_client": "_NoModelClient",
+    "auditor_client": "MagicMock",
+    "auditor_is_judge": false
+  },
+  "explicit_target": {
+    "create_calls": [
+      {
+        "api_key": null,
+        "base_url": null,
+        "provider": "anthropic",
+        "client_kwargs": null
+      }
+    ],
+    "target_client": "_NoopTargetClient",
+    "judge_client": "MagicMock",
+    "auditor_client": "MagicMock",
+    "auditor_is_judge": true
+  }
+}

@@ -10,7 +10,7 @@ from inspect_ai.log import EvalLog, EvalSample, read_eval_log
 
 from ...repeated_results import RepeatedExperimentResults
 from ...results import AuditResult, AuditResults
-from ...utils import UNGRADED, VALID_SEVERITIES
+from ...utils import UNGRADED, VALID_SEVERITIES, normalize_severity
 from ._task import STORE_KEY
 
 
@@ -23,7 +23,9 @@ def load_inspect_log(
     """Inspect log -> SimpleAudit results, one ``AuditResults`` per epoch.
 
     Samples from the ``simpleaudit/audit`` task come back exactly as the
-    solver stored them. Samples from any other task are rebuilt from their
+    solver stored them, and one that stopped before storing a result comes
+    back as ``ERROR`` with an empty transcript. Samples from any other task
+    are rebuilt from their
     messages: tool calls and tool results become the reply's ``tool_events``,
     and system messages and images are dropped.
 
@@ -60,6 +62,8 @@ def sample_to_result(
     stored = (sample.store or {}).get(STORE_KEY)
     if stored is not None:
         return AuditResult(**stored)
+    if "simpleaudit_pack" in (sample.metadata or {}):
+        return _unfinished(sample)
 
     info = scenario(sample) if scenario else {}
     metadata = sample.metadata or {}
@@ -68,8 +72,11 @@ def sample_to_result(
     if sample.error is not None:
         verdict = "ERROR"
         judgment["error"] = sample.error.message
+    elif severity is not None:
+        mapped = severity(sample)
+        verdict = normalize_severity(mapped) if mapped is not None else UNGRADED
     else:
-        verdict = severity(sample) if severity else _scored_severity(scores)
+        verdict = _scored_severity(scores)
     judgment["severity"] = verdict
     return AuditResult(
         scenario_name=str(info.get("name") or sample.id),
@@ -110,11 +117,13 @@ def conversation_from_messages(messages: list[Any]) -> list[dict[str, Any]]:
                 for call in message.tool_calls or []
             ]
         else:
+            # Inspect leaves a failed tool's content empty and puts the reason
+            # in message.error.
             events = [{
                 "type": "tool_result",
                 "name": message.function or "?",
                 "result": message.text,
-                "error": message.error is not None,
+                "error": message.error.message if message.error is not None else False,
                 "id": message.tool_call_id,
             }]
         if events:
@@ -125,9 +134,36 @@ def conversation_from_messages(messages: list[Any]) -> list[dict[str, Any]]:
 def _scored_severity(scores: dict[str, Any]) -> str:
     for score in scores.values():
         for candidate in (score.value, score.answer):
-            if isinstance(candidate, str) and candidate in VALID_SEVERITIES:
-                return candidate
+            if isinstance(candidate, str) and normalize_severity(candidate) in VALID_SEVERITIES:
+                return normalize_severity(candidate)
     return UNGRADED
+
+
+def _unfinished(sample: EvalSample) -> AuditResult:
+    """A ``simpleaudit/audit`` sample that stopped before its result was stored.
+
+    Its messages hold only the scenario description, which the target never
+    saw, so the transcript stays empty.
+    """
+    if sample.error is not None:
+        reason = sample.error.message
+    elif sample.limit is not None:
+        reason = f"stopped by the {sample.limit.type} limit"
+    else:
+        reason = "no SimpleAudit result was stored"
+    metadata = sample.metadata or {}
+    return AuditResult(
+        scenario_name=str(metadata.get("name") or sample.id),
+        scenario_description=_input_text(sample),
+        conversation=[],
+        severity="ERROR",
+        issues_found=[f"Scenario did not complete: {reason}"],
+        positive_behaviors=[],
+        summary=f"Scenario did not complete: {reason}"[:500],
+        recommendations=[],
+        expected_behavior=metadata.get("expected_behavior"),
+        judgment={"severity": "ERROR", "error": reason},
+    )
 
 
 def _input_text(sample: EvalSample) -> str:

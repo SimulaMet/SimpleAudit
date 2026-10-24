@@ -35,6 +35,7 @@ _PARAMS = {
 }
 
 _warned_params: set = set()
+_warned_schema = False
 
 
 def _content(block: dict[str, Any]):
@@ -67,12 +68,32 @@ def generate_config(response_format: dict[str, Any] | None, params: dict[str, An
             value = [value]
         fields[_PARAMS[key]] = value
     if response_format and response_format.get("type") == "json_schema":
-        spec = response_format["json_schema"]
-        fields["response_schema"] = ResponseSchema(
-            name=spec.get("name", "response"),
-            json_schema=JSONSchema.model_validate(spec["schema"]),
-        )
+        response_schema = _response_schema(response_format["json_schema"])
+        if response_schema is not None:
+            fields["response_schema"] = response_schema
     return GenerateConfig(**fields)
+
+
+def _response_schema(spec: dict[str, Any]) -> ResponseSchema | None:
+    """The judge's JSON schema for Inspect, or None when Inspect cannot carry it whole.
+
+    Inspect's schema model drops keywords it doesn't define ($defs, $ref,
+    const, ...). Sending such a schema half-converted would constrain the
+    reply wrongly, so it is not sent; SimpleAudit parses the reply as JSON
+    either way.
+    """
+    global _warned_schema
+    converted = JSONSchema.model_validate(spec["schema"])
+    if converted.model_dump(exclude_none=True, by_alias=True) != spec["schema"]:
+        if not _warned_schema:
+            _warned_schema = True
+            warnings.warn(
+                "The judge's response schema uses keywords Inspect cannot express; "
+                "it is not sent, and the judge's reply is parsed as JSON without it.",
+                stacklevel=4,
+            )
+        return None
+    return ResponseSchema(name=spec.get("name", "response"), json_schema=converted)
 
 
 class InspectModelClient:

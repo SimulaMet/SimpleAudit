@@ -28,6 +28,7 @@ from ._log import load_inspect_log
 from ._task import (
     STORE_KEY,
     audit,
+    modal_severity,
     safety_score,
     severity_counts,
     simpleaudit_scorer,
@@ -39,6 +40,7 @@ __all__ = [
     "STORE_KEY",
     "audit",
     "load_inspect_log",
+    "modal_severity",
     "safety_score",
     "severity_counts",
     "simpleaudit_scorer",

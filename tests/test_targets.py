@@ -497,3 +497,29 @@ def test_engine_traceparent_reaches_wire_on_default_target():
     tp = last["extra_headers"]["traceparent"]
     # Same trace id the correlation recorded, not a fresh unrelated one.
     assert tp.split("-")[1] in correlation.all_trace_ids()
+
+
+def test_http_body_keeps_other_fields_of_direct_callers():
+    t = HTTPAppTarget(url="http://x", message_field="messages")
+    history = [
+        {"role": "user", "content": "What's 2+2?"},
+        {"role": "assistant", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "add"}}]},
+        {"role": "tool", "tool_call_id": "c1", "name": "add", "content": "4"},
+        {"role": "assistant", "content": "4."},
+    ]
+    body = t._build_body("And 3+3?", history)
+    assert body["messages"] == [*history, {"role": "user", "content": "And 3+3?"}]
+
+
+def test_http_documents_are_parsed_and_keep_their_positions():
+    t = HTTPAppTarget(url="http://x", documents_field="context")
+    assert t._build_body("q", None, ["", "B"])["context"] == ["", "B"]
+    assert "context" not in t._build_body("q", [{"role": "user", "content": "q", "documents": ["A"]}], [])
+    with pytest.raises(ValueError, match="text"):
+        t._build_body("q", None, [{"content": "Deadline is six weeks."}])
+
+
+def test_http_audit_with_attached_files_fails_instead_of_dropping_them():
+    result, bodies = _audit_http({**PLAIN_SCENARIO, "file_uri": "/tmp/scan.png"}, message_field="messages")
+    assert result.severity == "ERROR" and "cannot send attached files" in result.judgment["error"]
+    assert bodies == []

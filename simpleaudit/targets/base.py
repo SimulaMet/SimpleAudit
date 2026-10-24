@@ -30,6 +30,18 @@ class TargetResponse:
     # (choice, probabilities, confidence). None for every other target. The
     # auditor stores it beside the reply in the transcript.
     decision: Optional[Dict[str, Any]] = None
+    # What an agent did while producing this reply, for targets that can see
+    # it (an agent harness). JSON-serialisable dicts, in order:
+    #   {"type": "tool_call", "name": str, "arguments": Any, "id": str}
+    #   {"type": "tool_result", "name": str, "result": Any, "error": bool, "id": str}
+    # ("id" is optional and pairs a result with its call). The auditor stores
+    # the list beside the reply and shows it to the judge only: the probe
+    # model and provider APIs never receive it.
+    tool_events: Optional[List[Dict[str, Any]]] = None
+    # True when the system under test ended the conversation (an agent that
+    # finished its episode). The auditor stops the turn loop after this reply
+    # and judges the transcript so far.
+    end_conversation: bool = False
 
 
 @dataclass
@@ -66,6 +78,14 @@ class Target(Protocol):
     behavior change. New targets may ignore the model-specific keyword
     arguments (``response_format``, ``file_uri``, ``documents``) when they do
     not apply.
+
+    A target that holds per-scenario state (an agent session, a sandbox) may
+    also define ``async start_scenario(context)`` and ``async
+    end_scenario(context)``. ``ModelAuditor.run_scenario`` awaits the first
+    before turn 0 and the second after the last turn, before judging; the
+    context carries ``scenario_run_id`` and ``extra["scenario_name"]``. Both
+    are optional and are not part of this protocol. ``SingleTurnAuditor``
+    does not call them.
     """
 
     async def send(

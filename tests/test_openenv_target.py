@@ -240,4 +240,4 @@ def test_server_sessions_one_at_a_time(harness_server):
     while len(log) < 8 and time.monotonic() < deadline:
         time.sleep(0.02)
     assert log == ["start", "turn 1", "turn 2", "stop"] * 2
-    assert "[tool result] lookup_case: open" in judge.calls[1]["messages"][1]["content"]
+    assert '[tool result] lookup_case: "open"' in judge.calls[1]["messages"][1]["content"]

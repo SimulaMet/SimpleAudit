@@ -1084,6 +1084,15 @@ async def my_agent(*, user, history, context, **_):
 auditor = Auditor(target=CallableTarget(my_agent), judge_model="gpt-4o", judge_provider="openai")
 ```
 
+In a multi-turn audit, the function gets the conversation so far in `history`, ending with the current user turn. It also gets the scenario's documents as text in `documents` on every turn, and its attached files in `file_uri` on the turn that attaches them. That turn keeps its `file_uri` in `history`. The documents' evaluation-only marks never reach the function.
+
+For an app behind HTTP, `HTTPAppTarget(url=..., response_path=...)` sends each probe as a request body:
+
+- **`message_field="messages"`:** the body is an OpenAI-style message list, and any `messages` in `request_template` come before the conversation. The audit's `system_prompt` joins the template's leading system message, or becomes one.
+- **`system_field=`:** names a request field for the system prompt instead, in either mode. A value the template already sets there comes first.
+- **Other modes:** a `history` list in `request_template` comes before the conversation's earlier turns.
+- **Documents** go to `documents_field`, as text.
+
 A target class can also use these optional pieces:
 
 - **`start_scenario(context)` / `end_scenario(context)`**: async methods for targets that hold a session per scenario. `start_scenario` is awaited before the first turn. Once it has succeeded, `end_scenario` runs after the last turn and the evidence resolver, before judging, and also when a turn fails or the run is cancelled; a `start_scenario` that raises has to clean up after itself. `context.scenario_run_id` matches the per-turn contexts, and `context.extra["scenario_name"]` names the scenario. A hook defined without `async` is not called, and a warning says so. `SingleTurnAuditor` doesn't call them.

@@ -40,6 +40,12 @@ pip install -U simpleaudit
 
 # With plotting support
 pip install -U simpleaudit[plot]
+
+# Run scenario packs as Inspect AI tasks (see "Running in Inspect AI")
+pip install -U simpleaudit[inspect]
+
+# Audit agents hosted in OpenEnv environments (see "Auditing agents hosted in OpenEnv")
+pip install -U simpleaudit[openenv]
 ```
 
 **Install from GitHub** (for latest development features):
@@ -440,6 +446,7 @@ auditor = ModelAuditor(
 | `judge_api_key` | API key for judge provider (optional - uses env var if not provided) | No |
 | `base_url` | Custom base URL for target API requests (optional) | No |
 | `judge_base_url` | Custom base URL for judge API requests (optional) | No |
+| `judge_client` / `auditor_client` | Ready-made model clients for the judge or the auditor, used instead of creating AnyLLM clients; see [Writing your own target](#writing-your-own-target) | No |
 | `system_prompt` | System prompt for target model (or `None`) | No |
 | `judge` | Named judge config to use (e.g. `"helpfulness"`, `"factuality"`) — see [Judge Configs](#judge-configs) | No |
 | `probe_prompt` | Custom system prompt for the probe generator (replaces the built-in red-team persona) | No |
@@ -1063,6 +1070,66 @@ Saved ASR results retain their reference settings for `rejudge` and
 `load_stored_records`/`reframing_check`, so judge-only comparisons can reuse the
 original transcription without uploading or transcribing the audio again.
 
+## Writing your own target
+
+`Auditor` audits anything with an async `send(...)` that returns a `TargetResponse`. `CallableTarget` wraps a Python function, which is the quickest way to put an agent or a RAG pipeline in the target seat:
+
+```python
+from simpleaudit import Auditor, CallableTarget, TargetResponse
+
+async def my_agent(*, user, history, context, **_):
+    answer, actions = await run_agent(user)          # your code
+    return TargetResponse(content=answer, tool_events=actions)
+
+auditor = Auditor(target=CallableTarget(my_agent), judge_model="gpt-4o", judge_provider="openai")
+```
+
+In a multi-turn audit, the function gets the conversation so far in `history`, ending with the current user turn. It also gets the scenario's documents as text in `documents` on every turn, and its attached files in `file_uri` on the turn that attaches them. That turn keeps its `file_uri` in `history`. The documents' evaluation-only marks never reach the function.
+
+For an app behind HTTP, `HTTPAppTarget(url=..., response_path=...)` sends each probe as a request body:
+
+- **`message_field="messages"`:** the body is an OpenAI-style message list, and any `messages` in `request_template` come before the conversation. The audit's `system_prompt` joins the template's leading system message, or becomes one.
+- **`system_field=`:** names a request field for the system prompt instead, in either mode. A value the template already sets there comes first.
+- **Other modes:** a `history` list in `request_template` comes before the conversation's earlier turns.
+- **Documents** go to `documents_field`, as text.
+
+A target class can also use these optional pieces:
+
+- **`start_scenario(context)` / `end_scenario(context)`**: async methods for targets that hold a session per scenario. `start_scenario` is awaited before the first turn. Once it has succeeded, `end_scenario` runs after the last turn and the evidence resolver, before judging, and also when a turn fails or the run is cancelled; a `start_scenario` that raises has to clean up after itself. `context.scenario_run_id` matches the per-turn contexts, and `context.extra["scenario_name"]` names the scenario. A hook defined without `async` is not called, and a warning says so. `SingleTurnAuditor` doesn't call them.
+- **`TargetResponse.tool_events`**: what the agent did during the turn, as `{"type": "tool_call", "name", "arguments"}` and `{"type": "tool_result", "name", "result", "error"}` dicts (an optional `"id"` pairs them). They are saved in the transcript and shown to the judge in a `TOOL ACTIVITY` block before the reply, at most 50 per turn (the first and last 25 when there are more), with each value as JSON. The auditor model, which plays the user, never sees them, and they are left out of the history passed to targets and provider APIs. The checklist judge verifies quotes against reply text only, so a quote taken from tool activity is marked unverified.
+- **`TargetResponse.end_conversation=True`**: the system under test ended the conversation. The turn loop stops and the transcript so far is judged.
+
+Integrations that already have model clients can pass them as `judge_client=` and `auditor_client=` (any object with an async `acompletion(**kwargs)` returning an OpenAI-style response, the same contract `rejudge` uses). No AnyLLM client is created for those roles, and `judge_provider` / `judge_model` become labels.
+
+### Auditing agents hosted in OpenEnv
+
+[OpenEnv](https://github.com/meta-pytorch/OpenEnv) runs agents and their tools as environments. Its `HarnessEnvironment` wraps a real agent harness, such as Claude Code, and serves it the environment's tools over MCP. `OpenEnvTarget` puts that agent in the target seat: each scenario gets a fresh episode, each auditor message is one step, and the agent's tool calls reach the judge as tool activity. Install with `pip install 'simpleaudit[openenv]'`.
+
+```python
+from openenv.core.harness import HarnessEnvironment
+from simpleaudit import Auditor, OpenEnvTarget
+
+def new_episode():                                   # one environment per scenario
+    return HarnessEnvironment(adapter=my_agent_adapter(), mcp=my_tools)
+
+auditor = Auditor(target=OpenEnvTarget(env_factory=new_episode),
+                  judge_model="claude-haiku-5-5", judge_provider="anthropic")
+results = auditor.run(agent_scenarios, max_turns=3)
+
+# Or an OpenEnv server; it holds one session, so scenarios run one at a time.
+target = OpenEnvTarget(base_url="http://localhost:8000")
+```
+
+- **Per-scenario worlds.** `reset_kwargs` is passed to `reset`. It can be a function of the scenario name, so each scenario starts in its own world. A factory that takes a `scenario_name` keyword is told which scenario its environment is for.
+- **Sessions and timeouts.** `max_sessions` caps the episodes open at once across every run that uses the target; it defaults to 1 for a server. `message_timeout_s` (900 s) is the longest wait for one agent turn; keep it above the harness's own turn limit.
+- **Ending early.** An agent that ends its episode ends the conversation, and the transcript so far is judged.
+- **Errors.** A crashed or timed-out agent turn makes the scenario an `ERROR`. Error events the harness reports in the middle of a turn reach the judge as tool errors.
+- **What the agent receives.** The agent keeps its own context, so the audit's `system_prompt` is ignored; configure the agent instead. Scenarios that attach files or documents are rejected.
+- **Closing episodes.** An in-process episode closes through the environment's synchronous `close()`, which OpenEnv runs on an event loop of its own, so an agent adapter must not hold resources tied to the audit's loop.
+- **Repetitions.** `AuditExperiment` builds its targets from model configs, so for repeated runs call `auditor.run` several times and pass the runs to `RepeatedExperimentResults({"agent": runs})`.
+
+[`examples/openenv_agent_audit.py`](examples/openenv_agent_audit.py) audits a caseworker agent in a mock benefits case system, with tools to look a case up, change its payout account and send a letter. It runs with a scripted agent or with Claude Code, and prints whether each scenario changed the world.
+
 ## Custom Judge
 
 By default the judge uses a built-in safety evaluation schema (severity: `critical / high / medium / low / pass`). You can use a [named judge config](#judge-configs) for a different evaluation goal, or define fully custom prompts and output schemas.
@@ -1156,6 +1223,41 @@ SimpleAudit respects standard environment variables for API keys. Common ones:
 | Ollama | None (runs locally) | 
 
 See [any-llm-sdk documentation](https://mozilla-ai.github.io/any-llm/providers) for the complete list of supported providers and their environment variables.
+
+## Running in Inspect AI
+
+Any scenario pack runs as an [Inspect AI](https://inspect.aisi.org.uk) task. Install the extra with `pip install 'simpleaudit[inspect]'`, then:
+
+```bash
+inspect eval simpleaudit/audit -T pack=nav_aap -T language=Norwegian \
+    --model anthropic/claude-haiku-5-5 \
+    --model-role grader=anthropic/claude-sonnet-5-5 \
+    --epochs 5
+```
+
+- **Roles.** The task's model is the target. The `grader` role is the judge, and it is required: without it, Inspect would let the target judge itself. The `auditor` role writes the probes and defaults to the grader, as in SimpleAudit.
+- **Task arguments** (`-T`): `pack`, `scenarios_file` (a JSON list of scenarios), `max_turns`, `language`, `judge` (a [named judge config](#judge-configs)), `system_prompt`, `json_format`.
+- **Scores.** Each epoch is one full SimpleAudit run of a scenario, judge included. A sample's score is its severity's points (pass 4, low 3, medium 2, high 1, critical 0), and epochs reduce to the most common severity, a tie going to the more severe one as in SimpleAudit's stability report. The metrics are `safety_score`, the same 0–100 score as `results.summary()`, and a count per severity.
+- **Model calls.** Target, auditor and judge calls all go through Inspect, so its limits, retries and per-role token counts apply. A failing model call or an exceeded limit stops the sample as in any Inspect eval; the transcript up to that point is kept in the sample's store.
+
+Read the log back as SimpleAudit results, one run per epoch. A sample that stopped before its verdict was stored comes back as `ERROR`:
+
+```python
+from simpleaudit import make_judge_client, rejudge
+from simpleaudit.integrations.inspect import load_inspect_log
+
+runs = load_inspect_log("logs/2026-10-24T15-50-12_audit.eval")
+model = next(iter(runs.keys()))
+runs.stability(model).summary()                  # epochs as repetitions
+alt = rejudge(runs.runs(model)[0], make_judge_client("ollama"), "gemma3:27b")
+```
+
+Logs from other Inspect evals load too. Tool calls and tool results become tool activity the judge can read, the original Inspect scores stay in `judgment["inspect_scores"]`, and the severity is `ungraded` unless a score already is a severity or you pass `severity=` to map it. [`examples/inspect_log_robustness.py`](examples/inspect_log_robustness.py) runs the perturbation check on any Inspect log.
+
+Two things to know:
+
+- The judge runs inside the solver, so `inspect score` re-reads stored verdicts and doesn't grade again. To grade the same transcripts with another judge, use `rejudge` on the loaded log.
+- Inspect's Anthropic provider needs `anthropic>=2`, but any-llm-sdk, which SimpleAudit depends on, requires `anthropic<1` (as of 1.40.1). To run Anthropic models through Inspect, install `anthropic>=2` afterwards: pip reports the conflict, and in Inspect runs SimpleAudit's calls go through Inspect, not any-llm. OpenAI-compatible and local providers are not affected.
 
 ## Understanding Results
 

@@ -40,7 +40,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..context_marks import parse_documents
-from .base import TargetContext, TargetResponse
+from .base import TargetContext, TargetResponse, history_documents
 
 #: Ollama's request-body cap for System One requests without images.
 OLLAMA_MAX_BODY_BYTES = 64 * 1024
@@ -159,8 +159,8 @@ class DecisionTarget:
                 "(see the scenario guidelines, 'Decision Field')"
             )
         # The auditor attaches a scenario's documents to the first user turn.
-        if not documents:
-            documents = next((m["documents"] for m in history or [] if m.get("documents")), None)
+        if documents is None:
+            documents = history_documents(history)
         body = self.build_request(decision, user, documents)
         payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if self.max_body_bytes is not None and len(payload) > self.max_body_bytes:

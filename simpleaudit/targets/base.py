@@ -10,7 +10,7 @@ circular imports.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Sequence, Union, runtime_checkable
 
 
 @dataclass
@@ -30,6 +30,19 @@ class TargetResponse:
     # (choice, probabilities, confidence). None for every other target. The
     # auditor stores it beside the reply in the transcript.
     decision: Optional[Dict[str, Any]] = None
+    # What an agent did while producing this reply, for targets that can see
+    # it (an agent harness). JSON-serialisable dicts, in order:
+    #   {"type": "tool_call", "name": str, "arguments": Any, "id": str}
+    #   {"type": "tool_result", "name": str, "result": Any, "error": bool, "id": str}
+    # ("id" is optional and pairs a result with its call). The auditor stores
+    # a JSON-safe copy beside the reply and shows it to the judge only: the
+    # probe model, provider APIs and the history passed to targets never
+    # carry it.
+    tool_events: Optional[List[Dict[str, Any]]] = None
+    # True when the system under test ended the conversation (an agent that
+    # finished its episode). The auditor stops the turn loop after this reply
+    # and judges the transcript so far.
+    end_conversation: bool = False
 
 
 @dataclass
@@ -66,6 +79,16 @@ class Target(Protocol):
     behavior change. New targets may ignore the model-specific keyword
     arguments (``response_format``, ``file_uri``, ``documents``) when they do
     not apply.
+
+    A target that holds per-scenario state (an agent session, a sandbox) may
+    also define ``async start_scenario(context)`` and ``async
+    end_scenario(context)``. ``ModelAuditor.run_scenario`` awaits the first
+    before turn 0. Once it has succeeded, the second runs after the last turn
+    and the evidence resolver, before judging, and also when a turn fails or
+    the run is cancelled. A ``start_scenario`` that raises cleans up after
+    itself. The context carries ``scenario_run_id`` and
+    ``extra["scenario_name"]``. Both hooks are optional and are not part of
+    this protocol. ``SingleTurnAuditor`` does not call them.
     """
 
     async def send(
@@ -80,5 +103,44 @@ class Target(Protocol):
         params: Optional[Dict[str, Any]] = None,
         context: Optional[TargetContext] = None,
     ) -> TargetResponse:
-        """Send one message and return the normalized response."""
+        """Send one message and return the normalized response.
+
+        ``history`` is the conversation so far. When ``ModelAuditor.run_scenario``
+        calls ``send``, it ends with the current user turn (``user``), and its
+        turns carry the engine's markers beside ``role`` and ``content``:
+        ``documents`` and ``file_uri`` on the first user turn, ``decision`` on
+        a decision model's replies. ``ModelTarget`` sends this history as the
+        request. Other targets should send each turn once and leave the
+        markers out; ``history_documents`` finds a scenario's documents.
+        """
         ...
+
+
+#: The engine's own keys beside ``role`` and ``content`` on history turns (see
+#: ``Target.send``). None of them is input for the system under test, and
+#: documents carry evaluation-only marks.
+ENGINE_MARKERS = ("documents", "file_uri", "decision", "tool_events")
+
+
+def plain_history(
+    history: Optional[List[Dict[str, Any]]],
+    keep: Sequence[str] = (),
+) -> List[Dict[str, Any]]:
+    """The history without the engine's markers (bar those in ``keep``), as a new list.
+
+    Fields other than the markers stay.
+    """
+    drop = [k for k in ENGINE_MARKERS if k not in keep]
+    return [{k: v for k, v in m.items() if k not in drop} for m in history or []]
+
+
+def history_documents(
+    history: Optional[List[Dict[str, Any]]],
+) -> Optional[List[Union[str, Dict[str, Any]]]]:
+    """A scenario's documents, which ``run_scenario`` carries on the history's first user turn."""
+    return next((m["documents"] for m in history or [] if m.get("documents")), None)
+
+
+def history_file_uri(history: Optional[List[Dict[str, Any]]]) -> Optional[Union[str, List[str]]]:
+    """A scenario's attached files, which ``run_scenario`` carries on the history's first user turn."""
+    return next((m["file_uri"] for m in history or [] if m.get("file_uri")), None)

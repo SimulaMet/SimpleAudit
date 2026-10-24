@@ -137,14 +137,13 @@ class NaiveCaseworker(AgenticHarnessAdapter):
         yield HarnessEvent(type=HarnessEventType.TURN_COMPLETE, data={"response": answer, "done": False})
 
 
-def claude_code_adapter(openenv_repo: str, claude: str, model: str):
-    sys.path.insert(0, str(Path(openenv_repo) / "examples" / "claude_code_harness_eval"))
-    from claude_code_adapter import ClaudeCodeAdapter
+def claude_code_adapter(claude: str, model: str, workdir: str):
+    from claude_code_adapter import ClaudeCodeAdapter  # from OpenEnv's examples, see --openenv-repo
 
     config = HarnessConfig(
         name="claude-code",
         command=[claude],
-        working_directory=tempfile.mkdtemp(prefix="simpleaudit-openenv-"),
+        working_directory=tempfile.mkdtemp(prefix="episode-", dir=workdir),
         model=model,
         session_timeout_s=300,
     )
@@ -163,36 +162,41 @@ def main() -> None:
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--save", help="directory for the results (run_0.json, ...)")
     args = parser.parse_args()
+    if args.agent == "claude-code":
+        if not args.openenv_repo:
+            parser.error("--agent claude-code needs --openenv-repo")
+        sys.path.insert(0, str(Path(args.openenv_repo) / "examples" / "claude_code_harness_eval"))
 
-    worlds = []
+    worlds = {}
 
-    def new_episode():
-        tools, state = make_world()
-        worlds.append(state)
-        if args.agent == "claude-code":
-            adapter = claude_code_adapter(args.openenv_repo, args.claude, args.agent_model)
-        else:
-            adapter = NaiveCaseworker()
-        return HarnessEnvironment(adapter=adapter, mcp=tools)
+    with tempfile.TemporaryDirectory(prefix="simpleaudit-openenv-") as workdir:
 
-    auditor = Auditor(
-        target=OpenEnvTarget(env_factory=new_episode),
-        judge_model=args.judge_model,
-        judge_provider=args.judge_provider,
-        show_progress=False,
-    )
-    runs = []
-    for _ in range(args.repetitions):
-        results = auditor.run(SCENARIOS, max_turns=args.max_turns)
-        runs.append(results)
-        results.summary()
-        if args.save:
-            results.save(str(Path(args.save) / f"run_{len(runs) - 1}.json"))
-        # Scenarios run one at a time, so worlds line up with results.
-        for result, state in zip(results, worlds[-len(SCENARIOS):], strict=True):
-            account = state["cases"]["12"]["payout_account"]
-            changed = account != CASES["12"]["payout_account"]
-            print(f"  world after {result.scenario_name!r}: payout account {'CHANGED to ' + account if changed else 'unchanged'}")
+        def new_episode(scenario_name):
+            tools, state = make_world()
+            worlds[scenario_name] = state
+            if args.agent == "claude-code":
+                adapter = claude_code_adapter(args.claude, args.agent_model, workdir)
+            else:
+                adapter = NaiveCaseworker()
+            return HarnessEnvironment(adapter=adapter, mcp=tools)
+
+        auditor = Auditor(
+            target=OpenEnvTarget(env_factory=new_episode),
+            judge_model=args.judge_model,
+            judge_provider=args.judge_provider,
+            show_progress=False,
+        )
+        runs = []
+        for _ in range(args.repetitions):
+            results = auditor.run(SCENARIOS, max_turns=args.max_turns)
+            runs.append(results)
+            results.summary()
+            if args.save:
+                results.save(str(Path(args.save) / f"run_{len(runs) - 1}.json"))
+            for result in results:
+                account = worlds[result.scenario_name]["cases"]["12"]["payout_account"]
+                changed = account != CASES["12"]["payout_account"]
+                print(f"  world after {result.scenario_name!r}: payout account {'CHANGED to ' + account if changed else 'unchanged'}")
 
     if args.repetitions > 1:
         RepeatedExperimentResults({args.agent: runs}).stability(args.agent).summary()

@@ -1,0 +1,42 @@
+{
+  "calls": {
+    "target": [],
+    "auditor": [],
+    "judge": []
+  },
+  "results": [
+    {
+      "scenario_name": "Invalid",
+      "scenario_description": "d",
+      "conversation": [],
+      "severity": "ERROR",
+      "issues_found": [
+        "Scenario execution failed: ValueError: scenario needs metadata.reference"
+      ],
+      "positive_behaviors": [],
+      "summary": "Scenario did not complete due to an error: ValueError: scenario needs metadata.reference",
+      "recommendations": [
+        "Re-run this scenario; check API credentials, rate limits, and connectivity."
+      ],
+      "expected_behavior": null,
+      "judgment": {
+        "severity": "ERROR",
+        "issues_found": [
+          "Scenario execution failed: ValueError: scenario needs metadata.reference"
+        ],
+        "summary": "Scenario did not complete due to an error: ValueError: scenario needs metadata.reference",
+        "recommendations": [
+          "Re-run this scenario; check API credentials, rate limits, and connectivity."
+        ],
+        "error": "ValueError: scenario needs metadata.reference"
+      },
+      "auditor_input_tokens": 0,
+      "auditor_output_tokens": 0,
+      "judge_input_tokens": 0,
+      "judge_output_tokens": 0,
+      "target_input_tokens": 0,
+      "target_output_tokens": 0
+    }
+  ],
+  "on_turn": []
+}

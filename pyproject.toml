@@ -57,6 +57,8 @@ dev = [
     "ruff>=0.1.0",
 ]
 all = ["simpleaudit[plot,dev]"]
+# Audit agents hosted in OpenEnv environments (simpleaudit.targets.OpenEnvTarget).
+openenv = ["openenv>=0.10"]
 
 [project.urls]
 Homepage = "https://github.com/simulamet/simpleaudit"

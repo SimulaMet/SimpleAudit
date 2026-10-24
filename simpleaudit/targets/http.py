@@ -22,7 +22,8 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from .base import Target, TargetContext, TargetResponse
+from ..context_marks import parse_documents
+from .base import Target, TargetContext, TargetResponse, history_documents
 
 
 def _resolve_path(data: Any, path: Optional[str]) -> Any:
@@ -41,6 +42,24 @@ def _resolve_path(data: Any, path: Optional[str]) -> Any:
         else:
             return None
     return cur
+
+
+#: The audit engine's own keys beside ``role`` and ``content`` (see Target.send).
+#: Documents carry evaluation-only marks, and none of them is the app's input.
+_ENGINE_MARKERS = ("documents", "file_uri", "decision", "tool_events")
+
+
+def _earlier_turns(user: str, history: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """The conversation before the current turn, without the engine's markers.
+
+    Under ``run_scenario`` the history ends with the current user turn, which
+    the body adds itself; a direct caller may pass the earlier turns only.
+    Fields other than the markers (``tool_calls``, ``tool_call_id``, ...) stay.
+    """
+    turns = [{k: v for k, v in m.items() if k not in _ENGINE_MARKERS} for m in history or []]
+    if turns and turns[-1].get("role") == "user" and turns[-1].get("content") == user:
+        turns.pop()
+    return turns
 
 
 class HTTPAppTarget:
@@ -84,36 +103,34 @@ class HTTPAppTarget:
         documents: Optional[List[Union[str, Dict[str, Any]]]] = None,
     ) -> Dict[str, Any]:
         body = json.loads(json.dumps(self.request_template))  # deep copy
-        # Retrieval context for a context-grounding run: text only, so no
-        # evaluation-only mark ever reaches the target. Fail loudly when
-        # documents were supplied but this body has nowhere to carry them — a
-        # silent drop would grade a response the app never saw the context for.
-        doc_texts = [
-            doc if isinstance(doc, str) else (doc or {}).get("text")
-            for doc in (documents or [])
-        ]
-        doc_texts = [text for text in doc_texts if isinstance(text, str) and text]
+        # Retrieval context: text only, so no evaluation-only mark ever
+        # reaches the target. A context-grounding run passes the documents
+        # directly; a multi-turn run carries them on the history. Every
+        # document keeps its position, matching the judge's numbering. Fail
+        # loudly when documents were supplied but this body has nowhere to
+        # carry them — a silent drop would grade a response the app never saw
+        # the context for.
+        if documents is None:
+            documents = history_documents(history)
+        doc_texts = [mark.text for mark in parse_documents(documents)]
         if doc_texts:
             if self.documents_field is None:
                 raise ValueError(
-                    "HTTPAppTarget received documents for a context-grounding run "
-                    "but has no way to send them: pass documents_field= to name "
-                    "the request field that carries the retrieval context."
+                    "HTTPAppTarget received the scenario's documents but has no way to "
+                    "send them: pass documents_field= to name the request field that "
+                    "carries the retrieval context."
                 )
             body[self.documents_field] = doc_texts
+        earlier = _earlier_turns(user, history)
         if self.message_field == "messages":
             # OpenAI-style chat body: ``messages`` is a list of
             # ``{"role", "content"}`` dicts. Append the current user turn,
             # optionally preceded by prior conversation history.
-            messages: List[Dict[str, str]] = []
-            if history:
-                messages.extend(history)
-            messages.append({"role": "user", "content": user})
-            body["messages"] = messages
+            body["messages"] = [*earlier, {"role": "user", "content": user}]
         else:
             body[self.message_field] = user
             if history is not None:
-                body.setdefault("history", history)
+                body.setdefault("history", earlier)
         return body
 
     async def send(
@@ -128,6 +145,10 @@ class HTTPAppTarget:
         params: Optional[Dict[str, Any]] = None,
         context: Optional[TargetContext] = None,
     ) -> TargetResponse:
+        # Like documents, an attachment the app never receives must not be
+        # graded as if it had.
+        if file_uri or any(m.get("file_uri") for m in history or []):
+            raise ValueError("HTTPAppTarget cannot send attached files; this scenario attaches file_uri")
         headers = dict(self.headers)
         body = self._build_body(user, history, documents)
 

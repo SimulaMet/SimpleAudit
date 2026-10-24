@@ -14,14 +14,28 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
-from .base import Target, TargetContext, TargetResponse
+from ..context_marks import parse_documents
+from .base import (
+    Target,
+    TargetContext,
+    TargetResponse,
+    history_documents,
+    history_file_uri,
+    plain_history,
+)
 
 # A callable target may return a string or a TargetResponse.
 TargetCallable = Callable[..., Union[str, TargetResponse, Awaitable[Union[str, TargetResponse]]]]
 
 
 class CallableTarget:
-    """Wrap an in-process callable as a :class:`Target`."""
+    """Wrap an in-process callable as a :class:`Target`.
+
+    The callable gets what a system under test may see (see ``Target.send``):
+    the history without the engine's markers, the scenario's documents as
+    text through ``documents`` and its files through ``file_uri``. No
+    evaluation-only document mark reaches it.
+    """
 
     def __init__(self, fn: TargetCallable) -> None:
         self._fn = fn
@@ -38,12 +52,14 @@ class CallableTarget:
         params: Optional[Dict[str, Any]] = None,
         context: Optional[TargetContext] = None,
     ) -> TargetResponse:
+        if documents is None:
+            documents = history_documents(history)
         result = self._fn(
             system=system,
             user=user,
-            history=history,
-            file_uri=file_uri,
-            documents=documents,
+            history=plain_history(history) if history is not None else None,
+            file_uri=file_uri if file_uri is not None else history_file_uri(history),
+            documents=[mark.text for mark in parse_documents(documents)] or None,
             response_format=response_format,
             params=params,
             context=context,

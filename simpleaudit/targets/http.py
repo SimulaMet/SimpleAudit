@@ -20,10 +20,18 @@ Design notes:
 from __future__ import annotations
 
 import json
+import warnings
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from ..context_marks import parse_documents
-from .base import Target, TargetContext, TargetResponse, history_documents
+from .base import (
+    Target,
+    TargetContext,
+    TargetResponse,
+    history_documents,
+    history_file_uri,
+    plain_history,
+)
 
 
 def _resolve_path(data: Any, path: Optional[str]) -> Any:
@@ -44,11 +52,6 @@ def _resolve_path(data: Any, path: Optional[str]) -> Any:
     return cur
 
 
-#: The audit engine's own keys beside ``role`` and ``content`` (see Target.send).
-#: Documents carry evaluation-only marks, and none of them is the app's input.
-_ENGINE_MARKERS = ("documents", "file_uri", "decision", "tool_events")
-
-
 def _earlier_turns(user: str, history: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     """The conversation before the current turn, without the engine's markers.
 
@@ -56,7 +59,7 @@ def _earlier_turns(user: str, history: Optional[List[Dict[str, Any]]]) -> List[D
     the body adds itself; a direct caller may pass the earlier turns only.
     Fields other than the markers (``tool_calls``, ``tool_call_id``, ...) stay.
     """
-    turns = [{k: v for k, v in m.items() if k not in _ENGINE_MARKERS} for m in history or []]
+    turns = plain_history(history)
     if turns and turns[-1].get("role") == "user" and turns[-1].get("content") == user:
         turns.pop()
     return turns
@@ -84,6 +87,9 @@ class HTTPAppTarget:
         # Optional: extract token usage from the response, e.g.
         # ("usage.prompt_tokens", "usage.completion_tokens").
         token_paths: Optional[tuple] = None,
+        # Where the audit's system prompt goes when message_field is not
+        # "messages" (in "messages" mode it is a leading system message).
+        system_field: Optional[str] = None,
     ) -> None:
         self.url = url
         self.method = method.upper()
@@ -95,12 +101,15 @@ class HTTPAppTarget:
         self._client = client
         self.documents_field = documents_field
         self.token_paths = token_paths
+        self.system_field = system_field
+        self._warned_system = False
 
     def _build_body(
         self,
         user: str,
         history: Optional[List[Dict[str, Any]]],
         documents: Optional[List[Union[str, Dict[str, Any]]]] = None,
+        system: Optional[str] = None,
     ) -> Dict[str, Any]:
         body = json.loads(json.dumps(self.request_template))  # deep copy
         # Retrieval context: text only, so no evaluation-only mark ever
@@ -123,14 +132,27 @@ class HTTPAppTarget:
             body[self.documents_field] = doc_texts
         earlier = _earlier_turns(user, history)
         if self.message_field == "messages":
-            # OpenAI-style chat body: ``messages`` is a list of
-            # ``{"role", "content"}`` dicts. Append the current user turn,
-            # optionally preceded by prior conversation history.
-            body["messages"] = [*earlier, {"role": "user", "content": user}]
+            # OpenAI-style chat body: the audit's system prompt, any messages
+            # the request template fixes, then the conversation.
+            fixed = body.get("messages") if isinstance(body.get("messages"), list) else []
+            system_turn = [{"role": "system", "content": system}] if system else []
+            body["messages"] = [*system_turn, *fixed, *earlier, {"role": "user", "content": user}]
         else:
             body[self.message_field] = user
+            if system:
+                if self.system_field:
+                    body[self.system_field] = system
+                elif not self._warned_system:
+                    self._warned_system = True
+                    warnings.warn(
+                        "HTTPAppTarget has nowhere to send the system prompt: pass "
+                        "system_field= to name the request field for it.",
+                        stacklevel=3,
+                    )
             if history is not None:
-                body.setdefault("history", earlier)
+                # A history list in the template comes before the conversation.
+                fixed = body.get("history") if isinstance(body.get("history"), list) else []
+                body["history"] = [*fixed, *earlier]
         return body
 
     async def send(
@@ -147,10 +169,10 @@ class HTTPAppTarget:
     ) -> TargetResponse:
         # Like documents, an attachment the app never receives must not be
         # graded as if it had.
-        if file_uri or any(m.get("file_uri") for m in history or []):
+        if file_uri or history_file_uri(history):
             raise ValueError("HTTPAppTarget cannot send attached files; this scenario attaches file_uri")
         headers = dict(self.headers)
-        body = self._build_body(user, history, documents)
+        body = self._build_body(user, history, documents, system)
 
         # Forward correlation / trace context when available.
         if context is not None:

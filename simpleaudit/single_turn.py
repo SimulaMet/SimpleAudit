@@ -318,11 +318,9 @@ class SingleTurnAuditor(ModelAuditor):
         marks = parse_documents(documents)
         # Targets must see document TEXT only. The marks (relevant / true /
         # decisive / valid_until / authority) are evaluation-only ground truth;
-        # strip them here, at the single choke point, so no target — callable,
-        # HTTP, model, or decision — can read them. This is the one place the
-        # raw marked dicts could otherwise reach a target (the model/decision
-        # targets already strip to .text themselves, but the callable and HTTP
-        # targets forward `documents` verbatim).
+        # strip them here, so no target can read them. The built-in targets
+        # also reduce documents to text themselves, but a custom target may
+        # forward `documents` as it gets them.
         target_documents = [mark.text for mark in marks] if marks else None
         as_of = parse_as_of(scenario)
         derivations = derive_all(marks, as_of)

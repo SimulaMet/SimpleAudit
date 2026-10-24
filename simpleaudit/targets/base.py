@@ -10,7 +10,7 @@ circular imports.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, Union, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Sequence, Union, runtime_checkable
 
 
 @dataclass
@@ -122,9 +122,16 @@ class Target(Protocol):
 ENGINE_MARKERS = ("documents", "file_uri", "decision", "tool_events")
 
 
-def plain_history(history: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    """The history without the engine's markers, as a new list; other fields stay."""
-    return [{k: v for k, v in m.items() if k not in ENGINE_MARKERS} for m in history or []]
+def plain_history(
+    history: Optional[List[Dict[str, Any]]],
+    keep: Sequence[str] = (),
+) -> List[Dict[str, Any]]:
+    """The history without the engine's markers (bar those in ``keep``), as a new list.
+
+    Fields other than the markers stay.
+    """
+    drop = [k for k in ENGINE_MARKERS if k not in keep]
+    return [{k: v for k, v in m.items() if k not in drop} for m in history or []]
 
 
 def history_documents(

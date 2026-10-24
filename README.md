@@ -1084,12 +1084,13 @@ async def my_agent(*, user, history, context, **_):
 auditor = Auditor(target=CallableTarget(my_agent), judge_model="gpt-4o", judge_provider="openai")
 ```
 
-The function gets the conversation so far in `history`, ending with the current user turn, the scenario's documents as text in `documents`, and its attached files in `file_uri`. The documents' evaluation-only marks never reach it.
+In a multi-turn audit, the function gets the conversation so far in `history`, ending with the current user turn. It also gets the scenario's documents as text in `documents` on every turn, and its attached files in `file_uri` on the turn that attaches them. That turn keeps its `file_uri` in `history`. The documents' evaluation-only marks never reach the function.
 
 For an app behind HTTP, `HTTPAppTarget(url=..., response_path=...)` sends each probe as a request body:
 
-- **`message_field="messages"`:** the body is an OpenAI-style message list. The audit's `system_prompt` is a leading system message, and any `messages` in `request_template` come before the conversation.
-- **Other modes:** pass `system_field=` to send the system prompt. A `history` list in `request_template` comes before the conversation's earlier turns.
+- **`message_field="messages"`:** the body is an OpenAI-style message list, and any `messages` in `request_template` come before the conversation. The audit's `system_prompt` joins the template's leading system message, or becomes one.
+- **`system_field=`:** names a request field for the system prompt instead, in either mode. A value the template already sets there comes first.
+- **Other modes:** a `history` list in `request_template` comes before the conversation's earlier turns.
 - **Documents** go to `documents_field`, as text.
 
 A target class can also use these optional pieces:

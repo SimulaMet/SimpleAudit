@@ -26,7 +26,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any
 
-from .base import TargetContext, TargetResponse
+from .base import TargetContext, TargetResponse, history_documents, history_file_uri
 
 ResetKwargs = Mapping[str, Any] | Callable[[str | None], Mapping[str, Any]]
 
@@ -171,7 +171,7 @@ class OpenEnvTarget:
             )
         # The engine carries a scenario's attachments as markers on the
         # history's first user turn, not as send() arguments.
-        if file_uri or documents or any(m.get("file_uri") or m.get("documents") for m in history or []):
+        if file_uri or documents or history_file_uri(history) or history_documents(history):
             raise ValueError("OpenEnvTarget sends text only; this scenario attaches files or documents")
         if session.done:
             raise RuntimeError("The agent already ended this episode")

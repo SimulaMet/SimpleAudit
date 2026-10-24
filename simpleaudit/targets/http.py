@@ -23,7 +23,7 @@ import json
 import warnings
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from ..context_marks import parse_documents
+from ..context_marks import document_texts
 from .base import (
     Target,
     TargetContext,
@@ -65,6 +65,26 @@ def _earlier_turns(user: str, history: Optional[List[Dict[str, Any]]]) -> List[D
     return turns
 
 
+def _with_system_text(fixed: Any, system: str) -> Any:
+    """The template's own system prompt at that field, if any, followed by the audit's."""
+    if isinstance(fixed, str) and fixed:
+        return f"{fixed}\n\n{system}"
+    if isinstance(fixed, list):  # content blocks, e.g. Anthropic's native "system"
+        return [*fixed, {"type": "text", "text": system}]
+    return system
+
+
+def _with_system_message(messages: List[Dict[str, Any]], system: str) -> List[Dict[str, Any]]:
+    """One leading system message: the template's, if it starts with one, then the audit's prompt.
+
+    Many chat templates reject two system messages in a row.
+    """
+    if messages and messages[0].get("role") == "system":
+        first = messages[0]
+        return [{**first, "content": _with_system_text(first.get("content"), system)}, *messages[1:]]
+    return [{"role": "system", "content": system}, *messages]
+
+
 class HTTPAppTarget:
     """Send audit probes to an external HTTP application and parse the answer."""
 
@@ -87,8 +107,9 @@ class HTTPAppTarget:
         # Optional: extract token usage from the response, e.g.
         # ("usage.prompt_tokens", "usage.completion_tokens").
         token_paths: Optional[tuple] = None,
-        # Where the audit's system prompt goes when message_field is not
-        # "messages" (in "messages" mode it is a leading system message).
+        # The request field for the audit's system prompt. Without it, the
+        # prompt is a leading system message in "messages" mode and cannot be
+        # sent in other modes.
         system_field: Optional[str] = None,
     ) -> None:
         self.url = url
@@ -121,7 +142,7 @@ class HTTPAppTarget:
         # the context for.
         if documents is None:
             documents = history_documents(history)
-        doc_texts = [mark.text for mark in parse_documents(documents)]
+        doc_texts = document_texts(documents)
         if doc_texts:
             if self.documents_field is None:
                 raise ValueError(
@@ -131,27 +152,33 @@ class HTTPAppTarget:
                 )
             body[self.documents_field] = doc_texts
         earlier = _earlier_turns(user, history)
+        if system and self.system_field:
+            body[self.system_field] = _with_system_text(body.get(self.system_field), system)
         if self.message_field == "messages":
-            # OpenAI-style chat body: the audit's system prompt, any messages
-            # the request template fixes, then the conversation.
+            # OpenAI-style chat body: any messages the request template fixes,
+            # then the conversation. Without a system_field, the audit's system
+            # prompt joins the template's leading system message or becomes one.
             fixed = body.get("messages") if isinstance(body.get("messages"), list) else []
-            system_turn = [{"role": "system", "content": system}] if system else []
-            body["messages"] = [*system_turn, *fixed, *earlier, {"role": "user", "content": user}]
+            if system and not self.system_field:
+                fixed = _with_system_message(fixed, system)
+            body["messages"] = [*fixed, *earlier, {"role": "user", "content": user}]
         else:
             body[self.message_field] = user
-            if system:
-                if self.system_field:
-                    body[self.system_field] = system
-                elif not self._warned_system:
-                    self._warned_system = True
-                    warnings.warn(
-                        "HTTPAppTarget has nowhere to send the system prompt: pass "
-                        "system_field= to name the request field for it.",
-                        stacklevel=3,
-                    )
+            if system and not self.system_field and not self._warned_system:
+                warnings.warn(
+                    "HTTPAppTarget has nowhere to send the system prompt: pass "
+                    "system_field= to name the request field for it.",
+                    stacklevel=3,
+                )
+                self._warned_system = True
             if history is not None:
                 # A history list in the template comes before the conversation.
-                fixed = body.get("history") if isinstance(body.get("history"), list) else []
+                fixed = body.get("history", [])
+                if not isinstance(fixed, list):
+                    raise ValueError(
+                        "request_template's 'history' must be a list for the conversation to "
+                        "follow it."
+                    )
                 body["history"] = [*fixed, *earlier]
         return body
 

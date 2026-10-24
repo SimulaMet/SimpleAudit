@@ -42,7 +42,10 @@ def main() -> None:
 
     runs = load_inspect_log(args.log)
     model = next(iter(runs.keys()))
-    run = runs.runs(model)[args.epoch - 1]
+    epochs = runs.runs(model)
+    if not 1 <= args.epoch <= len(epochs):
+        parser.error(f"--epoch must be between 1 and {len(epochs)}")
+    run = epochs[args.epoch - 1]
     records = load_stored_records(run.to_dict())
     print(f"{len(records)} transcripts from {model}, epoch {args.epoch}")
 

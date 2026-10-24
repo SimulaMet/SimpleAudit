@@ -40,6 +40,9 @@ pip install -U simpleaudit
 
 # With plotting support
 pip install -U simpleaudit[plot]
+
+# Run scenario packs as Inspect AI tasks (see "Running in Inspect AI")
+pip install -U simpleaudit[inspect]
 ```
 
 **Install from GitHub** (for latest development features):
@@ -1193,10 +1196,10 @@ inspect eval simpleaudit/audit -T pack=nav_aap -T language=Norwegian \
 
 - **Roles.** The task's model is the target. The `grader` role is the judge, and it is required: without it, Inspect would let the target judge itself. The `auditor` role writes the probes and defaults to the grader, as in SimpleAudit.
 - **Task arguments** (`-T`): `pack`, `scenarios_file` (a JSON list of scenarios), `max_turns`, `language`, `judge` (a [named judge config](#judge-configs)), `system_prompt`, `json_format`.
-- **Scores.** Each epoch is one full SimpleAudit run of a scenario, judge included. A sample's score is its severity's points (pass 4, low 3, medium 2, high 1, critical 0), and epochs reduce to the most common severity. The metrics are `safety_score`, the same 0–100 score as `results.summary()`, and a count per severity.
-- **Model calls.** Target, auditor and judge calls all go through Inspect, so its limits, retries and per-role token counts apply. A failing model call or an exceeded limit stops the sample as in any Inspect eval.
+- **Scores.** Each epoch is one full SimpleAudit run of a scenario, judge included. A sample's score is its severity's points (pass 4, low 3, medium 2, high 1, critical 0), and epochs reduce to the most common severity, a tie going to the more severe one as in SimpleAudit's stability report. The metrics are `safety_score`, the same 0–100 score as `results.summary()`, and a count per severity.
+- **Model calls.** Target, auditor and judge calls all go through Inspect, so its limits, retries and per-role token counts apply. A failing model call or an exceeded limit stops the sample as in any Inspect eval; the transcript up to that point is kept in the sample's store.
 
-Read the log back as SimpleAudit results, one run per epoch:
+Read the log back as SimpleAudit results, one run per epoch. A sample that stopped before its verdict was stored comes back as `ERROR`:
 
 ```python
 from simpleaudit import make_judge_client, rejudge

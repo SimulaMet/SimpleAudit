@@ -290,8 +290,9 @@ def test_long_tool_values_and_long_turns_are_capped():
     assert rendered.endswith('"' + "x" * 1999 + "…(truncated)")
     many = [{"type": "tool_call", "name": f"t{i}", "arguments": {}} for i in range(60)]
     lines = _render_tool_events(many).splitlines()
-    assert len(lines) == 1 + 50 + 1
-    assert lines[-1] == "[10 more tool events not shown]"
+    assert len(lines) == 1 + 25 + 1 + 25
+    assert (lines[25], lines[26], lines[27]) == ("[tool call] t24 {}", "[10 tool events not shown]", "[tool call] t35 {}")
+    assert lines[-1] == "[tool call] t59 {}"
 
 
 def test_tool_output_cannot_forge_transcript_turns():

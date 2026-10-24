@@ -258,6 +258,13 @@ def _as_marks(
     return parse_documents(marks)
 
 
+def document_texts(
+    docs: Optional[Sequence[Union[str, Dict[str, Any], DocumentMark]]],
+) -> List[str]:
+    """The documents' text only, in order: what a target may receive."""
+    return [mark.text for mark in parse_documents(docs)]
+
+
 def render_documents(
     marks: Sequence[Union[DocumentMark, str, Dict[str, Any]]],
 ) -> str:

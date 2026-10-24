@@ -40,6 +40,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..context_marks import parse_documents
+from ._http import make_client, warn_if_cleartext, with_endpoint
 from .base import TargetContext, TargetResponse, history_documents
 
 #: Ollama's request-body cap for System One requests without images.
@@ -70,6 +71,7 @@ class DecisionTarget:
         max_body_bytes: int | None = None,
     ) -> None:
         self.url = url
+        warn_if_cleartext(url)
         self.model = model
         self.headers = dict(headers or {})
         if api_key:
@@ -177,9 +179,7 @@ class DecisionTarget:
         if client := self._client:
             pass
         else:
-            import httpx
-
-            client = httpx.AsyncClient(timeout=self.timeout)
+            client = make_client(self.timeout)
         try:
             resp = await client.post(self.url, content=payload, headers=headers)
             if resp.status_code >= 400:
@@ -204,7 +204,7 @@ class DecisionTarget:
         usage = data.get("usage") or {}
         return TargetResponse(
             content=f"{choice}: {description}" if description else choice,
-            raw=data,
+            raw=with_endpoint(data, self.url),
             input_tokens=usage.get("input_tokens"),
             output_tokens=usage.get("output_tokens"),
             decision=answer,

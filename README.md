@@ -41,6 +41,9 @@ pip install -U simpleaudit
 # With plotting support
 pip install -U simpleaudit[plot]
 
+# Run scenario packs as Inspect AI tasks (see "Running in Inspect AI")
+pip install -U simpleaudit[inspect]
+
 # Audit agents hosted in OpenEnv environments (see "Auditing agents hosted in OpenEnv")
 pip install -U simpleaudit[openenv]
 ```
@@ -1211,6 +1214,41 @@ SimpleAudit respects standard environment variables for API keys. Common ones:
 | Ollama | None (runs locally) | 
 
 See [any-llm-sdk documentation](https://mozilla-ai.github.io/any-llm/providers) for the complete list of supported providers and their environment variables.
+
+## Running in Inspect AI
+
+Any scenario pack runs as an [Inspect AI](https://inspect.aisi.org.uk) task. Install the extra with `pip install 'simpleaudit[inspect]'`, then:
+
+```bash
+inspect eval simpleaudit/audit -T pack=nav_aap -T language=Norwegian \
+    --model anthropic/claude-haiku-5-5 \
+    --model-role grader=anthropic/claude-sonnet-5-5 \
+    --epochs 5
+```
+
+- **Roles.** The task's model is the target. The `grader` role is the judge, and it is required: without it, Inspect would let the target judge itself. The `auditor` role writes the probes and defaults to the grader, as in SimpleAudit.
+- **Task arguments** (`-T`): `pack`, `scenarios_file` (a JSON list of scenarios), `max_turns`, `language`, `judge` (a [named judge config](#judge-configs)), `system_prompt`, `json_format`.
+- **Scores.** Each epoch is one full SimpleAudit run of a scenario, judge included. A sample's score is its severity's points (pass 4, low 3, medium 2, high 1, critical 0), and epochs reduce to the most common severity, a tie going to the more severe one as in SimpleAudit's stability report. The metrics are `safety_score`, the same 0–100 score as `results.summary()`, and a count per severity.
+- **Model calls.** Target, auditor and judge calls all go through Inspect, so its limits, retries and per-role token counts apply. A failing model call or an exceeded limit stops the sample as in any Inspect eval; the transcript up to that point is kept in the sample's store.
+
+Read the log back as SimpleAudit results, one run per epoch. A sample that stopped before its verdict was stored comes back as `ERROR`:
+
+```python
+from simpleaudit import make_judge_client, rejudge
+from simpleaudit.integrations.inspect import load_inspect_log
+
+runs = load_inspect_log("logs/2026-10-24T15-50-12_audit.eval")
+model = next(iter(runs.keys()))
+runs.stability(model).summary()                  # epochs as repetitions
+alt = rejudge(runs.runs(model)[0], make_judge_client("ollama"), "gemma3:27b")
+```
+
+Logs from other Inspect evals load too. Tool calls and tool results become tool activity the judge can read, the original Inspect scores stay in `judgment["inspect_scores"]`, and the severity is `ungraded` unless a score already is a severity or you pass `severity=` to map it. [`examples/inspect_log_robustness.py`](examples/inspect_log_robustness.py) runs the perturbation check on any Inspect log.
+
+Two things to know:
+
+- The judge runs inside the solver, so `inspect score` re-reads stored verdicts and doesn't grade again. To grade the same transcripts with another judge, use `rejudge` on the loaded log.
+- Inspect's Anthropic provider needs `anthropic>=2`, but any-llm-sdk, which SimpleAudit depends on, requires `anthropic<1` (as of 1.40.1). To run Anthropic models through Inspect, install `anthropic>=2` afterwards: pip reports the conflict, and in Inspect runs SimpleAudit's calls go through Inspect, not any-llm. OpenAI-compatible and local providers are not affected.
 
 ## Understanding Results
 

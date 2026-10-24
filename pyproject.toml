@@ -34,6 +34,10 @@ dependencies = [
 [project.scripts]
 simpleaudit = "simpleaudit.cli:main"
 
+# Registers the simpleaudit/audit task with Inspect AI (needs the inspect extra).
+[project.entry-points.inspect_ai]
+simpleaudit = "simpleaudit.integrations.inspect._registry"
+
 [project.optional-dependencies]
 # OTLP trace ingestion (simpleaudit.tracing). The core audit engine works with
 # no tracing; install this extra to run the builtin OTLP receiver (HTTP-JSON
@@ -44,6 +48,9 @@ tracing = [
     "opentelemetry-proto>=1.20",
 ]
 plot = ["matplotlib>=3.5.0"]
+# Run scenario packs as Inspect AI tasks and read Inspect logs back
+# (simpleaudit.integrations.inspect).
+inspect = ["inspect-ai>=0.3.283"]
 dev = [
     # pytest is pinned <9 because pytest-testmon 2.x is not yet compatible with
     # pytest 9 (same pin as Studio).

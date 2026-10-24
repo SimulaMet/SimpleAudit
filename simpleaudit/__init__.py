@@ -37,6 +37,7 @@ __author__ = "SimpleAudit Contributors"
 from .model_auditor import ModelAuditor, ScenarioExecution
 from .auditor import Auditor
 from .targets import (
+    ASRTarget,
     CallableTarget,
     DecisionTarget,
     HTTPAppTarget,
@@ -96,6 +97,7 @@ __all__ = [
     "HTTPAppTarget",
     "CallableTarget",
     "DecisionTarget",
+    "ASRTarget",
     "AuditResults",
     "AuditResult",
     "get_scenarios",

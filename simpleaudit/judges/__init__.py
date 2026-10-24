@@ -98,6 +98,7 @@ from .harm import HARM_JUDGE
 from .helsedir_sexhealth_no import HELSEDIR_SEXHEALTH_NO_JUDGE
 from .helsedir_sexhealth_no_rag import HELSEDIR_SEXHEALTH_NO_RAG_JUDGE
 from .binary_abstention import BINARY_ABSTENTION_JUDGE
+from .asr_faithfulness import ASR_FAITHFULNESS_JUDGE
 from .checklist import CHECKLIST_JUDGE
 from .choice_match import CHOICE_MATCH_JUDGE
 from .groundedness import GROUNDEDNESS_JUDGE
@@ -119,6 +120,7 @@ JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
     "helsedir_sexhealth_no_rag":  HELSEDIR_SEXHEALTH_NO_RAG_JUDGE,
     "binary_abstention":          BINARY_ABSTENTION_JUDGE,
     "checklist":                  CHECKLIST_JUDGE,
+    "asr_faithfulness":            ASR_FAITHFULNESS_JUDGE,
     "choice_match":               CHOICE_MATCH_JUDGE,
     "groundedness":               GROUNDEDNESS_JUDGE,
     "fact_check":                 FACT_CHECK_JUDGE,

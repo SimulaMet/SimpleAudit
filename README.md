@@ -440,6 +440,7 @@ auditor = ModelAuditor(
 | `judge_api_key` | API key for judge provider (optional - uses env var if not provided) | No |
 | `base_url` | Custom base URL for target API requests (optional) | No |
 | `judge_base_url` | Custom base URL for judge API requests (optional) | No |
+| `judge_client` / `auditor_client` | Ready-made model clients for the judge or the auditor, used instead of creating AnyLLM clients; see [Writing your own target](#writing-your-own-target) | No |
 | `system_prompt` | System prompt for target model (or `None`) | No |
 | `judge` | Named judge config to use (e.g. `"helpfulness"`, `"factuality"`) — see [Judge Configs](#judge-configs) | No |
 | `probe_prompt` | Custom system prompt for the probe generator (replaces the built-in red-team persona) | No |
@@ -1079,8 +1080,8 @@ auditor = Auditor(target=CallableTarget(my_agent), judge_model="gpt-4o", judge_p
 
 A target class can also use these optional pieces:
 
-- **`start_scenario(context)` / `end_scenario(context)`**: async methods awaited before the first turn and after the last one (before judging), for targets that hold a session per scenario. `context.scenario_run_id` matches the per-turn contexts, and `context.extra["scenario_name"]` names the scenario. `end_scenario` also runs when the scenario fails or the run is cancelled. `SingleTurnAuditor` does not call them.
-- **`TargetResponse.tool_events`**: what the agent did during the turn, as `{"type": "tool_call", "name", "arguments"}` and `{"type": "tool_result", "name", "result", "error"}` dicts (an optional `"id"` pairs them). They are saved in the transcript and shown to the judge in a `TOOL ACTIVITY` block before the reply. The auditor model, which plays the user, never sees them, and they are not sent to provider APIs. The checklist judge verifies quotes against reply text only, so a quote taken from tool activity is marked unverified.
+- **`start_scenario(context)` / `end_scenario(context)`**: async methods for targets that hold a session per scenario. `start_scenario` is awaited before the first turn. Once it has succeeded, `end_scenario` runs after the last turn and the evidence resolver, before judging, and also when a turn fails or the run is cancelled; a `start_scenario` that raises has to clean up after itself. `context.scenario_run_id` matches the per-turn contexts, and `context.extra["scenario_name"]` names the scenario. A hook defined without `async` is not called, and a warning says so. `SingleTurnAuditor` doesn't call them.
+- **`TargetResponse.tool_events`**: what the agent did during the turn, as `{"type": "tool_call", "name", "arguments"}` and `{"type": "tool_result", "name", "result", "error"}` dicts (an optional `"id"` pairs them). They are saved in the transcript and shown to the judge in a `TOOL ACTIVITY` block before the reply, at most 50 per turn, with each value as JSON. The auditor model, which plays the user, never sees them, and they are left out of the history passed to targets and provider APIs. The checklist judge verifies quotes against reply text only, so a quote taken from tool activity is marked unverified.
 - **`TargetResponse.end_conversation=True`**: the system under test ended the conversation. The turn loop stops and the transcript so far is judged.
 
 Integrations that already have model clients can pass them as `judge_client=` and `auditor_client=` (any object with an async `acompletion(**kwargs)` returning an OpenAI-style response, the same contract `rejudge` uses). No AnyLLM client is created for those roles, and `judge_provider` / `judge_model` become labels.

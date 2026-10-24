@@ -331,6 +331,7 @@ class AuditExperiment:
         on_turn: Optional[OnTurn] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
+        evidence_resolver: Optional[Callable] = None,
     ) -> AuditResults:
         """Execute one rep with auto-retry on ERROR. Returns the final result."""
         attempts = 1 + self.max_retries_per_rep
@@ -348,6 +349,7 @@ class AuditExperiment:
                 on_turn=on_turn,
                 audit_run_id=audit_run_id,
                 trace_correlation=corr,
+                evidence_resolver=evidence_resolver,
             )
             if not any(r.severity == "ERROR" for r in result):
                 break
@@ -370,6 +372,7 @@ class AuditExperiment:
         on_turn: Optional[OnTurn] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
+        evidence_resolver: Optional[Callable] = None,
     ) -> List[AuditResult]:
         """Run a single scenario N times for one model.
 
@@ -394,6 +397,10 @@ class AuditExperiment:
             trace_correlation: Optional :class:`TraceCorrelation` shared
                 across reps; each rep records its ``turn_id -> trace_id``
                 links so the caller can fetch per-rep trace evidence.
+            evidence_resolver: Optional callable invoked after target
+                execution and before judge in each rep. May return a span
+                list or a dict with ``selected_spans`` + ``agentic_evaluation``
+                for agentic-aware judging.
 
         Returns:
             List of :class:`AuditResult`, one per completed rep. May be
@@ -447,6 +454,7 @@ class AuditExperiment:
                 on_turn=on_turn,
                 audit_run_id=audit_run_id,
                 trace_correlation=trace_correlation,
+                evidence_resolver=evidence_resolver,
             )
 
             # Persist

@@ -177,9 +177,21 @@ class StoredRecord:
     expected_behavior: Optional[List[str]] = None
     scenario_severity: Optional[str] = None
     scenario_severity_source: Optional[str] = None
+    scenario_metadata: Dict[str, Any] = field(default_factory=dict)
 
     def scenario_meta(self) -> Dict[str, Any]:
-        return {"severity": self.scenario_severity, "severity_source": self.scenario_severity_source}
+        meta = {"severity": self.scenario_severity, "severity_source": self.scenario_severity_source}
+        if self.scenario_metadata:
+            meta["metadata"] = self.scenario_metadata
+        return meta
+
+
+def _stored_asr_metadata(judgment: Mapping[str, Any]) -> Dict[str, Any]:
+    """Restore only the reference settings explicitly saved by the ASR judge."""
+    reference = judgment.get("asr_reference") if isinstance(judgment, Mapping) else None
+    if isinstance(reference, dict) and isinstance(reference.get("reference_text"), str):
+        return {"asr": dict(reference)}
+    return {}
 
 
 def _stored_designed_severity(entry: Mapping[str, Any]) -> Optional[str]:
@@ -256,6 +268,7 @@ def load_stored_records(
                 expected_behavior=entry.get("expected_behavior"),
                 scenario_severity=severity,
                 scenario_severity_source=source_label,
+                scenario_metadata=_stored_asr_metadata(entry.get("judgment") or {}),
             )
         )
     return records
@@ -1127,11 +1140,12 @@ async def rejudge_async(
 
     def meta_for(result: AuditResult) -> Dict[str, Any]:
         stored = _stored_designed_severity({"judgment": result.judgment})
+        metadata = _stored_asr_metadata(result.judgment)
         if stored:
-            return {"severity": stored, "severity_source": "stored"}
+            return {"severity": stored, "severity_source": "stored", "metadata": metadata}
         if result.scenario_name in lookup:
-            return {"severity": lookup[result.scenario_name], "severity_source": "lookup"}
-        return {"severity": None, "severity_source": None}
+            return {"severity": lookup[result.scenario_name], "severity_source": "lookup", "metadata": metadata}
+        return {"severity": None, "severity_source": None, "metadata": metadata}
 
     semaphore = asyncio.Semaphore(max_concurrency)
 

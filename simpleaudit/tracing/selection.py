@@ -190,3 +190,64 @@ def summarize_for_judge(result: SelectionResult, *, max_chars_per_span: int = 20
             f"{e.get('kind', '?')}:{e.get('span_id', '?')[:8]}" for e in result.elided[:10]
         ) + (", …" if result.elided_count > 10 else "") + ")"
     return text
+
+
+def render_agentic_for_judge(agentic_evaluation: Dict[str, Any]) -> str:
+    """Render a structured agentic evaluation into a compact judge-prompt block.
+
+    The agentic evaluation contains deterministic check results and optional
+    semantic dimension assessments computed from the observed trajectory.
+    This block is inserted into the judge prompt so the judge can weigh
+    execution-quality evidence alongside conversation quality.
+
+    Args:
+        agentic_evaluation: Dict with keys ``checks`` (list), optionally
+            ``semantic_judgement`` (dict with ``dimensions``), and
+            ``trace_completeness`` (dict).
+    """
+    if not agentic_evaluation:
+        return ""
+    lines: list[str] = ["AGENTIC EVALUATION (observed execution facts):", ""]
+
+    # Deterministic checks
+    checks = agentic_evaluation.get("checks") or []
+    if checks:
+        lines.append("Deterministic checks:")
+        for check in checks[:15]:
+            status = check.get("status", "?")
+            name = check.get("id", check.get("category", "unknown"))
+            summary = (check.get("summary") or "")[:120]
+            lines.append(f"  - {name}: {status}" + (f" — {summary}" if summary else ""))
+        lines.append("")
+
+    # Semantic judgement
+    semantic = agentic_evaluation.get("semantic_judgement") or {}
+    dims = semantic.get("dimensions") or {}
+    if dims:
+        lines.append("Semantic assessment:")
+        for dim_name, dim_data in list(dims.items())[:8]:
+            if isinstance(dim_data, dict):
+                status = dim_data.get("status", "?")
+                rationale = (dim_data.get("rationale") or "")[:100]
+                lines.append(f"  - {dim_name}: {status}" + (f" — {rationale}" if rationale else ""))
+        lines.append("")
+
+    # Trace completeness
+    tc = agentic_evaluation.get("trace_completeness") or {}
+    if tc:
+        complete = tc.get("complete", False)
+        span_count = tc.get("span_count", 0)
+        lines.append(f"Trace: {'complete' if complete else 'INCOMPLETE'} ({span_count} spans observed)")
+        if not complete and tc.get("missing_reason"):
+            lines.append(f"  Note: {tc['missing_reason'][:100]}")
+        lines.append("")
+
+    # Overall pre-assessment
+    overall = agentic_evaluation.get("status")
+    if overall:
+        lines.append(f"Agentic pre-assessment: {overall}")
+        reason = agentic_evaluation.get("reason")
+        if reason:
+            lines.append(f"  Reason: {str(reason)[:150]}")
+
+    return "\n".join(lines)

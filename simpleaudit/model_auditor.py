@@ -12,6 +12,8 @@ Key features:
 """
 
 import asyncio
+import copy
+import inspect
 import json
 import re
 import threading
@@ -289,11 +291,52 @@ def _expand_documents(message: Dict[str, Any]) -> Dict[str, Any]:
     return expanded
 
 
+#: Longest tool argument or result shown to the judge, as in tracing's span
+#: summaries; a tool that returns a whole document would otherwise crowd out
+#: the conversation.
+_TOOL_VALUE_CHARS = 2000
+
+
+def _tool_value(value: Any) -> str:
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    if len(text) > _TOOL_VALUE_CHARS:
+        text = text[:_TOOL_VALUE_CHARS] + " …[truncated]"
+    return text
+
+
+def _render_tool_events(events: List[Dict[str, Any]]) -> str:
+    """Render an agent's tool activity for one turn (see ``TargetResponse.tool_events``).
+
+    It is a block of its own before the assistant turn, not part of it: the
+    checklist judge quotes and verifies ASSISTANT text, which is what the user
+    saw.
+    """
+    lines = ["TOOL ACTIVITY (not shown to the user):"]
+    for event in events:
+        name = event.get("name", "?")
+        if event.get("id"):
+            name = f"{name} ({event['id']})"
+        if event.get("type") == "tool_call":
+            lines.append(f"[tool call] {name} {_tool_value(event.get('arguments'))}")
+        elif event.get("type") == "tool_result":
+            label = "tool error" if event.get("error") else "tool result"
+            lines.append(f"[{label}] {name}: {_tool_value(event.get('result'))}")
+    return "\n".join(lines)
+
+
+def _without_tool_events(message: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop the judge-only ``tool_events`` key before a message goes to a provider."""
+    if "tool_events" not in message:
+        return message
+    return {k: v for k, v in message.items() if k != "tool_events"}
+
+
 def _render_conversation(
     conversation: List[Dict[str, Any]],
     *,
     role_separator: str,
     turn_separator: str,
+    include_tool_events: bool = False,
 ) -> tuple[str, List[str]]:
     """Flatten a conversation to text, numbering any files it carries.
 
@@ -303,6 +346,9 @@ def _render_conversation(
     belongs to. Judge and auditor both read a conversation they did not
     witness; without the markers they see a turn asking about an image that,
     as far as the transcript shows, was never sent.
+
+    ``include_tool_events`` adds each reply's tool activity. Only the judge
+    asks for it: the auditor plays the user, who never sees the agent's tools.
     """
     uris: List[str] = []
     turns: List[str] = []
@@ -314,8 +360,22 @@ def _render_conversation(
             markers.append(f"[file {len(uris)}]")
         if markers:
             body = f"{' '.join(markers)}{role_separator}{body}"
+        if include_tool_events and message.get("tool_events"):
+            turns.append(_render_tool_events(message["tool_events"]))
         turns.append(f"{message['role'].upper()}:{role_separator}{body}")
     return turn_separator.join(turns), uris
+
+
+def _target_hook(target: Any, name: str) -> Optional[Callable[..., Any]]:
+    """A target's optional async lifecycle hook (``start_scenario``/``end_scenario``).
+
+    Looked up on the class and required to be a coroutine function, so a
+    MagicMock target, which answers every attribute, is not mistaken for one
+    that defines hooks.
+    """
+    if not inspect.iscoroutinefunction(getattr(type(target), name, None)):
+        return None
+    return getattr(target, name)
 
 
 class _NoModelClient:
@@ -391,7 +451,13 @@ class ModelAuditor:
         judge_params: Optional[Dict[str, Any]] = None,
         auditor_params: Optional[Dict[str, Any]] = None,
         on_turn: Optional[OnTurn] = None,
+        judge_client: Optional[Any] = None,
+        auditor_client: Optional[Any] = None,
     ):
+        # judge_client / auditor_client: ready-made clients (anything with an
+        # async ``acompletion(**kwargs)`` returning an OpenAI-style response,
+        # as ``rejudge`` takes) used instead of creating AnyLLM clients. The
+        # provider and model arguments for that role are then labels only.
         if max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {max_retries}")
         self.max_turns = max_turns
@@ -484,7 +550,10 @@ class ModelAuditor:
             "provider": judge_provider,
             "client_kwargs": kwargs if judge_kwargs is None else judge_kwargs,
         }
-        if self.judge_grade is not None:
+        if judge_client is not None:
+            # Kept even for a code-graded judge, which never calls it.
+            self.judge_client = judge_client
+        elif self.judge_grade is not None:
             self.judge_client = _NoModelClient(
                 f"Judge {self.judge_name!r} grades in code; no judge model is called."
             )
@@ -499,7 +568,9 @@ class ModelAuditor:
             "provider": auditor_provider or judge_provider,
             "client_kwargs": kwargs if auditor_kwargs is None else auditor_kwargs,
         }
-        if self.judge_grade is not None and auditor_model is None:
+        if auditor_client is not None:
+            self.auditor_client = auditor_client
+        elif self.judge_grade is not None and auditor_model is None:
             # A code-only judge has no model for the auditor to fall back to.
             self.auditor_client = _NoModelClient(
                 f"Follow-up turns need an auditor model, and judge {self.judge_name!r} calls none: "
@@ -734,7 +805,9 @@ class ModelAuditor:
         if system:
             messages.append({"role": "system", "content": system})
         if history:
-            messages.extend(_expand_files(_expand_documents(m)) for m in history)
+            messages.extend(
+                _expand_files(_expand_documents(_without_tool_events(m))) for m in history
+            )
         else:
             user_message: Dict[str, Any] = {"role": "user", "content": user}
             if documents:
@@ -859,7 +932,7 @@ Generate the next user message to probe this scenario."""
         if prepare is not None:
             conversation = prepare(conversation, scenario_meta)
         conv_text, file_uris = _render_conversation(
-            conversation, role_separator="\n", turn_separator="\n\n"
+            conversation, role_separator="\n", turn_separator="\n\n", include_tool_events=True
         )
 
         # Optional trace-aware evidence: when the target is instrumented and
@@ -1054,6 +1127,20 @@ Evaluate this conversation and respond with this exact JSON structure:
         target_input_tokens = 0
         target_output_tokens = 0
 
+        # One Target for the whole scenario: without set_target, self.target
+        # builds a new ModelTarget on every access, and a target's lifecycle
+        # hooks must run on the object that receives the turns.
+        target = self.target
+        start_hook = _target_hook(target, "start_scenario")
+        end_hook = _target_hook(target, "end_scenario")
+        hook_context = TargetContext(
+            audit_run_id=audit_run_id,
+            scenario_run_id=scenario_run_id,
+            trace_headers={"traceparent": make_traceparent(scenario_trace_id)},
+            extra={"scenario_name": name},
+        )
+        started = False
+
         # Failures are handled here rather than by aborting: an exception on
         # turn 4 of 5 would otherwise discard the whole transcript and the
         # token spend already accumulated on the completed turns.
@@ -1062,13 +1149,16 @@ Evaluate this conversation and respond with this exact JSON structure:
             validate = getattr(self.judge_postprocess, "validate_scenario", None)
             if validate is not None:
                 validate(expected_behavior, scenario_meta)
+            if start_hook is not None:
+                await start_hook(hook_context)
+            started = True
             for turn in range(turns):
                 self._log(f"--- Turn {turn + 1}/{turns} ---", name=name)
 
                 # First turn: if the scenario defines a test_prompt, send it verbatim.
                 # Subsequent turns use the auditor model for probe generation.
-                if turn == 0 and (test_prompt or getattr(self.target, "default_prompt", None)):
-                    probe = test_prompt or self.target.default_prompt
+                if turn == 0 and (test_prompt or getattr(target, "default_prompt", None)):
+                    probe = test_prompt or target.default_prompt
                 else:
                     probe, a_in, a_out = await self._generate_probe_async(
                         self.auditor_client,
@@ -1114,7 +1204,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     trace_headers={"traceparent": make_traceparent(scenario_trace_id)},
                     extra={"decision": public_decision(decision)} if decision is not None else {},
                 )
-                target_resp = await self.target.send(
+                target_resp = await target.send(
                     system=self.system_prompt,
                     user=probe,
                     history=conversation,
@@ -1129,7 +1219,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                 target_output_tokens += t_out
                 response = (
                     target_resp.content
-                    if getattr(self.target, "preserve_content", False)
+                    if getattr(target, "preserve_content", False)
                     else ModelAuditor.strip_thinking(target_resp.content)
                 )
                 self._fire_on_turn(turn, turns, "target", effective_on_turn)
@@ -1141,12 +1231,26 @@ Evaluate this conversation and respond with this exact JSON structure:
                 decision_answer = getattr(target_resp, "decision", None)
                 if decision_answer is not None:
                     reply["decision"] = decision_answer
+                tool_events = getattr(target_resp, "tool_events", None)
+                if isinstance(tool_events, list) and tool_events:
+                    reply["tool_events"] = copy.deepcopy(tool_events)
                 conversation.append(reply)
                 if pbar_audit:
                     pbar_audit.update(1)
+                if getattr(target_resp, "end_conversation", False) is True:
+                    self._log("--- Target ended the conversation ---", name=name)
+                    break
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             self._log(f"--- Scenario FAILED mid-conversation: {name} [{error}] ---")
+        finally:
+            # Runs on cancellation too, so a target can release its session.
+            # A failing end hook is logged and does not change the result.
+            if started and end_hook is not None:
+                try:
+                    await end_hook(hook_context)
+                except Exception as exc:
+                    self._log(f"--- end_scenario failed: {name} [{type(exc).__name__}: {exc}] ---")
 
         if error is None:
             # Call evidence resolver if provided, after target conversation, before judge.

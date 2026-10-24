@@ -213,11 +213,13 @@ def harness_server():
 
     log = []
     app = create_app(lambda: HarnessEnvironment(adapter=ScriptedAgent(log)), HarnessAction, Observation)
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
+    # uvicorn serves on the socket bound here, so no other process can take
+    # the port in between (tests run in parallel).
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()
     deadline = time.monotonic() + 15
     while not server.started:
@@ -226,6 +228,7 @@ def harness_server():
     yield f"http://127.0.0.1:{port}", log
     server.should_exit = True
     thread.join(timeout=10)
+    sock.close()
 
 
 def test_server_sessions_one_at_a_time(harness_server):
@@ -241,3 +244,94 @@ def test_server_sessions_one_at_a_time(harness_server):
         time.sleep(0.02)
     assert log == ["start", "turn 1", "turn 2", "stop"] * 2
     assert '[tool result] lookup_case: "open"' in judge.calls[1]["messages"][1]["content"]
+
+
+# --- review fixes -------------------------------------------------------------
+
+
+def test_max_sessions_must_be_positive():
+    with pytest.raises(ValueError, match="max_sessions"):
+        OpenEnvTarget(env_factory=lambda: None, max_sessions=0)
+
+
+def test_session_limit_holds_across_threads():
+    target = OpenEnvTarget(env_factory=factory([], [], delay=0.05), max_sessions=1)
+    auditor = auditor_for(target)
+    results = []
+    threads = [
+        threading.Thread(target=lambda: results.extend(auditor.run(SCENARIOS[:2], max_turns=1, max_workers=2)))
+        for _ in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert len(results) == 4 and all(r.severity == "pass" for r in results)
+    assert ScriptedAgent.max_active == 1
+
+
+def test_factory_can_take_the_scenario_name():
+    names = []
+
+    def make(scenario_name):
+        names.append(scenario_name)
+        return HarnessEnvironment(adapter=ScriptedAgent([]))
+
+    auditor_for(OpenEnvTarget(env_factory=make)).run(SCENARIOS[:2], max_turns=1)
+    assert names == ["Case 1", "Case 2"]
+
+
+def test_message_timeout_bounds_a_turn_in_process():
+    log = []
+    target = OpenEnvTarget(env_factory=factory([], log, delay=5), message_timeout_s=0.2)
+    [result] = auditor_for(target).run(SCENARIOS[:1], max_turns=1)
+    assert result.severity == "ERROR" and "TimeoutError" in result.judgment["error"]
+    assert log[-1] == "stop"
+
+
+def test_aclose_closes_every_episode_even_when_one_fails():
+    closed = []
+
+    class Env:
+        def __init__(self, name):
+            self.name = name
+
+        async def reset_async(self, **kwargs):
+            pass
+
+        def close(self):
+            closed.append(self.name)
+            if self.name == "a":
+                raise RuntimeError("close failed")
+
+    names = iter(["a", "b", "c"])
+    target = OpenEnvTarget(env_factory=lambda: Env(next(names)))
+
+    async def go():
+        for run_id in ("1", "2", "3"):
+            await target.start_scenario(TargetContext(scenario_run_id=run_id, extra={"scenario_name": run_id}))
+        with pytest.raises(RuntimeError, match="close failed"):
+            await target.aclose()
+
+    asyncio.run(go())
+    assert sorted(closed) == ["a", "b", "c"]
+
+
+def test_usage_errors_and_harness_error_events_are_converted():
+    from simpleaudit.targets.openenv import _tool_events, _usage
+
+    events = [
+        {"type": "tool_call", "data": {"tool_name": "update", "arguments": {"a": 1}}},
+        {"type": "tool_result", "data": {"tool_name": "update", "result": None, "error": "permission denied"}},
+        {"type": "error", "data": {"message": "bridge reconnected", "recoverable": True}},
+        {"type": "turn_complete", "data": {"response": "done", "usage": {
+            "input_tokens": 4, "cache_read_input_tokens": 15000, "cache_creation_input_tokens": 1200, "output_tokens": 50,
+        }}},
+    ]
+    assert _tool_events(events) == [
+        {"type": "tool_call", "name": "update", "arguments": {"a": 1}},
+        {"type": "tool_result", "name": "update", "result": None, "error": "permission denied"},
+        {"type": "tool_result", "name": "agent", "result": None, "error": "bridge reconnected"},
+    ]
+    assert _usage(events) == (16204, 50)
+    assert _usage([{"type": "turn_complete", "data": {"response": "x"}}]) == (None, None)

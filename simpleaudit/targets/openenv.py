@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import inspect
+import threading
 import warnings
 from collections.abc import Callable, Mapping
 from contextlib import AsyncExitStack
@@ -38,9 +40,8 @@ def _require_openenv() -> None:
 class _Session:
     env: Any
     remote: bool
-    exit_stack: AsyncExitStack | None = None
+    exit_stack: AsyncExitStack = field(default_factory=AsyncExitStack)
     done: bool = False
-    slot: asyncio.Semaphore | None = field(default=None, repr=False)
 
 
 class OpenEnvTarget:
@@ -51,7 +52,8 @@ class OpenEnvTarget:
     env_factory:
         Callable returning a new ``Environment`` (e.g. a ``HarnessEnvironment``)
         to run in this process. Each scenario gets its own instance, so
-        scenarios can run in parallel.
+        scenarios can run in parallel. A factory that takes a ``scenario_name``
+        keyword is told which scenario the environment is for.
     base_url:
         URL of a running OpenEnv server, used through ``GenericEnvClient``.
         Give exactly one of ``env_factory`` and ``base_url``.
@@ -59,11 +61,13 @@ class OpenEnvTarget:
         Keyword arguments for ``reset``, or a callable that takes the scenario
         name and returns them, so each scenario can start in its own world.
     max_sessions:
-        Episodes open at once. Defaults to 1 for a server, because a harness
-        server holds one session, and to no limit for a factory.
+        Episodes open at once, across every run that uses this target.
+        Defaults to 1 for a server, because a harness server holds one
+        session, and to no limit for a factory.
     message_timeout_s:
-        Client timeout for one agent turn. Keep it above the server's
-        ``session_timeout_s`` (600 s by default).
+        Longest wait for one agent turn. Keep it above the environment's own
+        turn limit (``HarnessConfig.session_timeout_s``, 600 s by default) so
+        that limit reports first.
 
     The agent keeps its own context, so the history SimpleAudit passes is not
     resent, and the audit's ``system_prompt`` is ignored (configure the agent
@@ -73,12 +77,15 @@ class OpenEnvTarget:
 
     Episodes open in ``start_scenario`` and close in ``end_scenario``, which
     ``Auditor`` / ``ModelAuditor`` call around each scenario. ``SingleTurnAuditor``
-    does not, so it cannot drive this target.
+    does not, so it cannot drive this target. In process, an episode closes
+    through the environment's synchronous ``close()``, which OpenEnv runs on a
+    loop of its own: an agent adapter must not hold resources bound to the
+    audit's event loop.
     """
 
     def __init__(
         self,
-        env_factory: Callable[[], Any] | None = None,
+        env_factory: Callable[..., Any] | None = None,
         *,
         base_url: str | None = None,
         reset_kwargs: ResetKwargs | None = None,
@@ -87,41 +94,54 @@ class OpenEnvTarget:
     ) -> None:
         if (env_factory is None) == (base_url is None):
             raise ValueError("OpenEnvTarget needs exactly one of env_factory and base_url")
+        if max_sessions is not None and max_sessions < 1:
+            raise ValueError(f"max_sessions must be >= 1, got {max_sessions}")
         self._factory = env_factory
         self._base_url = base_url
         self._reset_kwargs = reset_kwargs
-        self._limit = max_sessions if max_sessions is not None else (1 if base_url else None)
+        limit = max_sessions if max_sessions is not None else (1 if base_url else None)
+        # A thread semaphore, polled without blocking: it holds across the
+        # event loops of repeated sync runs and across threads, and a
+        # cancelled wait never leaves a slot taken.
+        self._slots = threading.BoundedSemaphore(limit) if limit else None
         self._message_timeout_s = message_timeout_s
         self._sessions: dict[str, _Session] = {}
-        self._slots: asyncio.Semaphore | None = None
-        self._slots_loop: asyncio.AbstractEventLoop | None = None
         self._warned_system = False
 
     # -- lifecycle ---------------------------------------------------------
 
     async def start_scenario(self, context: TargetContext) -> None:
-        slot = self._slot()
-        if slot is not None:
-            await slot.acquire()
+        stack = AsyncExitStack()
         try:
-            session = await self._open(context)
+            if self._slots is not None:
+                while not self._slots.acquire(blocking=False):
+                    await asyncio.sleep(0.05)
+                stack.callback(self._slots.release)
+            self._sessions[context.scenario_run_id] = await self._open(context, stack)
         except BaseException:
-            if slot is not None:
-                slot.release()
+            await stack.aclose()
             raise
-        session.slot = slot
-        self._sessions[context.scenario_run_id] = session
 
     async def end_scenario(self, context: TargetContext) -> None:
         session = self._sessions.pop(context.scenario_run_id, None)
         if session is not None:
-            await self._close(session)
+            await session.exit_stack.aclose()
 
     async def aclose(self) -> None:
-        """Close any episode still open, e.g. after an interrupted run."""
+        """Close every episode still open, e.g. after an interrupted run.
+
+        Each one is closed even when another fails; the first failure is
+        raised afterwards.
+        """
+        first_error: BaseException | None = None
         while self._sessions:
             _, session = self._sessions.popitem()
-            await self._close(session)
+            try:
+                await session.exit_stack.aclose()
+            except Exception as exc:
+                first_error = first_error or exc
+        if first_error is not None:
+            raise first_error
 
     async def __aenter__(self) -> OpenEnvTarget:
         return self
@@ -163,10 +183,11 @@ class OpenEnvTarget:
                 stacklevel=2,
             )
 
+        action = self._action(user, remote=session.remote)
         if session.remote:
-            result = await session.env.step(self._action(user, remote=True))
+            result = await session.env.step(action)
         else:
-            result = await session.env.step_async(self._action(user, remote=False))
+            result = await asyncio.wait_for(session.env.step_async(action), self._message_timeout_s)
         metadata, done = self._read(result, remote=session.remote)
         if metadata.get("error"):
             raise RuntimeError(
@@ -203,80 +224,77 @@ class OpenEnvTarget:
 
     # -- internals ---------------------------------------------------------
 
-    def _slot(self) -> asyncio.Semaphore | None:
-        # One semaphore per event loop: a sync auditor.run() starts a new loop
-        # each call, and a semaphore must not be shared across loops.
-        if self._limit is None:
-            return None
-        loop = asyncio.get_running_loop()
-        if self._slots_loop is not loop:
-            self._slots, self._slots_loop = asyncio.Semaphore(self._limit), loop
-        return self._slots
-
     def _kwargs(self, context: TargetContext) -> dict[str, Any]:
         if callable(self._reset_kwargs):
             return dict(self._reset_kwargs(context.extra.get("scenario_name")))
         return dict(self._reset_kwargs or {})
 
-    async def _open(self, context: TargetContext) -> _Session:
+    def _new_env(self, scenario_name: str | None) -> Any:
+        try:
+            takes_name = "scenario_name" in inspect.signature(self._factory).parameters
+        except (TypeError, ValueError):  # no inspectable signature
+            takes_name = False
+        return self._factory(scenario_name=scenario_name) if takes_name else self._factory()
+
+    async def _open(self, context: TargetContext, stack: AsyncExitStack) -> _Session:
         _require_openenv()
         kwargs = self._kwargs(context)
         if self._factory is not None:
-            env = self._factory()
-            session = _Session(env=env, remote=False)
-            try:
-                await env.reset_async(**kwargs)
-            except BaseException:
-                await self._close(session)
-                raise
-            return session
+            env = self._new_env(context.extra.get("scenario_name"))
+            # Environment.close is synchronous; HarnessEnvironment stops the
+            # agent process on a loop of its own.
+            stack.push_async_callback(asyncio.to_thread, env.close)
+            await env.reset_async(**kwargs)
+            return _Session(env=env, remote=False, exit_stack=stack)
         from openenv.core.generic_client import GenericEnvClient
 
-        stack = AsyncExitStack()
-        try:
-            client = await stack.enter_async_context(
-                GenericEnvClient(base_url=self._base_url, message_timeout_s=self._message_timeout_s)
-            )
-            await client.reset(**kwargs)
-        except BaseException:
-            await stack.aclose()
-            raise
+        client = await stack.enter_async_context(
+            GenericEnvClient(base_url=self._base_url, message_timeout_s=self._message_timeout_s)
+        )
+        await client.reset(**kwargs)
         return _Session(env=client, remote=True, exit_stack=stack)
-
-    async def _close(self, session: _Session) -> None:
-        try:
-            if session.remote:
-                await session.exit_stack.aclose()
-            else:
-                # Environment.close is synchronous; HarnessEnvironment stops
-                # the agent process on a loop of its own.
-                await asyncio.to_thread(session.env.close)
-        finally:
-            if session.slot is not None:
-                session.slot.release()
 
 
 def _tool_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """OpenEnv harness events -> SimpleAudit ``tool_events``."""
+    """OpenEnv harness events -> SimpleAudit ``tool_events``.
+
+    A harness ``error`` event in the middle of a turn becomes a tool error,
+    so the judge sees a failure the agent may not mention.
+    """
     converted = []
     for event in events:
         data = event.get("data") or {}
-        if event.get("type") == "tool_call":
+        kind = event.get("type")
+        if kind == "tool_call":
             converted.append({"type": "tool_call", "name": data.get("tool_name"), "arguments": data.get("arguments")})
-        elif event.get("type") == "tool_result":
+        elif kind == "tool_result":
+            error = data.get("error")
             converted.append({
                 "type": "tool_result",
                 "name": data.get("tool_name"),
                 "result": data.get("result"),
-                "error": bool(data.get("error")),
+                "error": error if isinstance(error, str) and error else bool(error),
+            })
+        elif kind == "error":
+            converted.append({
+                "type": "tool_result",
+                "name": data.get("tool_name") or "agent",
+                "result": None,
+                "error": str(data.get("message") or "error"),
             })
     return converted
 
 
 def _usage(events: list[dict[str, Any]]) -> tuple[int | None, int | None]:
-    """Token usage from the turn_complete event, when the adapter reports it."""
+    """Token usage from the turn_complete event, when the adapter reports it.
+
+    Anthropic-style usage (Claude Code) counts cached prompt tokens apart from
+    ``input_tokens``; they are input all the same.
+    """
     for event in reversed(events):
         if event.get("type") == "turn_complete":
             usage = (event.get("data") or {}).get("usage") or {}
-            return usage.get("input_tokens"), usage.get("output_tokens")
+            parts = [usage.get(k) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")]
+            input_tokens = sum(p for p in parts if isinstance(p, int)) if parts[0] is not None else None
+            return input_tokens, usage.get("output_tokens")
     return None, None

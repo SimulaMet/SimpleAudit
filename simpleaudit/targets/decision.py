@@ -159,7 +159,7 @@ class DecisionTarget:
                 "(see the scenario guidelines, 'Decision Field')"
             )
         # The auditor attaches a scenario's documents to the first user turn.
-        if not documents:
+        if documents is None:
             documents = history_documents(history)
         body = self.build_request(decision, user, documents)
         payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")

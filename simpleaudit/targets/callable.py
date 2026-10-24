@@ -6,21 +6,21 @@ Useful for:
     - auditing a local function that wraps an agent, RAG pipeline, or tool
     - quick experiments before wiring up a real HTTP endpoint
 
-The callable receives the same logical inputs as any Target and must return
-either a plain string (treated as ``content``) or a :class:`TargetResponse`.
+The callable receives the inputs a system under test may see (see
+``CallableTarget``) and must return either a plain string (treated as
+``content``) or a :class:`TargetResponse`.
 """
 
 from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
-from ..context_marks import parse_documents
+from ..context_marks import document_texts
 from .base import (
     Target,
     TargetContext,
     TargetResponse,
     history_documents,
-    history_file_uri,
     plain_history,
 )
 
@@ -33,8 +33,10 @@ class CallableTarget:
 
     The callable gets what a system under test may see (see ``Target.send``):
     the history without the engine's markers, the scenario's documents as
-    text through ``documents`` and its files through ``file_uri``. No
-    evaluation-only document mark reaches it.
+    text through ``documents`` on every turn, and its files through
+    ``file_uri`` on the turn that attaches them. That turn keeps its
+    ``file_uri`` in the history, so a function can attach the files where
+    they belong. No evaluation-only document mark reaches it.
     """
 
     def __init__(self, fn: TargetCallable) -> None:
@@ -54,12 +56,14 @@ class CallableTarget:
     ) -> TargetResponse:
         if documents is None:
             documents = history_documents(history)
+        if file_uri is None and history and history[-1].get("file_uri"):
+            file_uri = history[-1]["file_uri"]
         result = self._fn(
             system=system,
             user=user,
-            history=plain_history(history) if history is not None else None,
-            file_uri=file_uri if file_uri is not None else history_file_uri(history),
-            documents=[mark.text for mark in parse_documents(documents)] or None,
+            history=plain_history(history, keep=("file_uri",)) if history is not None else None,
+            file_uri=file_uri,
+            documents=document_texts(documents) or None,
             response_format=response_format,
             params=params,
             context=context,

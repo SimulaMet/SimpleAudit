@@ -1212,7 +1212,7 @@ Logs from other Inspect evals load too. Tool calls and tool results become tool 
 Two things to know:
 
 - The judge runs inside the solver, so `inspect score` re-reads stored verdicts and doesn't grade again. To grade the same transcripts with another judge, use `rejudge` on the loaded log.
-- Inspect's Anthropic provider needs `anthropic>=2`, while `any-llm-sdk[anthropic]` pins `anthropic<1`. In an environment for Inspect runs, install `anthropic>=2`; SimpleAudit's model calls go through Inspect there, not through any-llm.
+- Inspect's Anthropic provider needs `anthropic>=2`, but any-llm-sdk, which SimpleAudit depends on, requires `anthropic<1` (as of 1.40.1). To run Anthropic models through Inspect, install `anthropic>=2` afterwards: pip reports the conflict, and in Inspect runs SimpleAudit's calls go through Inspect, not any-llm. OpenAI-compatible and local providers are not affected.
 
 ## Understanding Results
 

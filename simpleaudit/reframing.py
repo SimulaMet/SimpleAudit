@@ -799,8 +799,9 @@ def _check_transform_output(
 ) -> None:
     """A transform may change wording, never structure.
 
-    Same number of turns, same role sequence, and ``file_uri`` preserved per
-    position; otherwise the perturbed grade is not comparable to the baseline.
+    Same number of turns, same role sequence, and ``file_uri`` and
+    ``tool_events`` preserved per position; otherwise the perturbed grade is
+    not comparable to the baseline.
     """
     prefix = f"transform for variant {label!r}"
     if not isinstance(transformed, list):
@@ -819,6 +820,8 @@ def _check_transform_output(
             )
         if ("file_uri" in before) != ("file_uri" in after) or before.get("file_uri") != after.get("file_uri"):
             raise ValueError(f"{prefix} changed file_uri at turn {index}.")
+        if before.get("tool_events") != after.get("tool_events"):
+            raise ValueError(f"{prefix} changed tool_events at turn {index}.")
 
 
 def _error_judgment(message: str) -> Dict[str, Any]:

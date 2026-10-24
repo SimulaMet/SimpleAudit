@@ -35,8 +35,9 @@ class TargetResponse:
     #   {"type": "tool_call", "name": str, "arguments": Any, "id": str}
     #   {"type": "tool_result", "name": str, "result": Any, "error": bool, "id": str}
     # ("id" is optional and pairs a result with its call). The auditor stores
-    # the list beside the reply and shows it to the judge only: the probe
-    # model and provider APIs never receive it.
+    # a JSON-safe copy beside the reply and shows it to the judge only: the
+    # probe model, provider APIs and the history passed to targets never
+    # carry it.
     tool_events: Optional[List[Dict[str, Any]]] = None
     # True when the system under test ended the conversation (an agent that
     # finished its episode). The auditor stops the turn loop after this reply
@@ -82,10 +83,12 @@ class Target(Protocol):
     A target that holds per-scenario state (an agent session, a sandbox) may
     also define ``async start_scenario(context)`` and ``async
     end_scenario(context)``. ``ModelAuditor.run_scenario`` awaits the first
-    before turn 0 and the second after the last turn, before judging; the
-    context carries ``scenario_run_id`` and ``extra["scenario_name"]``. Both
-    are optional and are not part of this protocol. ``SingleTurnAuditor``
-    does not call them.
+    before turn 0. Once it has succeeded, the second runs after the last turn
+    and the evidence resolver, before judging, and also when a turn fails or
+    the run is cancelled. A ``start_scenario`` that raises cleans up after
+    itself. The context carries ``scenario_run_id`` and
+    ``extra["scenario_name"]``. Both hooks are optional and are not part of
+    this protocol. ``SingleTurnAuditor`` does not call them.
     """
 
     async def send(

@@ -116,8 +116,24 @@ class Target(Protocol):
         ...
 
 
+#: The engine's own keys beside ``role`` and ``content`` on history turns (see
+#: ``Target.send``). None of them is input for the system under test, and
+#: documents carry evaluation-only marks.
+ENGINE_MARKERS = ("documents", "file_uri", "decision", "tool_events")
+
+
+def plain_history(history: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """The history without the engine's markers, as a new list; other fields stay."""
+    return [{k: v for k, v in m.items() if k not in ENGINE_MARKERS} for m in history or []]
+
+
 def history_documents(
     history: Optional[List[Dict[str, Any]]],
 ) -> Optional[List[Union[str, Dict[str, Any]]]]:
     """A scenario's documents, which ``run_scenario`` carries on the history's first user turn."""
     return next((m["documents"] for m in history or [] if m.get("documents")), None)
+
+
+def history_file_uri(history: Optional[List[Dict[str, Any]]]) -> Optional[Union[str, List[str]]]:
+    """A scenario's attached files, which ``run_scenario`` carries on the history's first user turn."""
+    return next((m["file_uri"] for m in history or [] if m.get("file_uri")), None)

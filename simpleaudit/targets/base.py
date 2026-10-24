@@ -80,5 +80,21 @@ class Target(Protocol):
         params: Optional[Dict[str, Any]] = None,
         context: Optional[TargetContext] = None,
     ) -> TargetResponse:
-        """Send one message and return the normalized response."""
+        """Send one message and return the normalized response.
+
+        ``history`` is the conversation so far. When ``ModelAuditor.run_scenario``
+        calls ``send``, it ends with the current user turn (``user``), and its
+        turns carry the engine's markers beside ``role`` and ``content``:
+        ``documents`` and ``file_uri`` on the first user turn, ``decision`` on
+        a decision model's replies. ``ModelTarget`` sends this history as the
+        request. Other targets should send each turn once and leave the
+        markers out; ``history_documents`` finds a scenario's documents.
+        """
         ...
+
+
+def history_documents(
+    history: Optional[List[Dict[str, Any]]],
+) -> Optional[List[Union[str, Dict[str, Any]]]]:
+    """A scenario's documents, which ``run_scenario`` carries on the history's first user turn."""
+    return next((m["documents"] for m in history or [] if m.get("documents")), None)

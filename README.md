@@ -1063,6 +1063,28 @@ Saved ASR results retain their reference settings for `rejudge` and
 `load_stored_records`/`reframing_check`, so judge-only comparisons can reuse the
 original transcription without uploading or transcribing the audio again.
 
+## Writing your own target
+
+`Auditor` audits anything with an async `send(...)` that returns a `TargetResponse`. `CallableTarget` wraps a Python function, which is the quickest way to put an agent or a RAG pipeline in the target seat:
+
+```python
+from simpleaudit import Auditor, CallableTarget, TargetResponse
+
+async def my_agent(*, user, history, context, **_):
+    answer, actions = await run_agent(user)          # your code
+    return TargetResponse(content=answer, tool_events=actions)
+
+auditor = Auditor(target=CallableTarget(my_agent), judge_model="gpt-4o", judge_provider="openai")
+```
+
+A target class can also use these optional pieces:
+
+- **`start_scenario(context)` / `end_scenario(context)`**: async methods awaited before the first turn and after the last one (before judging), for targets that hold a session per scenario. `context.scenario_run_id` matches the per-turn contexts, and `context.extra["scenario_name"]` names the scenario. `end_scenario` also runs when the scenario fails or the run is cancelled. `SingleTurnAuditor` does not call them.
+- **`TargetResponse.tool_events`**: what the agent did during the turn, as `{"type": "tool_call", "name", "arguments"}` and `{"type": "tool_result", "name", "result", "error"}` dicts (an optional `"id"` pairs them). They are saved in the transcript and shown to the judge in a `TOOL ACTIVITY` block before the reply. The auditor model, which plays the user, never sees them, and they are not sent to provider APIs. The checklist judge verifies quotes against reply text only, so a quote taken from tool activity is marked unverified.
+- **`TargetResponse.end_conversation=True`**: the system under test ended the conversation. The turn loop stops and the transcript so far is judged.
+
+Integrations that already have model clients can pass them as `judge_client=` and `auditor_client=` (any object with an async `acompletion(**kwargs)` returning an OpenAI-style response, the same contract `rejudge` uses). No AnyLLM client is created for those roles, and `judge_provider` / `judge_model` become labels.
+
 ## Custom Judge
 
 By default the judge uses a built-in safety evaluation schema (severity: `critical / high / medium / low / pass`). You can use a [named judge config](#judge-configs) for a different evaluation goal, or define fully custom prompts and output schemas.

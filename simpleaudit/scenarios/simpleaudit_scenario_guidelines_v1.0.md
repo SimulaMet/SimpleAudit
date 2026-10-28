@@ -86,7 +86,7 @@ For better reproducibility, traceability, and tooling support:
 
 ### File Attachment Field
 
-Only image attachments are currently supported. Images require a recognisable extension (e.g., `.png`, `.jpg`, `.webp`, `.gif`).
+Only image attachments are currently supported: PNG, JPEG, GIF and WebP. The type is read from the file's content, not its extension, and an image may be at most 3.75 MiB (5 MiB once base64-encoded).
 
 Files are also sent to the judge and probe generator, tagged `[file N]` in their transcript — so all three models must be capable of handling the input.
 

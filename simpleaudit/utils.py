@@ -9,7 +9,7 @@ import json
 import mimetypes
 import re
 from functools import lru_cache
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from urllib.parse import urlsplit
 
 import fsspec
@@ -263,12 +263,20 @@ def _extract_from_text(text: str, default_severity: str) -> Dict[str, Any]:
     return result
 
 
+#: The image types the vision APIs accept. Anything else (svg, tiff, bmp, ico,
+#: heic, avif, ...) comes back from a provider as an opaque 400.
+ALLOWED_IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")
+
+_ALLOWED_IMAGE_HINT = "Supported image types: .png, .jpg, .webp, .gif."
+
+
 def image_media_type(file_uri: str) -> str:
     """
-    Resolve a URI to an image media type, raising if it is not an image.
+    Resolve a URI to the image media type its name claims, raising if it is
+    not one of ALLOWED_IMAGE_TYPES.
 
-    Anything mimetypes cannot place, or that resolves to a non-image, is
-    rejected rather than being sent to a provider as a mislabelled image.
+    This reads the name only. image_data_uri labels the payload from the bytes
+    it reads, so a file whose name and content disagree is sent as what it is.
     """
     path = urlsplit(file_uri).path or file_uri
     media_type, _ = mimetypes.guess_type(path)
@@ -282,10 +290,42 @@ def image_media_type(file_uri: str) -> str:
             f"file_uri {file_uri!r} resolves to {media_type}, not an image. "
             "Only images can be attached to a scenario."
         )
+    if media_type not in ALLOWED_IMAGE_TYPES:
+        raise ValueError(
+            f"file_uri {file_uri!r} resolves to {media_type}, which the vision "
+            f"APIs do not accept. {_ALLOWED_IMAGE_HINT}"
+        )
     return media_type
 
 
+def sniff_image_media_type(data: bytes) -> Optional[str]:
+    """
+    Return the media type the leading bytes of `data` identify, if it is one of
+    ALLOWED_IMAGE_TYPES, else None.
+    """
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 _IMAGE_CACHE_SIZE = 32
+
+#: Upper bound on the base64 payload of one image. Anthropic caps an image at
+#: 5 MB, and base64 inflates by 4/3, so a 5 MB file is already over it. Larger
+#: payloads would otherwise be uploaded, retried, and surface as a connectivity
+#: error.
+MAX_IMAGE_PAYLOAD_BYTES = 5 * 1024 * 1024
+
+
+def _max_image_file_bytes() -> int:
+    # Largest raw size whose base64 encoding fits MAX_IMAGE_PAYLOAD_BYTES.
+    return MAX_IMAGE_PAYLOAD_BYTES // 4 * 3
 
 
 @lru_cache(maxsize=_IMAGE_CACHE_SIZE)
@@ -296,14 +336,34 @@ def image_data_uri(file_uri: str) -> str:
     fsspec resolves local paths, http(s), s3, gs and friends through one call,
     so scenario authors can point at wherever the image actually lives.
 
+    The media type comes from the file's magic bytes, not its name: content
+    that is not a png, jpeg, gif or webp is rejected, whatever the extension
+    says, and a valid image at an extension-less URI is accepted. Files whose
+    encoding would exceed MAX_IMAGE_PAYLOAD_BYTES are rejected before upload.
+
     Cached because the first user message is re-sent on every turn of a
     multi-turn audit — without this the same file is re-read and re-encoded
     once per turn per scenario. Entries are keyed on the URI alone, so
     run_async clears the cache to pick up files changed between runs.
     """
-    media_type = image_media_type(file_uri)
+    limit = _max_image_file_bytes()
     with fsspec.open(file_uri, mode="rb") as f:
-        payload = base64.b64encode(f.read()).decode("utf-8")
+        # One byte past the limit is enough to know it is too large, without
+        # reading an arbitrarily large file into memory.
+        data = f.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(
+            f"file_uri {file_uri!r} is larger than {limit:,} bytes, so its "
+            f"base64 payload would exceed the {MAX_IMAGE_PAYLOAD_BYTES:,}-byte "
+            "per-image limit. Downscale or recompress the image."
+        )
+    media_type = sniff_image_media_type(data)
+    if media_type is None:
+        raise ValueError(
+            f"file_uri {file_uri!r} does not contain a supported image "
+            f"(got leading bytes {data[:8]!r}). {_ALLOWED_IMAGE_HINT}"
+        )
+    payload = base64.b64encode(data).decode("utf-8")
     return f"data:{media_type};base64,{payload}"
 
 

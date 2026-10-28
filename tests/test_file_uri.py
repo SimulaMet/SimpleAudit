@@ -9,13 +9,21 @@ text; expansion happens only on the way to a provider.
 
 import asyncio
 import base64
+import gzip
 import json
+import mimetypes
 import pathlib
 
 import pytest
 
+from simpleaudit import utils
 from simpleaudit.model_auditor import ModelAuditor, _expand_files, _render_conversation
-from simpleaudit.utils import image_data_uri, image_media_type, image_content_block
+from simpleaudit.utils import (
+    image_content_block,
+    image_data_uri,
+    image_media_type,
+    sniff_image_media_type,
+)
 
 from .fakes import FakeClient, make_auditor
 
@@ -24,6 +32,12 @@ from .fakes import FakeClient, make_auditor
 PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
 )
+
+# Content sniffing reads only the leading signature, so the other formats need
+# no more than a valid header.
+JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00" + b"\x00" * 16
+GIF_BYTES = b"GIF89a\x01\x00\x01\x00" + b"\x00" * 16
+WEBP_BYTES = b"RIFF\x1a\x00\x00\x00WEBPVP8 " + b"\x00" * 16
 
 JUDGE_JSON = json.dumps({
     "severity": "pass",
@@ -102,7 +116,7 @@ class TestImageContentBlock:
 
     def test_jpg_extension_normalized_to_jpeg(self, tmp_path):
         path = tmp_path / "photo.JPG"
-        path.write_bytes(b"jpeg-bytes")
+        path.write_bytes(JPEG_BYTES)
         url = image_content_block(file_uri=str(path))["image_url"]["url"]
         assert url.startswith("data:image/jpeg;base64,")
 
@@ -138,6 +152,95 @@ class TestMediaTypeResolution:
     def test_rejects_a_non_image_file(self):
         with pytest.raises(ValueError, match="resolves to application/pdf, not an image"):
             image_media_type(file_uri="report.pdf")
+
+    @pytest.mark.parametrize(
+        "file_uri", ["logo.svg", "scan.tiff", "old.bmp", "favicon.ico", "photo.heic", "photo.avif"]
+    )
+    def test_rejects_image_types_the_vision_apis_do_not_accept(self, file_uri):
+        if mimetypes.guess_type(file_uri)[0] is None:
+            pytest.skip(f"this platform's mimetypes has no entry for {file_uri}")
+        with pytest.raises(ValueError, match="vision APIs do not accept"):
+            image_media_type(file_uri=file_uri)
+
+
+class TestContentSniffing:
+    @pytest.mark.parametrize(
+        "data,expected",
+        [
+            (PNG_BYTES, "image/png"),
+            (JPEG_BYTES, "image/jpeg"),
+            (GIF_BYTES, "image/gif"),
+            (b"GIF87a" + b"\x00" * 8, "image/gif"),
+            (WEBP_BYTES, "image/webp"),
+        ],
+    )
+    def test_identifies_allowed_types(self, data, expected):
+        assert sniff_image_media_type(data) == expected
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            b"",
+            b"<svg xmlns='http://www.w3.org/2000/svg'/>",
+            # mtime=0 keeps the bytes, and so the test ids, identical across
+            # xdist workers.
+            gzip.compress(PNG_BYTES, mtime=0),
+            b"II*\x00" + b"\x00" * 8,
+            b"BM" + b"\x00" * 12,
+            b"RIFF\x1a\x00\x00\x00WAVEfmt ",
+            b"%PDF-1.7",
+        ],
+        ids=["empty", "svg", "gzipped-png", "tiff", "bmp", "riff-wave", "pdf"],
+    )
+    def test_returns_none_for_anything_else(self, data):
+        assert sniff_image_media_type(data) is None
+
+    def test_label_comes_from_content_not_extension(self, tmp_path):
+        path = tmp_path / "renamed.png"
+        path.write_bytes(JPEG_BYTES)
+        url = image_content_block(file_uri=str(path))["image_url"]["url"]
+        assert url.startswith("data:image/jpeg;base64,")
+
+    def test_accepts_a_valid_image_without_an_extension(self, tmp_path):
+        path = tmp_path / "screenshot"
+        path.write_bytes(PNG_BYTES)
+        url = image_content_block(file_uri=str(path))["image_url"]["url"]
+        assert url.startswith("data:image/png;base64,")
+
+    def test_rejects_gzip_named_as_png(self, tmp_path):
+        path = tmp_path / "pic.png.gz"
+        path.write_bytes(gzip.compress(PNG_BYTES, mtime=0))
+        with pytest.raises(ValueError, match="does not contain a supported image"):
+            image_content_block(file_uri=str(path))
+
+    def test_rejects_svg_renamed_to_png(self, tmp_path):
+        path = tmp_path / "logo.png"
+        path.write_bytes(b"<svg xmlns='http://www.w3.org/2000/svg'/>")
+        with pytest.raises(ValueError, match="does not contain a supported image"):
+            image_content_block(file_uri=str(path))
+
+
+class TestSizeGuard:
+    def test_default_limit_keeps_the_payload_within_five_mib(self):
+        limit = utils._max_image_file_bytes()
+        assert len(base64.b64encode(b"\x00" * limit)) <= utils.MAX_IMAGE_PAYLOAD_BYTES
+        assert len(base64.b64encode(b"\x00" * (limit + 1))) > utils.MAX_IMAGE_PAYLOAD_BYTES
+
+    def test_image_at_the_limit_is_accepted(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(utils, "MAX_IMAGE_PAYLOAD_BYTES", 400)
+        limit = utils._max_image_file_bytes()
+        path = tmp_path / "at_limit.png"
+        path.write_bytes(PNG_BYTES + b"\x00" * (limit - len(PNG_BYTES)))
+        url = image_content_block(file_uri=str(path))["image_url"]["url"]
+        assert len(url.split(",", 1)[1]) <= 400
+
+    def test_image_over_the_limit_is_rejected_before_upload(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(utils, "MAX_IMAGE_PAYLOAD_BYTES", 400)
+        limit = utils._max_image_file_bytes()
+        path = tmp_path / "too_big.png"
+        path.write_bytes(PNG_BYTES + b"\x00" * (limit + 1 - len(PNG_BYTES)))
+        with pytest.raises(ValueError, match="per-image limit"):
+            image_content_block(file_uri=str(path))
 
 
 class TestEncodingIsCached:
@@ -178,7 +281,7 @@ class TestEncodingIsCached:
     def test_distinct_uris_are_cached_separately(self, png_path, tmp_path):
         image_data_uri.cache_clear()
         other = tmp_path / "second.png"
-        other.write_bytes(b"different-bytes")
+        other.write_bytes(PNG_BYTES + b"different-bytes")
         first = image_content_block(file_uri=png_path)
         second = image_content_block(file_uri=str(other))
         assert first["image_url"]["url"] != second["image_url"]["url"]
@@ -394,15 +497,17 @@ class TestFileUriEndToEnd:
         # ...but it is read and encoded only once across those turns.
         assert image_data_uri.cache_info().misses == 1
 
-    def test_bad_file_uri_fails_the_scenario_not_the_run(self, png_path):
+    def test_bad_file_uri_fails_the_scenario_not_the_run(self, png_path, tmp_path):
         # A multi-scenario batch: the broken scenario must come back as an
         # ERROR result while the healthy sibling still runs to completion —
         # one bad file must not abort the whole run.
+        not_an_image = tmp_path / "notes.png"
+        not_an_image.write_bytes(b"plain text, not an image")
         target = _Capture(response="A bar chart.")
         judge = _Capture(response=JUDGE_JSON)
         results = _run_batch(
             scenarios=[
-                _image_scenario(file_uri="/tmp/screenshot", name="Broken image"),
+                _image_scenario(file_uri=str(not_an_image), name="Broken image"),
                 _image_scenario(file_uri=png_path, name="Fine image"),
             ],
             target=target,
@@ -412,7 +517,7 @@ class TestFileUriEndToEnd:
         by_name = {r.scenario_name: r for r in results.results}
         assert set(by_name) == {"Broken image", "Fine image"}
         assert by_name["Broken image"].severity == "ERROR"
-        assert "Cannot determine an image type" in " ".join(by_name["Broken image"].issues_found)
+        assert "does not contain a supported image" in " ".join(by_name["Broken image"].issues_found)
         # The sibling ran normally and kept its file_uri in the stored conversation.
         assert by_name["Fine image"].severity != "ERROR"
         assert by_name["Fine image"].conversation[0]["file_uri"] == png_path

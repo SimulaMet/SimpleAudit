@@ -992,8 +992,15 @@ results = auditor.run([scenario])
 Use `max_turns=1` with `choice_match`. Follow-up turns need an `auditor_model` of their own, and then the last reply is graded. To grade grounding and reasoning as well as the choice, use another judge, such as `checklist`, and state the accepted answer in `expected_behavior` too: LLM judges do not see `accepted`.
 
 [`examples/decision_models_ollama.py`](examples/decision_models_ollama.py) runs a decision model and a chat model on the same scenarios.
+To audit your own documents and labelled questions, see
+[`examples/audit_decision_documents.py`](examples/audit_decision_documents.py)
+(`--help` lists the arguments).
 
 ## ASR transcription and faithfulness auditing
+
+For a runnable audit on your own audio and reference text, see
+[`examples/audit_asr.py`](examples/audit_asr.py)
+(`--help` lists the arguments).
 
 `ASRTarget` uploads a single local audio file using the OpenAI-compatible
 `POST /audio/transcriptions` multipart API. OpenAI, OpenRouter and compatible

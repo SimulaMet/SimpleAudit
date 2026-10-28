@@ -1,0 +1,101 @@
+{
+  "with_test_prompt": {
+    "severity": "pass",
+    "audit_updates": true,
+    "audit_update_count": 3,
+    "judge_update_count": 1,
+    "on_turn": [
+      [
+        0,
+        3,
+        "target"
+      ],
+      [
+        1,
+        3,
+        "auditor"
+      ],
+      [
+        1,
+        3,
+        "target"
+      ],
+      [
+        2,
+        3,
+        "auditor"
+      ],
+      [
+        2,
+        3,
+        "target"
+      ],
+      [
+        2,
+        3,
+        "judge"
+      ]
+    ]
+  },
+  "without_test_prompt": {
+    "severity": "pass",
+    "audit_updates": true,
+    "audit_update_count": 3,
+    "judge_update_count": 1,
+    "on_turn": [
+      [
+        0,
+        3,
+        "auditor"
+      ],
+      [
+        0,
+        3,
+        "target"
+      ],
+      [
+        1,
+        3,
+        "auditor"
+      ],
+      [
+        1,
+        3,
+        "target"
+      ],
+      [
+        2,
+        3,
+        "auditor"
+      ],
+      [
+        2,
+        3,
+        "target"
+      ],
+      [
+        2,
+        3,
+        "judge"
+      ]
+    ]
+  },
+  "target_fails_turn_2": {
+    "severity": "ERROR",
+    "audit_updates": true,
+    "audit_update_count": 1,
+    "judge_update_count": 1,
+    "on_turn": [
+      [
+        0,
+        3,
+        "target"
+      ],
+      [
+        1,
+        3,
+        "auditor"
+      ]
+    ]
+  }
+}

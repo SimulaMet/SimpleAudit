@@ -20,9 +20,18 @@ Design notes:
 from __future__ import annotations
 
 import json
+import warnings
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from .base import Target, TargetContext, TargetResponse
+from ..context_marks import document_texts
+from .base import (
+    Target,
+    TargetContext,
+    TargetResponse,
+    history_documents,
+    history_file_uri,
+    plain_history,
+)
 
 
 def _resolve_path(data: Any, path: Optional[str]) -> Any:
@@ -41,6 +50,39 @@ def _resolve_path(data: Any, path: Optional[str]) -> Any:
         else:
             return None
     return cur
+
+
+def _earlier_turns(user: str, history: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """The conversation before the current turn, without the engine's markers.
+
+    Under ``run_scenario`` the history ends with the current user turn, which
+    the body adds itself; a direct caller may pass the earlier turns only.
+    Fields other than the markers (``tool_calls``, ``tool_call_id``, ...) stay.
+    """
+    turns = plain_history(history)
+    if turns and turns[-1].get("role") == "user" and turns[-1].get("content") == user:
+        turns.pop()
+    return turns
+
+
+def _with_system_text(fixed: Any, system: str) -> Any:
+    """The template's own system prompt at that field, if any, followed by the audit's."""
+    if isinstance(fixed, str) and fixed:
+        return f"{fixed}\n\n{system}"
+    if isinstance(fixed, list):  # content blocks, e.g. Anthropic's native "system"
+        return [*fixed, {"type": "text", "text": system}]
+    return system
+
+
+def _with_system_message(messages: List[Dict[str, Any]], system: str) -> List[Dict[str, Any]]:
+    """One leading system message: the template's, if it starts with one, then the audit's prompt.
+
+    Many chat templates reject two system messages in a row.
+    """
+    if messages and messages[0].get("role") == "system":
+        first = messages[0]
+        return [{**first, "content": _with_system_text(first.get("content"), system)}, *messages[1:]]
+    return [{"role": "system", "content": system}, *messages]
 
 
 class HTTPAppTarget:
@@ -65,6 +107,10 @@ class HTTPAppTarget:
         # Optional: extract token usage from the response, e.g.
         # ("usage.prompt_tokens", "usage.completion_tokens").
         token_paths: Optional[tuple] = None,
+        # The request field for the audit's system prompt. Without it, the
+        # prompt is a leading system message in "messages" mode and cannot be
+        # sent in other modes.
+        system_field: Optional[str] = None,
     ) -> None:
         self.url = url
         self.method = method.upper()
@@ -76,44 +122,64 @@ class HTTPAppTarget:
         self._client = client
         self.documents_field = documents_field
         self.token_paths = token_paths
+        self.system_field = system_field
+        self._warned_system = False
 
     def _build_body(
         self,
         user: str,
         history: Optional[List[Dict[str, Any]]],
         documents: Optional[List[Union[str, Dict[str, Any]]]] = None,
+        system: Optional[str] = None,
     ) -> Dict[str, Any]:
         body = json.loads(json.dumps(self.request_template))  # deep copy
-        # Retrieval context for a context-grounding run: text only, so no
-        # evaluation-only mark ever reaches the target. Fail loudly when
-        # documents were supplied but this body has nowhere to carry them — a
-        # silent drop would grade a response the app never saw the context for.
-        doc_texts = [
-            doc if isinstance(doc, str) else (doc or {}).get("text")
-            for doc in (documents or [])
-        ]
-        doc_texts = [text for text in doc_texts if isinstance(text, str) and text]
+        # Retrieval context: text only, so no evaluation-only mark ever
+        # reaches the target. A context-grounding run passes the documents
+        # directly; a multi-turn run carries them on the history. Every
+        # document keeps its position, matching the judge's numbering. Fail
+        # loudly when documents were supplied but this body has nowhere to
+        # carry them — a silent drop would grade a response the app never saw
+        # the context for.
+        if documents is None:
+            documents = history_documents(history)
+        doc_texts = document_texts(documents)
         if doc_texts:
             if self.documents_field is None:
                 raise ValueError(
-                    "HTTPAppTarget received documents for a context-grounding run "
-                    "but has no way to send them: pass documents_field= to name "
-                    "the request field that carries the retrieval context."
+                    "HTTPAppTarget received the scenario's documents but has no way to "
+                    "send them: pass documents_field= to name the request field that "
+                    "carries the retrieval context."
                 )
             body[self.documents_field] = doc_texts
+        earlier = _earlier_turns(user, history)
+        if system and self.system_field:
+            body[self.system_field] = _with_system_text(body.get(self.system_field), system)
         if self.message_field == "messages":
-            # OpenAI-style chat body: ``messages`` is a list of
-            # ``{"role", "content"}`` dicts. Append the current user turn,
-            # optionally preceded by prior conversation history.
-            messages: List[Dict[str, str]] = []
-            if history:
-                messages.extend(history)
-            messages.append({"role": "user", "content": user})
-            body["messages"] = messages
+            # OpenAI-style chat body: any messages the request template fixes,
+            # then the conversation. Without a system_field, the audit's system
+            # prompt joins the template's leading system message or becomes one.
+            fixed = body.get("messages") if isinstance(body.get("messages"), list) else []
+            if system and not self.system_field:
+                fixed = _with_system_message(fixed, system)
+            body["messages"] = [*fixed, *earlier, {"role": "user", "content": user}]
         else:
             body[self.message_field] = user
+            if system and not self.system_field and not self._warned_system:
+                warnings.warn(
+                    "HTTPAppTarget has nowhere to send the system prompt: pass "
+                    "system_field= to name the request field for it.",
+                    stacklevel=3,
+                )
+                self._warned_system = True
             if history is not None:
-                body.setdefault("history", history)
+                # A history list in the template comes before the conversation.
+                fixed = body.get("history", [])
+                if not isinstance(fixed, list):
+                    raise ValueError(
+                        "request_template's 'history' must be a list for the conversation to "
+                        "follow it."
+                    )
+                body["history"] = [*fixed, *earlier]
         return body
 
     async def send(
@@ -128,8 +194,12 @@ class HTTPAppTarget:
         params: Optional[Dict[str, Any]] = None,
         context: Optional[TargetContext] = None,
     ) -> TargetResponse:
+        # Like documents, an attachment the app never receives must not be
+        # graded as if it had.
+        if file_uri or history_file_uri(history):
+            raise ValueError("HTTPAppTarget cannot send attached files; this scenario attaches file_uri")
         headers = dict(self.headers)
-        body = self._build_body(user, history, documents)
+        body = self._build_body(user, history, documents, system)
 
         # Forward correlation / trace context when available.
         if context is not None:

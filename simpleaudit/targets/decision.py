@@ -34,19 +34,46 @@ Design notes:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections.abc import Mapping
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 from ..context_marks import parse_documents
+from ._http import make_client, warn_if_cleartext, with_endpoint
 from .base import TargetContext, TargetResponse, history_documents
 
 #: Ollama's request-body cap for System One requests without images.
 OLLAMA_MAX_BODY_BYTES = 64 * 1024
 
+#: Statuses worth another attempt: rate limiting and server-side failures.
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+#: Statuses whose ``Retry-After`` header (RFC 9110 section 10.2.3) is honoured.
+RETRY_AFTER_STATUSES = frozenset({429, 503})
+
+#: Longest wait, in seconds, that a ``Retry-After`` header can ask for.
+_RETRY_AFTER_MAX = 60.0
+
 #: OpenRouter's System One endpoint (``POST /api/v1/systemone``).
 OPENROUTER_SYSTEMONE_URL = "https://openrouter.ai/api/v1/systemone"
+
+
+def _retry_after_seconds(resp: Any) -> float | None:
+    """Seconds a ``Retry-After`` header asks for (delay-seconds or HTTP-date), else None."""
+    value = (resp.headers.get("Retry-After") or "").strip()
+    if value.isdigit():
+        return float(value)
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
 
 
 class DecisionTarget:
@@ -68,8 +95,16 @@ class DecisionTarget:
         min_options: int = 2,
         max_options: int | None = 26,
         max_body_bytes: int | None = None,
+        max_retries: int = 0,
+        retry_backoff: float = 0.5,
+        reuse_client: bool = False,
     ) -> None:
+        if max_retries < 0:
+            raise ValueError("max_retries must be 0 or more")
+        if retry_backoff < 0:
+            raise ValueError("retry_backoff must be 0 or more")
         self.url = url
+        warn_if_cleartext(url)
         self.model = model
         self.headers = dict(headers or {})
         if api_key:
@@ -80,6 +115,73 @@ class DecisionTarget:
         self.min_options = min_options
         self.max_options = max_options
         self.max_body_bytes = max_body_bytes
+        #: Extra attempts after a transport error or a status in ``RETRY_STATUSES``;
+        #: 0 (the default) sends each request once. Attempt ``n`` waits
+        #: ``retry_backoff * 2**n`` seconds before the next one, as in ``ModelTarget``.
+        #: A ``Retry-After`` header on a 429 or 503 replaces that wait, capped at
+        #: ``_RETRY_AFTER_MAX`` (60 s).
+        self.max_retries = max_retries
+        self.retry_backoff = retry_backoff
+        self._reuse_client = reuse_client
+        self._shared_client: Any | None = None
+        self._shared_loop: asyncio.AbstractEventLoop | None = None
+
+    def _acquire_client(self) -> tuple[Any, bool]:
+        """The client for one request and whether the request must close it.
+
+        An injected client is never closed here. With ``reuse_client`` one
+        client serves every request on the running event loop. Each sync
+        ``run()`` has its own loop, and a client cannot be used or closed on
+        another loop, so a client from an earlier loop is dropped and replaced.
+        """
+        if self._client is not None:
+            return self._client, False
+        if not self._reuse_client:
+            return make_client(self.timeout), True
+        loop = asyncio.get_running_loop()
+        if self._shared_client is None or self._shared_loop is not loop:
+            self._shared_client = make_client(self.timeout)
+            self._shared_loop = loop
+        return self._shared_client, False
+
+    async def aclose(self) -> None:
+        """Close the client kept by ``reuse_client``; an injected client is the caller's."""
+        client, loop = self._shared_client, self._shared_loop
+        self._shared_client = self._shared_loop = None
+        if client is not None and loop is asyncio.get_running_loop():
+            await client.aclose()
+
+    async def __aenter__(self) -> DecisionTarget:
+        return self
+
+    async def __aexit__(self, *exc: Any) -> None:
+        await self.aclose()
+
+    async def _post(self, payload: bytes, headers: dict[str, str]) -> Any:
+        """POST ``payload``, retrying transient failures up to ``max_retries`` times."""
+        import httpx
+
+        client, owns_client = self._acquire_client()
+        try:
+            for attempt in range(self.max_retries + 1):
+                last = attempt == self.max_retries
+                delay = self.retry_backoff * 2**attempt
+                try:
+                    resp = await client.post(self.url, content=payload, headers=headers)
+                except httpx.TransportError:
+                    if last:
+                        raise
+                else:
+                    if resp.status_code not in RETRY_STATUSES or last:
+                        return resp
+                    if resp.status_code in RETRY_AFTER_STATUSES:
+                        asked = _retry_after_seconds(resp)
+                        if asked is not None:
+                            delay = min(asked, _RETRY_AFTER_MAX)
+                await asyncio.sleep(delay)
+        finally:
+            if owns_client:
+                await client.aclose()
 
     @classmethod
     def ollama(
@@ -173,23 +275,12 @@ class DecisionTarget:
         if context is not None:
             headers.update(context.trace_headers)
 
-        owns_client = self._client is None
-        if client := self._client:
-            pass
-        else:
-            import httpx
-
-            client = httpx.AsyncClient(timeout=self.timeout)
-        try:
-            resp = await client.post(self.url, content=payload, headers=headers)
-            if resp.status_code >= 400:
-                raise RuntimeError(
-                    f"decision endpoint returned HTTP {resp.status_code}: {resp.text[:300]}"
-                )
-            data = resp.json()
-        finally:
-            if owns_client:
-                await client.aclose()
+        resp = await self._post(payload, headers)
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"decision endpoint returned HTTP {resp.status_code}: {resp.text[:300]}"
+            )
+        data = resp.json()
 
         answer = (data.get("answers") or {}).get(decision["id"]) if isinstance(data, dict) else None
         if not isinstance(answer, dict):
@@ -204,7 +295,7 @@ class DecisionTarget:
         usage = data.get("usage") or {}
         return TargetResponse(
             content=f"{choice}: {description}" if description else choice,
-            raw=data,
+            raw=with_endpoint(data, self.url),
             input_tokens=usage.get("input_tokens"),
             output_tokens=usage.get("output_tokens"),
             decision=answer,

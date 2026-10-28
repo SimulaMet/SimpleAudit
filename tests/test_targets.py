@@ -12,6 +12,8 @@ Covers:
     - Auditor(target=...) generic entry point
 """
 
+from pathlib import Path
+
 import pytest
 
 from simpleaudit import (
@@ -24,7 +26,6 @@ from simpleaudit import (
     TargetResponse,
 )
 from simpleaudit.targets.http import _resolve_path
-
 
 # ---------------------------------------------------------------------------
 # TargetResponse / TargetContext
@@ -258,6 +259,110 @@ def test_http_target_openai_style_messages_with_history():
     ]
 
 
+# HTTPAppTarget inside an audit (issue #124): run_scenario passes the whole
+# conversation, current turn included, with SimpleAudit's markers beside the
+# text. The app must get each turn once and no marker.
+
+MARKED_DOCUMENT = {
+    "text": "Deadline is six weeks.",
+    "relevant": True,
+    "true": False,
+    "authority": "guidance",
+    "source": "old-guide",
+}
+
+
+class _RecordingHTTPClient(_FakeAsyncClient):
+    """Keeps a copy of every request body, as it was when sent."""
+
+    def __init__(self, payload):
+        super().__init__(payload)
+        self.bodies = []
+
+    async def request(self, method, url, json=None, headers=None):
+        import json as _json
+
+        self.bodies.append(_json.loads(_json.dumps(json)))
+        return await super().request(method, url, json=json, headers=headers)
+
+
+def _audit_http(scenario, max_turns=2, **target_kwargs):
+    import asyncio
+
+    from tests.fakes import fixed_probe_auditor, fixed_severity_judge, fixed_target, make_auditor
+
+    client = _RecordingHTTPClient({"answer": "ok"})
+    auditor = make_auditor(
+        fixed_target("unused"), fixed_severity_judge("pass"), fixed_probe_auditor("Second question?"), max_turns=max_turns
+    )
+    auditor.set_target(HTTPAppTarget(url="http://app/chat", response_path="answer", client=client, **target_kwargs))
+    result = asyncio.run(auditor.run_async([scenario]))[0]
+    return result, client.bodies
+
+
+PLAIN_SCENARIO = {"name": "S", "description": "d", "test_prompt": "First question?"}
+
+
+def test_http_audit_messages_body_sends_each_turn_once():
+    result, bodies = _audit_http(PLAIN_SCENARIO, message_field="messages")
+    assert result.severity == "pass"
+    assert [b["messages"] for b in bodies] == [
+        [{"role": "user", "content": "First question?"}],
+        [
+            {"role": "user", "content": "First question?"},
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "Second question?"},
+        ],
+    ]
+
+
+def test_http_audit_message_body_keeps_history_to_earlier_turns():
+    _, bodies = _audit_http(PLAIN_SCENARIO)
+    assert bodies == [
+        {"message": "First question?", "history": []},
+        {
+            "message": "Second question?",
+            "history": [
+                {"role": "user", "content": "First question?"},
+                {"role": "assistant", "content": "ok"},
+            ],
+        },
+    ]
+
+
+def test_http_audit_sends_documents_as_text_and_never_their_marks():
+    scenario = {**PLAIN_SCENARIO, "documents": ["Appeals go to NAV.", MARKED_DOCUMENT]}
+    result, bodies = _audit_http(scenario, message_field="messages", documents_field="context")
+    assert result.severity == "pass"
+    assert [b["context"] for b in bodies] == [["Appeals go to NAV.", "Deadline is six weeks."]] * 2
+    sent = str(bodies)
+    for mark in ("relevant", "authority", "old-guide", "documents"):
+        assert mark not in sent
+
+
+def test_http_audit_with_documents_needs_a_documents_field():
+    scenario = {**PLAIN_SCENARIO, "documents": [MARKED_DOCUMENT]}
+    result, bodies = _audit_http(scenario, message_field="messages")
+    assert result.severity == "ERROR"
+    assert "documents_field" in result.judgment["error"]
+    assert bodies == []
+
+
+def test_http_body_drops_markers_and_copies_history():
+    t = HTTPAppTarget(url="http://x")
+    history = [
+        {"role": "user", "content": "Is it guilty?", "file_uri": "/tmp/scan.png"},
+        {"role": "assistant", "content": "yes", "decision": {"choice": "yes"}, "tool_events": [{"type": "tool_call"}]},
+    ]
+    body = t._build_body("And the sentence?", history)
+    assert body["history"] == [
+        {"role": "user", "content": "Is it guilty?"},
+        {"role": "assistant", "content": "yes"},
+    ]
+    assert body["history"] is not history
+    assert "file_uri" in history[0]  # the caller's transcript is untouched
+
+
 # ---------------------------------------------------------------------------
 # ModelAuditor.target property + set_target
 # ---------------------------------------------------------------------------
@@ -393,3 +498,154 @@ def test_engine_traceparent_reaches_wire_on_default_target():
     tp = last["extra_headers"]["traceparent"]
     # Same trace id the correlation recorded, not a fresh unrelated one.
     assert tp.split("-")[1] in correlation.all_trace_ids()
+
+
+def test_http_body_keeps_other_fields_of_direct_callers():
+    t = HTTPAppTarget(url="http://x", message_field="messages")
+    history = [
+        {"role": "user", "content": "What's 2+2?"},
+        {"role": "assistant", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "add"}}]},
+        {"role": "tool", "tool_call_id": "c1", "name": "add", "content": "4"},
+        {"role": "assistant", "content": "4."},
+    ]
+    body = t._build_body("And 3+3?", history)
+    assert body["messages"] == [*history, {"role": "user", "content": "And 3+3?"}]
+
+
+def test_http_documents_are_parsed_and_keep_their_positions():
+    t = HTTPAppTarget(url="http://x", documents_field="context")
+    assert t._build_body("q", None, ["", "B"])["context"] == ["", "B"]
+    assert "context" not in t._build_body("q", [{"role": "user", "content": "q", "documents": ["A"]}], [])
+    with pytest.raises(ValueError, match="text"):
+        t._build_body("q", None, [{"content": "Deadline is six weeks."}])
+
+
+def test_http_audit_with_attached_files_fails_instead_of_dropping_them():
+    result, bodies = _audit_http({**PLAIN_SCENARIO, "file_uri": "/tmp/scan.png"}, message_field="messages")
+    assert result.severity == "ERROR" and "cannot send attached files" in result.judgment["error"]
+    assert bodies == []
+
+
+# Issues #126–#128: what CallableTarget and HTTPAppTarget pass on.
+
+
+def test_callable_gets_plain_history_and_text_documents():
+    import asyncio
+
+    from tests.fakes import fixed_probe_auditor, fixed_severity_judge, fixed_target, make_auditor
+
+    seen = []
+    auditor = make_auditor(
+        fixed_target("x"), fixed_severity_judge("pass"), fixed_probe_auditor("Second question?"), max_turns=2
+    )
+    auditor.set_target(CallableTarget(lambda **kwargs: seen.append(kwargs) or "ok"))
+    image = str(Path(__file__).resolve().parent.parent / "simpleaudit" / "scenarios" / "images" / "product_a.png")
+    scenario = {**PLAIN_SCENARIO, "documents": ["Appeals go to NAV.", MARKED_DOCUMENT], "file_uri": image}
+    result = asyncio.run(auditor.run_async([scenario]))[0]
+    assert result.severity == "pass"
+    first, second = seen
+    # The file stays on the turn that attached it, and file_uri is set on that turn only.
+    assert first["history"] == [{"role": "user", "content": "First question?", "file_uri": image}]
+    assert second["history"] == [
+        {"role": "user", "content": "First question?", "file_uri": image},
+        {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": "Second question?"},
+    ]
+    assert (first["file_uri"], second["file_uri"]) == (image, None)
+    assert first["documents"] == second["documents"] == ["Appeals go to NAV.", "Deadline is six weeks."]
+    assert "documents" in result.conversation[0]  # the stored transcript keeps its markers
+
+
+@pytest.mark.asyncio
+async def test_callable_passes_given_documents_and_no_history_through():
+    seen = []
+    await CallableTarget(lambda **kwargs: seen.append(kwargs) or "ok").send(user="q", documents=[MARKED_DOCUMENT])
+    assert seen[0]["history"] is None and seen[0]["file_uri"] is None
+    assert seen[0]["documents"] == ["Deadline is six weeks."]
+
+
+def test_http_messages_body_sends_the_system_prompt_and_fixed_messages():
+    t = HTTPAppTarget(
+        url="http://x",
+        message_field="messages",
+        request_template={"model": "m", "messages": [{"role": "system", "content": "Fixed app prompt."}]},
+    )
+    history = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}, {"role": "user", "content": "more"}]
+    body = t._build_body("more", history, system="You are careful.")
+    assert body["messages"] == [
+        {"role": "system", "content": "Fixed app prompt.\n\nYou are careful."},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "user", "content": "more"},
+    ]
+    assert t.request_template["messages"] == [{"role": "system", "content": "Fixed app prompt."}]
+
+
+def test_http_message_body_sends_the_system_prompt_to_system_field_or_warns():
+    import warnings
+
+    assert HTTPAppTarget(url="http://x", system_field="instructions")._build_body("q", None, system="Be careful.") == {
+        "message": "q",
+        "instructions": "Be careful.",
+    }
+    t = HTTPAppTarget(url="http://x")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        t._build_body("q", None, system="Be careful.")
+        t._build_body("q", None, system="Be careful.")
+    assert len([w for w in caught if "system_field" in str(w.message)]) == 1
+    # With warnings as errors, every call fails, not just the first.
+    strict = HTTPAppTarget(url="http://x")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        for _ in range(2):
+            with pytest.raises(UserWarning):
+                strict._build_body("q", None, system="Be careful.")
+
+
+def test_http_template_history_comes_before_the_conversation():
+    _, bodies = _audit_http(PLAIN_SCENARIO, request_template={"history": []})
+    assert bodies[1]["history"] == [
+        {"role": "user", "content": "First question?"},
+        {"role": "assistant", "content": "ok"},
+    ]
+    fixed = [{"role": "user", "content": "Earlier session."}, {"role": "assistant", "content": "Noted."}]
+    _, bodies = _audit_http(PLAIN_SCENARIO, request_template={"history": fixed})
+    assert bodies[0]["history"] == fixed
+    assert bodies[1]["history"] == [*fixed, {"role": "user", "content": "First question?"}, {"role": "assistant", "content": "ok"}]
+
+
+
+def test_http_system_field_wins_in_messages_mode_and_joins_the_template_value():
+    t = HTTPAppTarget(url="http://x", message_field="messages", system_field="system")
+    assert t._build_body("q", None, system="Be careful.") == {
+        "system": "Be careful.",
+        "messages": [{"role": "user", "content": "q"}],
+    }
+    joined = HTTPAppTarget(url="http://x", system_field="instructions", request_template={"instructions": "Fixed."})
+    assert joined._build_body("q", None, system="Be careful.")["instructions"] == "Fixed.\n\nBe careful."
+    blocks = HTTPAppTarget(
+        url="http://x", message_field="messages", system_field="system",
+        request_template={"system": [{"type": "text", "text": "Fixed."}]},
+    )
+    assert blocks._build_body("q", None, system="Be careful.")["system"] == [
+        {"type": "text", "text": "Fixed."},
+        {"type": "text", "text": "Be careful."},
+    ]
+
+
+def test_http_template_messages_without_a_system_prompt_are_kept_as_they_are():
+    fixed = [{"role": "user", "content": "Example question"}, {"role": "assistant", "content": "Example answer"}]
+    t = HTTPAppTarget(url="http://x", message_field="messages", request_template={"messages": fixed})
+    assert t._build_body("q", None)["messages"] == [*fixed, {"role": "user", "content": "q"}]
+    assert t._build_body("q", None, system="Be careful.")["messages"] == [
+        {"role": "system", "content": "Be careful."},
+        *fixed,
+        {"role": "user", "content": "q"},
+    ]
+
+
+def test_http_template_history_that_is_not_a_list_is_an_error():
+    t = HTTPAppTarget(url="http://x", request_template={"history": {"session": "abc"}})
+    with pytest.raises(ValueError, match="must be a list"):
+        t._build_body("q", [{"role": "user", "content": "q"}])

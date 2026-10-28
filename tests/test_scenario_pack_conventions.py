@@ -28,6 +28,7 @@ CONFORMING_PACKS = [
     "human_rights_education",
     "human_rights_fair_trial",
     "healthbench_behaviours",
+    "nav_sosialhjelp",
 ]
 
 

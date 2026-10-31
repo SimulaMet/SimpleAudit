@@ -247,6 +247,7 @@ class AuditResults:
 
     def to_dict(self) -> Dict:
         return {
+            "version": "1.0",
             "timestamp": self.timestamp,
             "summary": {
                 "total_scenarios": len(self.results),

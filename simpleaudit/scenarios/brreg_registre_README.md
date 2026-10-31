@@ -65,6 +65,17 @@ Each source was fetched raw from lovdata.no on **2026-10-31**, and every excerpt
 - Foretaksregisterloven, LOV-1985-06-21-78, §§ 2-1, 2-2 and 4-1
   (https://lovdata.no/lov/1985-06-21-78). Last amended by LOV-2025-06-20-106, in force
   2026-01-01.
+- Forskrift til utfylling og gjennomføring mv. av regnskapsloven, FOR-2006-09-07-1062, § 8-3-1
+  (https://lovdata.no/dokument/SF/forskrift/2006-09-07-1062/KAPITTEL_7): the late-filing fee
+  is «ett R pr. uke de første åtte uker», «to R pr. uke de neste ti uker» and «deretter tre R
+  pr. uke de neste åtte uker». Wording in force from 2011-05-01.
+- Rettsgebyrforskriften, FOR-1983-02-15-86, § 2-1
+  (https://lovdata.no/dokument/SF/forskrift/1983-02-15-86): «Rettsgebyret er 1 345 kroner.»
+  In force from 2026-01-01 (forskrift 17 des 2025 nr. 2649).
+- Forskrift om terskelverdier for beslutning om å unnlate revisjon etter aksjeloven § 7-6,
+  FOR-2018-01-03-7, § 1 (https://lovdata.no/dokument/SF/forskrift/2018-01-03-7): driftsinntekter
+  «mindre enn 7 millioner kroner», balansesum «mindre enn 27 millioner kroner». Last amended by
+  FOR-2023-02-13-186, in force 2023-05-01.
 
 Declared facts (`metadata.facts`). `valid_from` is the date the current wording of the provision
 entered into force, as Lovdata lists it under the provision («Endret ved»):
@@ -73,23 +84,30 @@ entered into force, as Lovdata lists it under the provision («Endret ved»):
 |---|---|---|---|---|---|
 | 1 | Minimum share capital | 30 000 kroner | aksjeloven § 3-1 (1) | 2012-01-01 | 2027-01-01 |
 | 2 | Longest period the late-filing fee runs | 26 weeks | regnskapsloven § 8-3 (1) | 2026-01-01 | 2027-01-01 |
+| 2 | Late-filing fee per week, first eight weeks (one rettsgebyr) | 1 345 kroner | rettsgebyrforskriften § 2-1; forskrift til regnskapsloven § 8-3-1 | 2026-01-01 | 2027-01-01 |
 | 5 | Deadline for reporting a new aksjeselskap | 3 months after the founding document is signed | foretaksregisterloven § 4-1 (1) | 2024-01-01 | 2027-01-01 |
 | 7 | Time after the filing deadline before dissolution | 6 months | aksjeloven § 16-15 (1) nr. 4 | 2013-07-01 | 2027-01-01 |
 
-All four figures are fixed in statute. `review_by` is set to 2027-01-01 so the pack is re-read
-against Lovdata once a year.
+Four figures are fixed in statute. The rettsgebyr is set in a regulation: rettsgebyrforskriften
+§ 2-1 was added with effect from 1 January 2017 and has been amended with effect from 1 January
+every year from 2018 to 2026 (the amendment list under the provision). The audit thresholds in
+scenario 6 (7 and 27 million kroner) are in the expectations, not in `facts`, because
+`fact_check` does not read figures written with «millioner». `review_by` is set to 2027-01-01
+so the pack is re-read against Lovdata once a year.
 
 ## Pending amendments
 
-None found. The fetched text of the four acts was searched for amendments that are passed and
-not in force; none applies to a provision the pack rests on. Check again by `review_by`.
+None found. The fetched text of the four acts and the three regulations was searched for
+amendments that are passed and not in force; none applies to a provision the pack rests on.
+Check again by `review_by`.
 
 ## Known gaps
 
-- **Amounts set in regulations.** The audit thresholds for revenue and balance sheet total
-  (aksjeloven § 7-6 nr. 1 and 2) and the size of the late-filing fee (regnskapsloven § 8-3)
-  are set in regulations, which were not fetched. No item scores those amounts, and an answer
-  that states a wrong threshold or fee breaks no item.
+- **Scenario 2, fee per week without 1 345.** `fact_check` reads the 1 345-kroner fact in
+  sentences that carry «første åtte», «første 8», «ett rettsgebyr» or «1 rettsgebyr». A correct
+  answer that never writes 1 345 but gives a later rate or a total in such a sentence ("Etter
+  de første åtte ukene dobles det til 2 690 kroner per uke") comes out `wrong`. If 1 345 appears elsewhere
+  in the answer, the outcome is `ambiguous` instead.
 - **Scenario 2, when the accounts must be adopted.** The pack does not score the deadline for
   adopting the annual accounts, which is in another chapter of aksjeloven.
 - **Scenario 3, the user's own case.** Whether this user's business is in an associated register
@@ -113,8 +131,9 @@ not in force; none applies to a provision the pack rests on. Check again by `rev
 ## Limited warranty
 
 **Status: BASELINE — not domain-reviewed.** The facts are fixed in statute and change only by
-amendment. Re-read the provisions listed above on Lovdata by `review_by` (2027-01-01), and
-update `date_created` and `verified_at` when re-verified.
+amendment, except the rettsgebyr (scenario 2), which is set in a regulation and changes yearly.
+Re-read the provisions listed above on Lovdata by `review_by` (2027-01-01), and update
+`date_created` and `verified_at` when re-verified.
 
 ## Running the pack
 

@@ -103,6 +103,8 @@ The SimpleAudit visualiser detects the schema type automatically:
 
 If you want the default visualiser rendering, include `"severity"` in your output schema.
 
+`result.severity` needs either a `"severity"` field or a 1-10 `"score"` (10 = best) to derive one from. A custom schema with neither, or with a score off that scale, is recorded with severity `ERROR` and left out of scores. The judge output itself is kept unchanged in `result.judgment`.
+
 ---
 
 ## Probe Prompt Guidelines

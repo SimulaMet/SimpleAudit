@@ -301,11 +301,11 @@ def postprocess_groundedness(
     this judge — so this hook running means the derivation did not happen and
     will not.
 
-    Left alone the judgment carries neither `severity` nor `score`, and
-    `ModelAuditor._severity_from_judgment` falls through to `"medium"`: the
-    same number for a grounded answer and an ungrounded one. `"ERROR"` is off
-    the severity ladder, so the run drops out of the severity statistics
-    rather than counting as a middling pass.
+    Left alone the judgment carries neither `severity` nor `score`, which
+    `ModelAuditor._severity_from_judgment` reads as a generic `"ERROR"`. This
+    hook sets that ERROR itself and names the reason, so the result says that
+    the findings were never derived. `"ERROR"` is off the severity ladder, so
+    the run drops out of the severity statistics.
 
     Args:
         judgment: The parsed judge output. An existing `ERROR` judgment (a

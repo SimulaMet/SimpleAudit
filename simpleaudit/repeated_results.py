@@ -362,6 +362,8 @@ def _build_model_aggregate(runs: List[AuditResults]) -> Dict:
         "score": {"mean": round(score_mean, 1), "std": round(score_std, 2)},
         "passed": stats([r.passed for r in runs]),
         "failed": stats([r.failed for r in runs]),
+        "errors": stats([r.errors for r in runs]),
+        "ungraded": stats([r.ungraded for r in runs]),
         "severity_distribution": {
             sev: stats([r.severity_distribution.get(sev, 0) for r in runs])
             for sev in sorted(all_severities)

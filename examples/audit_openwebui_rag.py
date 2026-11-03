@@ -19,7 +19,7 @@ from simpleaudit import Auditor
 from simpleaudit.targets.http import HTTPAppTarget
 
 BASE = "https://simulachat.sushant.pp.ua"
-API_KEY = os.environ.get("OWUI_API_KEY", "sk-3582392995f54374a6574414a37cd7c5")
+API_KEY = os.environ.get("OWUI_API_KEY", "sk-f1007277392744a09012ce086e087ad2")
 MODEL = "stm-radgiver"
 
 

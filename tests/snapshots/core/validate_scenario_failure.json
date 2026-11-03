@@ -29,7 +29,7 @@
           "Re-run this scenario; check API credentials, rate limits, and connectivity."
         ],
         "error": "ValueError: scenario needs metadata.reference",
-        "traceback": "Traceback (most recent call last):\n  File \"<repo>/simpleaudit/model_auditor.py\", line 1271, in run_scenario\n    validate(expected_behavior, scenario_meta)\n  File \"<repo>/tests/test_core_snapshots.py\", line 466, in validate\n    raise ValueError(\"scenario needs metadata.reference\")\nValueError: scenario needs metadata.reference\n"
+        "traceback": "Traceback (most recent call last):\n  File \"<repo>/simpleaudit/model_auditor.py\", line <n>, in run_scenario\n    validate(expected_behavior, scenario_meta)\n  File \"<repo>/tests/test_core_snapshots.py\", line <n>, in validate\n    raise ValueError(\"scenario needs metadata.reference\")\nValueError: scenario needs metadata.reference\n"
       },
       "auditor_input_tokens": 0,
       "auditor_output_tokens": 0,

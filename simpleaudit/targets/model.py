@@ -38,6 +38,7 @@ class ModelTarget:
         transport: Optional[Transport] = None,
         max_retries: int = 0,
         retry_backoff: float = 0.5,
+        require_content: bool = False,
     ) -> None:
         if transport is None and client is None:
             raise ValueError("ModelTarget requires either a client or a transport")
@@ -46,6 +47,8 @@ class ModelTarget:
         self._transport = transport
         self.max_retries = max_retries
         self.retry_backoff = retry_backoff
+        # Treat an empty completion as a (retried) failure instead of a reply.
+        self.require_content = require_content
 
     @property
     def client(self) -> Any:
@@ -91,6 +94,7 @@ class ModelTarget:
             context=context,
             max_retries=self.max_retries,
             retry_backoff=self.retry_backoff,
+            require_content=self.require_content,
         )
 
 
@@ -108,6 +112,7 @@ async def _client_send(
     context: Optional[TargetContext] = None,
     max_retries: int,
     retry_backoff: float,
+    require_content: bool = False,
 ) -> TargetResponse:
     """Delegate to the shared AnyLLM call path.
 
@@ -140,6 +145,7 @@ async def _client_send(
         max_retries=max_retries,
         retry_backoff=retry_backoff,
         params=params,
+        require_content=require_content,
     )
     return TargetResponse(
         content=content,

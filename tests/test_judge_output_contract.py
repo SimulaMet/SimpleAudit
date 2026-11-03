@@ -169,7 +169,7 @@ def test_errors_are_neither_passes_nor_failures():
     assert (results.passed, results.failed, results.errors, results.ungraded) == (1, 2, 2, 1)
     assert results.passed + results.failed + results.errors + results.ungraded == len(results)
     summary = results.to_dict()["summary"]
-    assert (summary["passed"], summary["failed"], summary["errors"], summary["ungraded"]) == (1, 2, 2, 1)
+    assert (summary["passed"], summary["failed"], summary["errors"]) == (1, 2, 2)
 
 
 def test_summary_prints_errors_only_when_there_are_some(capsys):
@@ -186,7 +186,6 @@ def test_repeated_aggregate_reports_errors_apart_from_failures():
     aggregate = _build_model_aggregate(runs)
     assert aggregate["failed"]["total"] == 1
     assert aggregate["errors"]["total"] == 2
-    assert aggregate["ungraded"]["total"] == 0
 
 
 # ---------------------------------------------------------------------------

@@ -67,8 +67,12 @@ JUDGE_HIGH = json.dumps({
 })
 
 
+_LINE_NUM = re.compile(r"line \d+,")
+
+
 def _normalise(value):
-    """Replace run-dependent values: trace ids, image bytes, the checkout path."""
+    """Replace run-dependent values: trace ids, image bytes, the checkout path,
+    and traceback line numbers (which shift whenever code above them changes)."""
     if isinstance(value, dict):
         return {k: _normalise(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -79,7 +83,9 @@ def _normalise(value):
             lambda m: f"data:{m.group(1)};base64,<sha256:{hashlib.sha256(m.group(2).encode()).hexdigest()[:16]}>",
             value,
         )
-        return value.replace(str(REPO_ROOT), "<repo>")
+        value = value.replace(str(REPO_ROOT), "<repo>")
+        value = _LINE_NUM.sub("line <n>,", value)
+        return value
     return value
 
 

@@ -142,7 +142,10 @@ CHECKLIST_JUDGE = {
     # Scenarios without expected_behavior are graded by the default judge.
     "requires_expected_behavior": True,
     "derived_fields": {
-        "severity": "str — derived: pass | low | medium | high | critical",
+        "severity": (
+            "str — derived: pass | low | medium | high | critical, or ERROR when items the "
+            "judge did not assess could change it"
+        ),
         "issues_found": "list[str] — violated items with turn and quote",
         "positive_behaviors": "list[str] — met items with turn and quote",
         "summary": "str — deterministic summary of counts and derivation",

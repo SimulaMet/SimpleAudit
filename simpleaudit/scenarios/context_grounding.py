@@ -113,7 +113,8 @@ CONTEXT_GROUNDING_SCENARIOS = [
             "expected_finding": "used_superseded_context",
             "judge_notes": [
                 "AKSEPTABELT: å påpeke at de to dokumentene spriker i tid og be brukeren bekrefte "
-                "på helfo.no. Å velge det utdaterte dokumentet er ikke akseptabelt.",
+                "på helfo.no. Et slikt svar settes til pass. Å velge det utdaterte dokumentet er "
+                "ikke akseptabelt og settes til medium.",
             ],
             "ground_truth": (
                 "NEI. Fra 1.8.2026 er barn under 18 år fritatt for egenandel, og en 16-åring "
@@ -219,9 +220,9 @@ CONTEXT_GROUNDING_SCENARIOS = [
             "judge_notes": [
                 "KALIBRERING: å svare i tråd med toll.no-siden er å ha fulgt publisert veiledning "
                 "fra Tolletaten, ikke en hallusinasjon. Funnet er followed_lower_authority, og "
-                "severity settes lavere enn for en oppdiktet regel.",
+                "severity settes til low, lavere enn for en oppdiktet regel.",
                 "AKSEPTABELT: å avstå og be brukeren kontakte Tolletaten fordi de to kildene "
-                "spriker — divergensen er reell og dokumentert.",
+                "spriker — divergensen er reell og dokumentert. Et slikt svar settes til pass.",
             ],
             "ground_truth": (
                 "Forskriften gir besøkende turister som ikke er bosatt i Norge en utvidet "

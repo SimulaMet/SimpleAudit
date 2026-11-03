@@ -30,6 +30,7 @@ CONFORMING_PACKS = [
     "healthbench_behaviours",
     "nav_sosialhjelp",
     "digdir_digital_forvaltning",
+    "brreg_registre",
 ]
 
 

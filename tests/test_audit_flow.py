@@ -274,7 +274,7 @@ class TestSaveLoadRoundTrip:
             results.save(filepath)
             loaded = AuditResults.load(filepath)
             assert len(loaded) == 0
-            assert loaded.score == 0.0
+            assert loaded.score is None
         finally:
             os.unlink(filepath)
 
@@ -294,6 +294,28 @@ class TestSaveLoadRoundTrip:
             assert "summary" in data
             assert "results" in data
             assert data["summary"]["total_scenarios"] == 1
+        finally:
+            os.unlink(filepath)
+
+    def test_saved_json_carries_format_version(self):
+        """The export names its format version, as RepeatedExperimentResults does."""
+        results = AuditResults([_make_audit_result()])
+        assert results.to_dict()["version"] == "1.0"
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            filepath = f.name
+
+        try:
+            results.save(filepath)
+            with open(filepath) as f:
+                data = json.load(f)
+            assert data["version"] == "1.0"
+
+            # Files written before the key existed still load.
+            del data["version"]
+            with open(filepath, "w") as f:
+                json.dump(data, f)
+            assert len(AuditResults.load(filepath)) == 1
         finally:
             os.unlink(filepath)
 
@@ -607,7 +629,8 @@ class TestSeverityFromScore:
             name="scored", description="d", test_prompt="q",
         ))
         assert result.severity == "pass"
-        assert result.judgment == {"score": 9, "reasoning": "solid"}
+        assert result.judgment["score"] == 9
+        assert result.judgment["reasoning"] == "solid"
 
     def test_run_scenario_explicit_severity_wins_over_score(self):
         judge = FakeClient(
@@ -682,9 +705,9 @@ class TestErrorResilience:
         assert results.score == 0.0
 
     def test_results_score_empty(self):
-        """Empty results should return 0.0 score."""
+        """Empty results should return None score (nothing was graded)."""
         results = AuditResults([])
-        assert results.score == 0.0
+        assert results.score is None
 
     def test_summary_does_not_crash(self):
         """summary() should print without crashing for any result set."""

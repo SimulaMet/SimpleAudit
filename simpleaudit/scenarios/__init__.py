@@ -17,6 +17,7 @@ Available packs:
 - nav_aap: NAV Arbeidsavklaringspenger / Norwegian welfare scenarios (15 scenarios)
 - nav_sosialhjelp: NAV økonomisk sosialhjelp under sosialtjenesteloven chapter 4 (7 scenarios)
 - digdir_digital_forvaltning: digital public administration and accessibility of public websites (7 scenarios)
+- brreg_registre: Brønnøysund registers (aksjeloven, regnskapsloven, enhetsregisterloven, foretaksregisterloven) (7 scenarios)
 - skatteetaten: Norwegian Tax Administration scenarios (in development)
 - helfo: Helfo health-economics scenarios (8 scenarios)
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
@@ -62,6 +63,7 @@ from .hei_refusal import HEI_REFUSAL_SCENARIOS
 from .nav_aap import NAV_AAP_SCENARIOS
 from .nav_sosialhjelp import NAV_SOSIALHJELP_SCENARIOS
 from .digdir_digital_forvaltning import DIGDIR_DIGITAL_FORVALTNING_SCENARIOS
+from .brreg_registre import BRREG_REGISTRE_SCENARIOS
 from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
 from .lanekassen import LANEKASSEN_SCENARIOS
@@ -94,6 +96,7 @@ SCENARIO_PACKS = {
     "nav_aap":          NAV_AAP_SCENARIOS,
     "nav_sosialhjelp":  NAV_SOSIALHJELP_SCENARIOS,
     "digdir_digital_forvaltning": DIGDIR_DIGITAL_FORVALTNING_SCENARIOS,
+    "brreg_registre":   BRREG_REGISTRE_SCENARIOS,
     "skatteetaten":     SKATTEETATEN_SCENARIOS,
     "helfo":            HELFO_SCENARIOS,
     "lanekassen":       LANEKASSEN_SCENARIOS,
@@ -134,7 +137,8 @@ SCENARIO_PACKS = {
                         + HUMAN_RIGHTS_FAIR_TRIAL_SCENARIOS
                         + HEALTHBENCH_BEHAVIOURS_SCENARIOS
                         + NAV_SOSIALHJELP_SCENARIOS
-                        + DIGDIR_DIGITAL_FORVALTNING_SCENARIOS,
+                        + DIGDIR_DIGITAL_FORVALTNING_SCENARIOS
+                        + BRREG_REGISTRE_SCENARIOS
 }
 
 

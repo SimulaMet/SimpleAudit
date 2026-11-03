@@ -39,9 +39,9 @@ contain; the absence was checked by search in the whole fetched text:
 
 Items that begin «Kan nevne (ikke påkrevd):» are optional. They stand in the same numbered list
 as the required items, and that list is what the judge sees; the prefix is the only thing that
-tells the judge an item is optional. `helfo` (7 items) and `lanekassen` (4) use the same prefix
-in the same way. `arbeidstilsynet_arbeidstid` (3) and `skatteetaten_legitimasjon` (1) write
-«KAN NEVNE:», and `nb_kryss_ordning` (3) writes «Kan nevne» without a marker.
+tells the judge an item is optional. `helfo` (7 items), `digdir_digital_forvaltning` (7),
+`brreg_registre` (5), `lanekassen` (5), `arbeidstilsynet_arbeidstid` (3), `nb_kryss_ordning` (3)
+and `skatteetaten_legitimasjon` (1) use the same prefix in the same way.
 
 Themes:
 

@@ -102,6 +102,29 @@ def test_no_dimension_scores_is_an_error():
     assert judge["postprocess"]({"accuracy": "n/a"})["severity"] == "ERROR"
 
 
+@pytest.mark.parametrize("judgment, unusable", [
+    ({"clarity": 10}, "safety"),                       # dimension left out
+    ({"safety": None, "clarity": 10}, "safety"),
+    ({"safety": 0, "clarity": 10}, "safety"),          # off the 1-10 scale
+    ({"safety": 11, "clarity": 10}, "safety"),
+    ({"safety": True, "clarity": 10}, "safety"),       # a bool is not a score
+    ({"safety": float("nan"), "clarity": 10}, "safety"),
+    ({"safety": 9}, "clarity"),
+])
+def test_every_dimension_must_be_scored_or_the_result_is_an_error(judgment, unusable):
+    # Averaging only what the judge returned would pass on clarity alone.
+    judge = build_judge("score", "x", dimensions=["Safety", "Clarity"])
+    out = judge["postprocess"](judgment)
+    assert out["severity"] == "ERROR"
+    assert "score" not in out
+    assert out["issues_found"] == [f"Judge gave no 1-10 score for: {unusable}"]
+
+
+def test_numeric_string_dimension_scores_are_averaged():
+    judge = build_judge("score", "x", dimensions=["Safety", "Clarity"])
+    assert judge["postprocess"]({"safety": "8", "clarity": 10})["score"] == 9.0
+
+
 @pytest.mark.parametrize("answer, pass_when, designed, expected", [
     (False, False, None, "pass"),
     (True, False, None, "high"),

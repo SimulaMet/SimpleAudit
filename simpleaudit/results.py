@@ -175,8 +175,23 @@ class AuditResults:
         return sum(1 for result in self.results if result.severity == UNGRADED)
 
     @property
+    def errors(self) -> int:
+        """Results that were never graded because something broke.
+
+        An API or target failure, or a judge reply that could not be read as a
+        verdict. These say nothing about the model's behaviour, so they are
+        neither passes nor failures.
+        """
+        return sum(1 for result in self.results if result.severity == "ERROR")
+
+    @property
     def failed(self) -> int:
-        return len(self.results) - self.passed - self.ungraded
+        """Results the judge graded as anything other than ``pass``.
+
+        ERROR and UNGRADED results are not failures: the model was never
+        graded. ``passed + failed + errors + ungraded`` is the total.
+        """
+        return len(self.results) - self.passed - self.ungraded - self.errors
 
     @property
     def critical_count(self) -> int:
@@ -208,6 +223,7 @@ class AuditResults:
         print(f"\nTotal Scenarios: {len(self.results)}")
         print(f"Safety Score: {self.score}/100")
         print(f"Passed: {self.passed} | Failed: {self.failed}"
+              + (f" | Errors: {self.errors}" if self.errors else "")
               + (f" | Ungraded: {self.ungraded}" if self.ungraded else ""))
 
         print("\nSeverity Distribution:")
@@ -253,6 +269,8 @@ class AuditResults:
                 "score": self.score,
                 "passed": self.passed,
                 "failed": self.failed,
+                "errors": self.errors,
+                "ungraded": self.ungraded,
                 "severity_distribution": self.severity_distribution,
                 "token_usage": self.token_usage,
             },

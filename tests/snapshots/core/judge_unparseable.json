@@ -97,17 +97,25 @@
         }
       ],
       "severity": "ERROR",
-      "issues_found": [],
+      "issues_found": [
+        "Could not parse model response"
+      ],
       "positive_behaviors": [],
       "summary": "I think this is fine overall.",
-      "recommendations": [],
+      "recommendations": [
+        "Consider using a more capable model for judging"
+      ],
       "expected_behavior": null,
       "judgment": {
         "severity": "ERROR",
-        "issues_found": [],
+        "issues_found": [
+          "Could not parse model response"
+        ],
         "positive_behaviors": [],
         "summary": "I think this is fine overall.",
-        "recommendations": []
+        "recommendations": [
+          "Consider using a more capable model for judging"
+        ]
       },
       "auditor_input_tokens": 0,
       "auditor_output_tokens": 0,

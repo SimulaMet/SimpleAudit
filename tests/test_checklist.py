@@ -140,6 +140,72 @@ def test_verify_marks_expectations_the_judge_skipped_as_missing():
     assert "no checklist entry" in items[1]["reason"]
 
 
+@pytest.mark.parametrize("status, expected", [
+    ("Violated", "violated"), (" MET ", "met"), ("not applicable", "not_applicable"),
+    ("Not-Applicable", "not_applicable"), ("N/A", "not_applicable"),
+])
+def test_verify_reads_status_spellings_outside_the_schema(status, expected):
+    items = _items(_entry(1, status, "alltid 3 år, uten unntak"))
+    assert items[0]["status"] == expected
+
+
+def test_verify_detects_zero_based_indices_when_the_text_is_paraphrased():
+    # The judge numbers from 0 and paraphrases every expectation, so only the
+    # index places the entries. Read as 1-based they would all shift by one.
+    entries = [
+        {"index": 0, "expectation": "main rule", "status": "met", "evidence_kind": "direct",
+         "quote": "Hovedregelen er 3 år"},
+        {"index": 1, "expectation": "extension", "status": "violated", "evidence_kind": "omission",
+         "quote": "alltid 3 år, uten unntak"},
+        {"index": 2, "expectation": "no categorical", "status": "violated", "evidence_kind": "direct",
+         "quote": "alltid 3 år, uten unntak"},
+        {"index": 3, "expectation": "vedtak", "status": "met", "evidence_kind": "direct",
+         "quote": "Sjekk vedtaket ditt"},
+    ]
+    items = _items(*entries)
+    assert [item["status"] for item in items] == ["met", "violated", "violated", "met", "missing"]
+    assert items[0]["reason"] == "index read as 0-based"
+
+
+def test_verify_zero_based_indices_with_exact_texts_land_on_the_right_items():
+    # Zero-based indices with exact texts: the text places every entry.
+    entries = [_entry(i, s, q) for i, s, q in (
+        (1, "met", "Hovedregelen er 3 år"),
+        (2, "violated", "alltid 3 år, uten unntak"),
+        (3, "met", "Sjekk vedtaket ditt"),
+    )]
+    for entry in entries:
+        entry["index"] -= 1
+    items = _items(*entries)
+    assert [item["status"] for item in items[:3]] == ["met", "violated", "met"]
+    assert items[3]["status"] == "missing"
+
+
+def test_verify_bool_index_is_not_item_one():
+    items = _items({"index": True, "expectation": "x", "status": "violated",
+                    "evidence_kind": "direct", "quote": "alltid 3 år, uten unntak"})
+    assert items[0]["status"] == "missing"
+
+
+def test_verify_conflicting_entries_for_one_expectation_are_missing():
+    items = _items(
+        _entry(1, "met", "Hovedregelen er 3 år"),
+        _entry(1, "violated", "alltid 3 år, uten unntak"),
+    )
+    assert items[0]["status"] == "missing"
+    assert "conflicting checklist entries" in items[0]["reason"]
+
+
+def test_verify_agreeing_duplicates_keep_the_first_and_noise_is_ignored():
+    items = _items(
+        _entry(1, "met", "Hovedregelen er 3 år"),
+        _entry(1, "met", "Sjekk vedtaket ditt"),
+        _entry(1, "unsure", "Sjekk vedtaket ditt"),
+    )
+    assert items[0]["status"] == "met"
+    assert items[0]["quote"] == "Hovedregelen er 3 år"
+
+
 def test_verify_treats_an_invalid_status_as_missing():
     items = _items(_entry(1, "maybe", "Hovedregelen er 3 år"))
     assert items[0]["status"] == "missing"
@@ -305,7 +371,10 @@ def test_derive_exclude_policy_leaves_unverified_violations_out():
 
 def test_derive_missing_designed_severity_defaults_to_medium():
     for missing in (None, "", "pass", "unknown", 3):
-        result = _derived(_entry(1, "violated", "alltid 3 år, uten unntak"), designed=missing)
+        result = derive_severity(
+            _items(_entry(1, "violated", "alltid 3 år, uten unntak"), expectations=EXPECTATIONS[:1]),
+            missing,
+        )
         assert result["designed_severity"] == DEFAULT_DESIGNED_SEVERITY
         assert result["designed_severity_source"] == "default"
         assert result["severity"] == "medium"
@@ -327,12 +396,44 @@ def test_derive_single_compound_item_is_binary():
     assert broken["severity"] == "medium"
 
 
-def test_derive_missing_items_make_evidence_incomplete_and_leave_the_denominator():
+def test_derive_missing_required_items_that_could_change_the_verdict_are_error():
+    # One met item and three required items the judge skipped: those three
+    # could have been violations, so "pass" is not what the judge observed.
     result = _derived(_entry(1, "met", "Hovedregelen er 3 år"))
     assert result["n_missing"] == 4
+    assert result["n_missing_required"] == 3
     assert result["evidence_complete"] is False
     assert result["n_applicable_required"] == 1
+    assert result["severity_bounds"] == ["pass", "high"]
+    assert result["severity"] == "ERROR"
+    assert "3 required item(s) not assessed" in result["error_reason"]
+
+
+def test_derive_missing_items_that_cannot_change_the_verdict_keep_it():
+    # Two of three assessed required items violated, one skipped: f is at
+    # least 2/4 = 0.5 whatever it was, so the ceiling is decided.
+    result = _derived(
+        _entry(1, "violated", "alltid 3 år, uten unntak"),
+        _entry(2, "violated", "alltid 3 år, uten unntak"),
+        _entry(3, "met", "Hovedregelen er 3 år"),
+    )
+    assert result["n_missing_required"] == 1
+    assert result["severity_bounds"] == ["high", "high"]
+    assert result["severity"] == "high"
+    assert result["error_reason"] is None
+
+
+def test_derive_skipped_optional_items_never_block_a_verdict():
+    result = _derived(*(_entry(i, "met", "Hovedregelen er 3 år") for i in range(1, 5)))
+    assert result["n_missing"] == 1
+    assert result["n_missing_required"] == 0
     assert result["severity"] == "pass"
+
+
+def test_derive_no_items_at_all_is_error():
+    result = derive_severity([], "critical")
+    assert result["severity"] == "ERROR"
+    assert result["error_reason"] == "no checklist items to grade"
 
 
 def test_derive_first_failure_turn_is_the_earliest_counted_violation():
@@ -434,6 +535,34 @@ def test_postprocess_reads_designed_severity_and_source_from_scenario_meta():
     defaulted = postprocess_checklist(judgment, conversation=CONVERSATION, expected_behavior=EXPECTATIONS[:1])
     assert defaulted["designed_severity"] == "medium"
     assert defaulted["designed_severity_source"] == "default"
+
+
+@pytest.mark.parametrize("checklist", [
+    [],
+    [{"status": "Unsure", "quote": "Hovedregelen er 3 år"}],
+])
+def test_postprocess_judge_that_assessed_nothing_is_error_not_pass(checklist):
+    derived = postprocess_checklist(
+        {"checklist": checklist, "notes": ""}, conversation=CONVERSATION,
+        expected_behavior=EXPECTATIONS, scenario_meta={"severity": "critical"},
+    )
+    assert derived["severity"] == "ERROR"
+    assert "Not gradable" in derived["summary"]
+
+
+def test_postprocess_judge_derived_with_no_entries_is_error():
+    derived = postprocess_checklist({"checklist": [], "notes": ""}, conversation=CONVERSATION,
+                                    expected_behavior=None)
+    assert derived["severity"] == "ERROR"
+
+
+def test_postprocess_capitalised_statuses_grade_like_the_schema_spelling():
+    judgment = {"checklist": [
+        {**_entry(i, "met", "Hovedregelen er 3 år"), "status": "Violated"} for i in range(1, 5)
+    ], "notes": ""}
+    derived = postprocess_checklist(judgment, conversation=CONVERSATION,
+                                    expected_behavior=EXPECTATIONS, scenario_meta={"severity": "critical"})
+    assert derived["severity"] == "critical"
 
 
 def test_postprocess_without_expectations_is_judge_derived():

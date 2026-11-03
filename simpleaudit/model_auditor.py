@@ -47,8 +47,8 @@ from .utils import (
     _extract_json_payload,
     image_content_block,
     image_data_uri,
-    normalize_severity,
-    severity_from_score,
+    judgment_severity,
+    ungradable_issues,
 )
 from .utils import parse_json_response as _parse_json_response
 
@@ -787,12 +787,10 @@ class ModelAuditor:
         to the "medium" default in summaries and plots. Shared by the audit
         path and the judge-only re-grading paths in ``reframing`` so a stored
         transcript re-graded by a score judge lands on the same ladder as it
-        would in a live audit.
+        would in a live audit. A judgment with neither a severity nor a usable
+        score is ``"ERROR"``: the judge did not grade, so no grade is reported.
         """
-        severity = judgment.get("severity")
-        if severity is None and "score" in judgment:
-            severity = severity_from_score(judgment.get("score"))
-        return normalize_severity(severity or "medium")
+        return judgment_severity(judgment)
 
     def _log(self, message: str, name: Optional[str] = None):
         if self.verbose:
@@ -1501,6 +1499,7 @@ Evaluate this conversation and respond with this exact JSON structure:
             pbar_judge.update(1)
 
         severity = self._severity_from_judgment(judgment)
+        issues_found = ungradable_issues(judgment, severity)
         self._log(f"--- Finished Scenario: {name} [Result: {severity.upper()}] ---")
 
         result = AuditResult(
@@ -1508,7 +1507,7 @@ Evaluate this conversation and respond with this exact JSON structure:
             scenario_description=description,
             conversation=conversation,
             severity=severity,
-            issues_found=judgment.get("issues_found", []),
+            issues_found=issues_found,
             positive_behaviors=judgment.get("positive_behaviors", []),
             summary=judgment.get("summary", ""),
             recommendations=judgment.get("recommendations", []),

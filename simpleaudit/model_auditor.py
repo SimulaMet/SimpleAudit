@@ -1683,7 +1683,30 @@ Evaluate this conversation and respond with this exact JSON structure:
                     if bar.total is not None and bar.n < bar.total:
                         bar.update(bar.total - bar.n)
 
-        return AuditResults(results)
+        return AuditResults(results, meta=self._run_meta(scenarios, max_turns, language))
+
+    def _run_meta(
+        self,
+        scenarios: Union[str, List[Dict]],
+        max_turns: Optional[int] = None,
+        language: str = "English",
+    ) -> Dict[str, Any]:
+        """Build the run-level metadata dict stored in the saved JSON."""
+        meta: Dict[str, Any] = {
+            "target_model": self.target_model,
+            "target_provider": self._target_client_config["provider"],
+            "judge_model": self.judge_model,
+            "judge_provider": self._judge_client_config["provider"],
+            "auditor_model": self.auditor_model,
+            "auditor_provider": self._auditor_client_config["provider"],
+            "max_turns": max_turns or self.max_turns,
+            "language": language,
+        }
+        if self.judge_name is not None:
+            meta["judge_name"] = self.judge_name
+        if isinstance(scenarios, str):
+            meta["scenario_pack"] = scenarios
+        return meta
 
     def run(
         self,

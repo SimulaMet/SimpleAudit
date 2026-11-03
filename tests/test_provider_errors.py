@@ -15,8 +15,10 @@ import simpleaudit.model_auditor as MA
 from simpleaudit import ModelAuditor
 from simpleaudit.experiment import AuditExperiment
 from simpleaudit.provider_errors import (
+    BLOCKED_REPLY,
     EmptyResponseError,
     ProviderResponseError,
+    blocked_reply_text,
     coerce_judgment_fields,
     extract_completion,
 )
@@ -31,6 +33,16 @@ VERDICT = {"severity": "pass", "issues_found": [], "positive_behaviors": [], "su
 def completion(content, finish="stop"):
     return NS(choices=[NS(message=NS(content=content), finish_reason=finish)],
               usage=NS(prompt_tokens=1, completion_tokens=1))
+
+
+ANTHROPIC_BLOCK = "Response blocked by Anthropic content filtering."
+
+
+def blocked():
+    """What any-llm returns when Anthropic's safety filter stops a reply."""
+    return NS(choices=[NS(message=NS(content="", refusal=ANTHROPIC_BLOCK),
+                          finish_reason="content_filter")],
+              usage=NS(prompt_tokens=1, completion_tokens=0))
 
 
 class FakeClient:
@@ -48,6 +60,8 @@ class FakeClient:
             return completion("Probe?")
         if "response_format" in kw or "safety evaluator" in str(system):
             self.calls["judge"] += 1
+            if self.judge == "blocked":
+                return blocked()
             return completion(json.dumps(self.judge or VERDICT))
         self.calls["target"] += 1
         step = self.target.pop(0) if self.target else "ok"
@@ -63,6 +77,10 @@ class FakeClient:
             return completion("", finish="length")
         if step == "list_content":
             return completion([{"type": "thinking", "thinking": "x"}, {"type": "text", "text": "Hi"}])
+        if step == "blocked":
+            return blocked()
+        if step == "filtered":
+            return completion(None, finish="content_filter")
         if step == "choices_none":
             return NS(choices=None, usage=None)
         raise AssertionError(step)
@@ -147,6 +165,38 @@ def test_empty_response_judge_mode_keeps_old_behaviour(fake):
     client = fake(FakeClient(target=["empty", "empty"]))
     r = audit(empty_response="judge").run(SCEN)[0]
     assert r.severity == "pass" and client.calls["judge"] == 1
+
+
+# --- provider safety filter on the target --------------------------------
+
+def test_target_blocked_by_safety_filter_is_judged_as_refusal(fake):
+    client = fake(FakeClient(target=["blocked", "blocked"]))
+    r = audit().run(SCEN)[0]
+    assert r.severity == "pass" and client.calls["judge"] == 1
+    assert client.calls["target"] == 2  # one call per turn, not retried
+    replies = [m["content"] for m in r.conversation if m["role"] == "assistant"]
+    assert replies == [ANTHROPIC_BLOCK, ANTHROPIC_BLOCK]
+
+
+def test_content_filter_without_refusal_text_is_judged(fake):
+    fake(FakeClient(target=["filtered", "filtered"]))
+    r = audit().run(SCEN)[0]
+    assert r.severity == "pass"
+    assert r.conversation[1]["content"] == BLOCKED_REPLY
+
+
+def test_blocked_judge_is_still_error(fake):
+    client = fake(FakeClient(judge="blocked"))
+    r = audit().run(SCEN)[0]
+    assert r.severity == "ERROR" and "content_filter" in r.judgment["error"]
+    assert client.calls["judge"] == 1  # a safety stop is not retried
+
+
+def test_blocked_reply_text():
+    assert blocked_reply_text(blocked()) == ANTHROPIC_BLOCK
+    assert blocked_reply_text(completion("", finish="content_filter")) == BLOCKED_REPLY
+    assert blocked_reply_text(completion("", finish="stop")) is None
+    assert blocked_reply_text({"choices": [{"message": {"content": None, "refusal": "No."}}]}) == "No."
 
 
 # --- judge output that used to crash after a valid verdict ---------------

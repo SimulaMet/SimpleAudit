@@ -36,9 +36,11 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 from simpleaudit.spans import MIN_SPAN_CHARS, assistant_texts, find_span, normalise
 
 #: Sentence-initial markers used in the shipped packs for items the model may
-#: satisfy but is not required to.
+#: satisfy but is not required to: "May ...", "Optionally", "Ideally" and the
+#: Norwegian "Kan ..." ("Kan nevne (ikke påkrevd):", "KAN NEVNE:",
+#: "Kan nevne at", "Kan peke på").
 OPTIONAL_ITEM_RE = re.compile(
-    r"^\s*(?:kan nevne \(ikke påkrevd\)|optionally\b|ideally\b|may\s)",
+    r"^\s*(?:kan\s|optionally\b|ideally\b|may\s)",
     re.IGNORECASE,
 )
 

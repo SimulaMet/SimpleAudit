@@ -29,6 +29,7 @@ CONFORMING_PACKS = [
     "human_rights_fair_trial",
     "healthbench_behaviours",
     "nav_sosialhjelp",
+    "brreg_registre",
 ]
 
 

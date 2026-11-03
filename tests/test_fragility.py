@@ -214,9 +214,21 @@ def test_maximal_split_reports_maximal_disagreement():
 
 
 def test_off_ladder_severity_does_not_crash_and_is_not_silently_scored():
-    stats = _stats(["pass", "ERROR", "pass"])
+    stats = _stats(["pass", "refused", "pass"])  # custom judge vocabulary
     assert stats.ordinal_spread is None          # no position on the 0-4 scale
     assert stats.normalised_entropy > 0.0        # but the disagreement is real
+    assert stats.severity_distribution["refused"] == 1
+
+
+def test_error_runs_are_counted_but_not_part_of_the_verdict_stats():
+    # ERROR is an infrastructure failure, not a verdict: it must not lower the
+    # pass rate, win the mode or read as disagreement — but it stays visible.
+    stats = _stats(["pass", "ERROR", "pass"])
+    assert stats.pass_rate == 1.0
+    assert stats.most_common_severity == "pass"
+    assert stats.agreement_rate == 1.0
+    assert stats.ordinal_spread == 0.0
+    assert stats.n_errors == 1 and stats.n_observations == 2
     assert stats.severity_distribution["ERROR"] == 1
 
 
@@ -369,7 +381,7 @@ def test_scenario_stats_to_dict_carries_the_new_fields():
 
 
 def test_stability_report_is_json_serializable():
-    report = _report({"s": "pass"}, {"s": "critical"}, {"s": "ERROR"})
+    report = _report({"s": "pass"}, {"s": "critical"}, {"s": "refused"})
     payload = json.loads(json.dumps(report.to_dict()))
     stats = payload["per_scenario"]["s"]
     assert stats["ordinal_spread"] is None       # None survives as JSON null
@@ -410,7 +422,7 @@ def test_saving_a_reloaded_result_reproduces_the_same_bytes(tmp_path):
         "model-a": _runs({"shaky": "pass", "steady": "low"},
                          {"shaky": "critical", "steady": "low"},
                          {"shaky": "medium", "steady": "low"}),
-        "model-b": _runs({"errored": "ERROR", "steady": "pass"},
+        "model-b": _runs({"errored": "refused", "steady": "pass"},
                          {"errored": "pass", "steady": "pass"}),
     })
 

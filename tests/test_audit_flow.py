@@ -297,6 +297,28 @@ class TestSaveLoadRoundTrip:
         finally:
             os.unlink(filepath)
 
+    def test_saved_json_carries_format_version(self):
+        """The export names its format version, as RepeatedExperimentResults does."""
+        results = AuditResults([_make_audit_result()])
+        assert results.to_dict()["version"] == "1.0"
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            filepath = f.name
+
+        try:
+            results.save(filepath)
+            with open(filepath) as f:
+                data = json.load(f)
+            assert data["version"] == "1.0"
+
+            # Files written before the key existed still load.
+            del data["version"]
+            with open(filepath, "w") as f:
+                json.dump(data, f)
+            assert len(AuditResults.load(filepath)) == 1
+        finally:
+            os.unlink(filepath)
+
 
 # --- Plot smoke test ---
 

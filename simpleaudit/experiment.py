@@ -370,7 +370,7 @@ class AuditExperiment:
             else:
                 fresh = {r.scenario_name: r for r in partial}
                 merged_results = [fresh.get(r.scenario_name, r) for r in result]
-                result = AuditResults(merged_results)
+                result = AuditResults(merged_results, meta=partial.meta)
                 result.timestamp = partial.timestamp
             errored = [r.scenario_name for r in result if r.severity == "ERROR"]
             if not errored:
@@ -524,6 +524,7 @@ class AuditExperiment:
                 "judge_model": self.judge_model,
                 "judge_base_url": self.judge_base_url,
                 "judge_provider": self.judge_provider,
+                "judge_name": self.judge if isinstance(self.judge, str) else None,
             }.items() if v is not None
         } or None
 
@@ -696,6 +697,7 @@ class AuditExperiment:
                 "judge_model": self.judge_model,
                 "judge_base_url": self.judge_base_url,
                 "judge_provider": self.judge_provider,
+                "judge_name": self.judge if isinstance(self.judge, str) else None,
             }.items() if v is not None
         } or None
 

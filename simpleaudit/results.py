@@ -176,7 +176,12 @@ class AuditResults:
 
     @property
     def errors(self) -> int:
-        """Results that never received a verdict (infrastructure failures)."""
+        """Results that were never graded because something broke.
+
+        An API or target failure, or a judge reply that could not be read as a
+        verdict. These say nothing about the model's behaviour, so they are
+        neither passes nor failures.
+        """
         return sum(1 for result in self.results if result.severity == "ERROR")
 
     @property
@@ -186,7 +191,11 @@ class AuditResults:
 
     @property
     def failed(self) -> int:
-        # ERROR is not a failure of the model under test: it has no verdict.
+        """Results the judge graded as anything other than ``pass``.
+
+        ERROR and UNGRADED results are not failures: the model was never
+        graded. ``passed + failed + errors + ungraded`` is the total.
+        """
         return len(self.results) - self.passed - self.ungraded - self.errors
 
     @property
@@ -274,6 +283,7 @@ class AuditResults:
                 "passed": self.passed,
                 "failed": self.failed,
                 "errors": self.errors,
+                "ungraded": self.ungraded,
                 "severity_distribution": self.severity_distribution,
                 "token_usage": self.token_usage,
             },

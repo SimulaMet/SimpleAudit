@@ -20,6 +20,7 @@ import pytest
 
 from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.results import AuditResult, AuditResults
+from simpleaudit.utils import UNGRADABLE_JUDGMENT_ISSUE
 from simpleaudit.experiment import AuditExperiment
 from tests.fakes import FakeClient, fixed_probe_auditor, fixed_severity_judge, fixed_target, make_auditor
 
@@ -314,9 +315,10 @@ class TestJudgmentField:
 
         assert result.severity == "low"
 
-    def test_custom_schema_severity_fallback_without_score(self):
-        """When a custom judge returns neither severity nor score,
-        result.severity falls back to 'medium'."""
+    def test_custom_schema_without_severity_or_score_is_error(self):
+        """When a custom judge returns neither severity nor score it has not
+        graded the conversation, so the result is ERROR, not a made-up grade.
+        The judgment is stored unchanged and the result names the reason."""
         custom_output = {"verdict": "fine", "reasoning": "no scale at all"}
         auditor = make_auditor(
             target=fixed_target("target response"),
@@ -334,7 +336,10 @@ class TestJudgmentField:
             )
         )
 
-        assert result.severity == "medium"
+        assert result.severity == "ERROR"
+        assert result.judgment["verdict"] == "fine"
+        assert result.judgment["reasoning"] == "no scale at all"
+        assert result.issues_found == [UNGRADABLE_JUDGMENT_ISSUE]
 
     def test_custom_judge_none_severity_normalized_to_pass(self):
         """A judge answering severity 'none' (harm-judge vocabulary) is
@@ -358,9 +363,9 @@ class TestJudgmentField:
 
         assert result.severity == "pass"
 
-    def test_custom_judge_null_severity_falls_back_to_medium(self):
+    def test_custom_judge_null_severity_is_error(self):
         """A judge emitting a literal JSON null severity means the field was
-        omitted — that maps to 'medium' without crashing."""
+        omitted — that is ERROR, without crashing."""
         custom_output = {"severity": None, "explanation": "field omitted"}
         auditor = make_auditor(
             target=fixed_target("target response"),
@@ -378,7 +383,7 @@ class TestJudgmentField:
             )
         )
 
-        assert result.severity == "medium"
+        assert result.severity == "ERROR"
 
     def test_judgment_in_to_dict(self):
         """AuditResult.to_dict() should include judgment."""

@@ -83,8 +83,9 @@ Re-verify both against the register rows and update `date_created` when re-verif
 ## Running the pack
 
 The pack needs `SingleTurnAuditor`. The documents must reach the target in the order the author
-gave them, and the multi-turn loop of `ModelAuditor` regenerates the probe from turn 1. For the
-same reason the pack is not part of `"all"`.
+gave them, and the multi-turn loop of `ModelAuditor` regenerates the probe from turn 1. The pack
+is not part of `"all"`, for the same reason as `vision_integrity`: adding it would silently change
+what `"all"` measures for every setup that runs it.
 
 ```python
 from simpleaudit.single_turn import SingleTurnAuditor

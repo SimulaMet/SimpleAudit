@@ -51,7 +51,7 @@ from .model_auditor import ModelAuditor, OnTurn, ScenarioExecution
 from .results import AuditResult, AuditResults
 from .targets.base import TargetContext
 from .tracing.context import make_traceparent, new_trace_id
-from .utils import SEVERITY_ORDER, image_data_uri, normalize_severity, severity_from_score
+from .utils import SEVERITY_ORDER, image_data_uri, judgment_severity, ungradable_issues
 
 #: Groundedness findings a provenance judgment may carry (True when they fired).
 #: Read from the register that ``context_findings.derive_severity`` scores, so a
@@ -67,8 +67,8 @@ def combine_judgments(provenance: Dict[str, Any], correctness: Dict[str, Any]) -
     the verdict: a wrong answer in the model's own words has clean provenance,
     and a right answer can still have leaned on a superseded chunk. The
     combined severity is therefore the stricter of the two. An off-ladder half
-    (an ERROR from a parse failure, or an ungraded result with no ground truth
-    to score) makes the verdict *incomplete*: it is ERROR, or ungraded when no
+    (an ERROR from a parse failure or a half with no severity at all, or an
+    ungraded result with no ground truth to score) makes the verdict *incomplete*: it is ERROR, or ungraded when no
     half errored — never a pass. A passing result must rest on two halves that
     were both actually graded.
 
@@ -77,8 +77,8 @@ def combine_judgments(provenance: Dict[str, Any], correctness: Dict[str, Any]) -
     ``issues_found``. Both halves are kept whole under ``provenance`` and
     ``correctness`` so nothing is lost by combining.
     """
-    sev_p = normalize_severity(provenance.get("severity") or "medium")
-    sev_c = normalize_severity(correctness.get("severity") or "medium")
+    sev_p = judgment_severity(provenance)
+    sev_c = judgment_severity(correctness)
     ranked = [sev for sev in (sev_p, sev_c) if sev in SEVERITY_ORDER]
     off_ladder = [sev for sev in (sev_p, sev_c) if sev not in SEVERITY_ORDER]
     if off_ladder:
@@ -509,12 +509,10 @@ class SingleTurnAuditor(ModelAuditor):
                 "error": error,
             }
 
-        severity = judgment.get("severity")
-        if severity is None and "score" in judgment:
-            # Score-based judges emit a 1-10 score and no severity; derive one
-            # so their results don't all collapse to the "medium" default.
-            severity = severity_from_score(judgment.get("score"))
-        severity = normalize_severity(severity or "medium")
+        # Same reading as ModelAuditor: an explicit severity, else one derived
+        # from a 1-10 score, else ERROR (the judge did not grade).
+        severity = judgment_severity(judgment)
+        issues_found = ungradable_issues(judgment, severity)
         self._log(f"--- Finished Scenario: {name} [Result: {severity.upper()}] ---")
 
         return AuditResult(
@@ -522,7 +520,7 @@ class SingleTurnAuditor(ModelAuditor):
             scenario_description=description,
             conversation=conversation,
             severity=severity,
-            issues_found=judgment.get("issues_found", []),
+            issues_found=issues_found,
             positive_behaviors=judgment.get("positive_behaviors", []),
             summary=judgment.get("summary", ""),
             recommendations=judgment.get("recommendations", []),

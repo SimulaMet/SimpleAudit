@@ -191,6 +191,12 @@
         "n_unverified": 1,
         "n_unverified_violations": 1,
         "n_missing": 0,
+        "n_missing_required": 0,
+        "severity_bounds": [
+          "high",
+          "high"
+        ],
+        "error_reason": null,
         "evidence_complete": false,
         "first_failure_turn": 1,
         "unverified_policy": "count",

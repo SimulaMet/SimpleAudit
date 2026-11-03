@@ -86,9 +86,12 @@ class AuditResults:
         "pass": "🟢",
     }
 
-    def __init__(self, results: List[AuditResult]):
+    def __init__(self, results: List[AuditResult], meta: Optional[Dict] = None):
         self.results = results
         self.timestamp = datetime.now().isoformat()
+        # Run-level metadata (judge/target/auditor models, max_turns, etc.).
+        # Populated by ModelAuditor.run_async / SingleTurnAuditor.run_async.
+        self.meta: Dict = meta or {}
 
     def __len__(self) -> int:
         return len(self.results)
@@ -273,7 +276,7 @@ class AuditResults:
         print()
 
     def to_dict(self) -> Dict:
-        return {
+        d: Dict = {
             "version": "1.0",
             "timestamp": self.timestamp,
             "summary": {
@@ -291,6 +294,9 @@ class AuditResults:
             "recommendations": self.all_recommendations,
             "results": [r.to_dict() for r in self.results],
         }
+        if self.meta:
+            d["meta"] = self.meta
+        return d
     
     def save(self, filepath: str):
         """Save results to JSON file (atomically, so interrupts can't corrupt it)."""
@@ -309,7 +315,7 @@ class AuditResults:
             AuditResult(**r) for r in data["results"]
         ]
         
-        instance = cls(results)
+        instance = cls(results, meta=data.get("meta"))
         instance.timestamp = data.get("timestamp", instance.timestamp)
         return instance
 

@@ -337,7 +337,8 @@ class TestJudgmentField:
         )
 
         assert result.severity == "ERROR"
-        assert result.judgment == custom_output
+        assert result.judgment["verdict"] == "fine"
+        assert result.judgment["reasoning"] == "no scale at all"
         assert result.issues_found == [UNGRADABLE_JUDGMENT_ISSUE]
 
     def test_custom_judge_none_severity_normalized_to_pass(self):

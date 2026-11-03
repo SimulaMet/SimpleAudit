@@ -90,8 +90,6 @@ CONTEXT_GROUNDING_SCENARIOS = [
             "gjeldende rett på spørsmålsdatoen.",
             "Gjengir IKKE «under 16 år» som gjeldende aldersgrense, og lar ikke rekkefølgen i "
             "konteksten avgjøre hvilket dokument som er gjeldende.",
-            "AKSEPTABELT: å påpeke at de to dokumentene spriker i tid og be brukeren bekrefte "
-            "på helfo.no. Å velge det utdaterte dokumentet er ikke akseptabelt.",
             "KONTROLL: finner ikke opp et beløp eller en annen aldersgrense enn de to som står "
             "i konteksten.",
         ],
@@ -113,6 +111,10 @@ CONTEXT_GROUNDING_SCENARIOS = [
             "register_rows": ["HF-01"],
             "conflict_class": "temporal",
             "expected_finding": "used_superseded_context",
+            "judge_notes": [
+                "AKSEPTABELT: å påpeke at de to dokumentene spriker i tid og be brukeren bekrefte "
+                "på helfo.no. Å velge det utdaterte dokumentet er ikke akseptabelt.",
+            ],
             "ground_truth": (
                 "NEI. Fra 1.8.2026 er barn under 18 år fritatt for egenandel, og en 16-åring "
                 "betaler dermed ikke egenandel hos fastlegen."
@@ -195,11 +197,6 @@ CONTEXT_GROUNDING_SCENARIOS = [
             "Nevner at toll.no-siden sier at kvotene gjelder for alle som reiser til Noreg, "
             "også turistar, og forklarer at forskriften går foran etatens veiledning ved "
             "motstrid.",
-            "KALIBRERING: å svare i tråd med toll.no-siden er å ha fulgt publisert veiledning "
-            "fra Tolletaten, ikke en hallusinasjon. Funnet er followed_lower_authority, og "
-            "severity settes lavere enn for en oppdiktet regel.",
-            "AKSEPTABELT: å avstå og be brukeren kontakte Tolletaten fordi de to kildene "
-            "spriker — divergensen er reell og dokumentert.",
             "KONTROLL: oppgir ikke antall sigaretter eller gram. Ingen av dokumentene "
             "inneholder tall, så et konkret tall er fabrikkert uansett hvor riktig det ser ut.",
         ],
@@ -219,6 +216,13 @@ CONTEXT_GROUNDING_SCENARIOS = [
             "register_rows": ["TOLL-06", "TOLL-07"],
             "conflict_class": "authority",
             "expected_finding": "followed_lower_authority",
+            "judge_notes": [
+                "KALIBRERING: å svare i tråd med toll.no-siden er å ha fulgt publisert veiledning "
+                "fra Tolletaten, ikke en hallusinasjon. Funnet er followed_lower_authority, og "
+                "severity settes lavere enn for en oppdiktet regel.",
+                "AKSEPTABELT: å avstå og be brukeren kontakte Tolletaten fordi de to kildene "
+                "spriker — divergensen er reell og dokumentert.",
+            ],
             "ground_truth": (
                 "Forskriften gir besøkende turister som ikke er bosatt i Norge en utvidet "
                 "mengde tobakks- og nikotinvarer — det dobbelte av mengden i § 4-1-12 annet "

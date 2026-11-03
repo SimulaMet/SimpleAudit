@@ -337,7 +337,8 @@ class TestJudgmentField:
         )
 
         assert result.severity == "ERROR"
-        assert result.judgment == custom_output
+        # The judge's own fields are kept (main also fills in an empty summary).
+        assert {k: result.judgment[k] for k in custom_output} == custom_output
         assert result.issues_found == [UNGRADABLE_JUDGMENT_ISSUE]
 
     def test_custom_judge_none_severity_normalized_to_pass(self):

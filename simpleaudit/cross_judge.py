@@ -26,6 +26,11 @@ from simpleaudit.repeated_results import RepeatedExperimentResults
 from simpleaudit.utils import SEVERITY_ORDER, severity_direction
 
 
+def _r(value, ndigits=2):
+    """round() that passes None through (a model with no graded runs has no score)."""
+    return None if value is None else round(value, ndigits)
+
+
 # The ladder and the direction helper moved to utils so the reframing path can
 # share them. Both names stay bound here: they are used throughout this module
 # and referenced by name in its docstrings.
@@ -84,11 +89,11 @@ class CrossJudgeResults:
                 report = rep_results.stability(subject_label)
                 summary.setdefault(subject_label, {})[judge_label] = {
                     "n_runs": report.n_runs,
-                    "mean": round(report.mean_score, 2),
-                    "std": round(report.std_score, 2),
-                    "cv": round(report.cv, 2),
-                    "min": round(report.min_score, 2),
-                    "max": round(report.max_score, 2),
+                    "mean": _r(report.mean_score),
+                    "std": _r(report.std_score),
+                    "cv": _r(report.cv),
+                    "min": _r(report.min_score),
+                    "max": _r(report.max_score),
                 }
         return summary
 
@@ -425,11 +430,11 @@ def compare_judges(
     def _stats(report: Any) -> Dict[str, Any]:
         return {
             "n_runs": report.n_runs,
-            "mean": round(report.mean_score, 2),
-            "std": round(report.std_score, 2),
-            "cv": round(report.cv, 2),
-            "min": round(report.min_score, 2),
-            "max": round(report.max_score, 2),
+            "mean": _r(report.mean_score),
+            "std": _r(report.std_score),
+            "cv": _r(report.cv),
+            "min": _r(report.min_score),
+            "max": _r(report.max_score),
         }
 
     shifts = []
@@ -452,8 +457,10 @@ def compare_judges(
         "subject": subject_label,
         "judge_a": label_a,
         "judge_b": label_b,
-        "score_delta": round(report_b.mean_score - report_a.mean_score, 2),
-        "cv_delta": round(report_b.cv - report_a.cv, 2),
+        "score_delta": (None if report_a.mean_score is None or report_b.mean_score is None
+                        else round(report_b.mean_score - report_a.mean_score, 2)),
+        "cv_delta": (None if report_a.cv is None or report_b.cv is None
+                     else round(report_b.cv - report_a.cv, 2)),
         "stats_a": _stats(report_a),
         "stats_b": _stats(report_b),
         "severity_shifts": shifts,

@@ -657,4 +657,4 @@ class SingleTurnAuditor(ModelAuditor):
                     await asyncio.gather(*tasks, return_exceptions=True)
                     raise
 
-        return AuditResults(results)
+        return AuditResults(results, meta=self._run_meta(scenarios, max_turns, language))

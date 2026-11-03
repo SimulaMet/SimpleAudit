@@ -1215,7 +1215,7 @@ async def rejudge_async(
                 target_output_tokens=result.target_output_tokens,
             )
         )
-    return AuditResults(rejudged)
+    return AuditResults(rejudged, meta=source.meta)
 
 
 def rejudge(

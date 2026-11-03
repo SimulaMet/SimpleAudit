@@ -14,6 +14,7 @@ Key features:
 import asyncio
 import inspect
 import json
+import random as _random
 import re
 import threading
 import traceback
@@ -32,6 +33,12 @@ from .decision import public_decision, render_decision_prompt, validate_decision
 from .judges import get_judge
 from .judges.compose import SEVERITY_RESPONSE_SCHEMA
 from .judges.default import DEFAULT_JUDGE_CRITERIA, DEFAULT_JUDGE_SEVERITY_LEVELS, DEFAULT_PROBE_PROMPT
+from .provider_errors import (
+    EmptyResponseError,
+    coerce_judgment_fields,
+    extract_completion,
+    wrap_client_exception,
+)
 from .results import AuditResult, AuditResults
 from .scenarios import SCENARIO_PACKS
 from .targets.base import TargetContext
@@ -101,6 +108,12 @@ class ScenarioExecution:
     target_output_tokens: int = 0
     auditor_input_tokens: int = 0
     auditor_output_tokens: int = 0
+
+
+def _short_traceback(limit: int = 4000) -> str:
+    """The current exception's traceback, trimmed from the front to *limit* chars."""
+    text = traceback.format_exc()
+    return text if len(text) <= limit else "..." + text[-limit:]
 
 
 def _user_agent() -> str:
@@ -486,6 +499,7 @@ class ModelAuditor:
         show_progress: bool = True,
         max_retries: int = 2,
         retry_backoff: float = 0.5,
+        empty_response: str = "error",
         kwargs: Optional[Dict[str, Any]] = None,
         judge_kwargs: Optional[Dict[str, Any]] = None,
         target_kwargs: Optional[Dict[str, Any]] = None,
@@ -505,6 +519,15 @@ class ModelAuditor:
         # provider and model arguments for that role are then labels only.
         if max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {max_retries}")
+        # What an empty reply from the target/auditor/judge means. "error"
+        # (default): retry it, and if it stays empty record the scenario as
+        # ERROR — not judged, not scored — because an empty string usually
+        # comes from the infrastructure (gateway errors, token budget spent on
+        # hidden reasoning, provider safety stops) rather than from the model's
+        # behaviour. "judge": the 0.5.0 behaviour of passing "" on.
+        if empty_response not in ("error", "judge"):
+            raise ValueError(f"empty_response must be 'error' or 'judge', got {empty_response!r}")
+        self.empty_response = empty_response
         self.max_turns = max_turns
         self.verbose = verbose
         self.show_progress = show_progress
@@ -641,6 +664,9 @@ class ModelAuditor:
         # HTTPAppTarget) directly; when set, it takes precedence.
         self._target_override: Optional[Any] = None
 
+    #: Class-level default for instances built without __init__ (see __init__).
+    empty_response: str = "error"
+
     @property
     def target(self) -> Any:
         """The :class:`~simpleaudit.targets.Target` the auditor sends to.
@@ -657,6 +683,7 @@ class ModelAuditor:
             model=self.target_model,
             max_retries=self.max_retries,
             retry_backoff=self.retry_backoff,
+            require_content=self.empty_response == "error",
         )
 
     def set_target(self, target: Any) -> None:
@@ -797,6 +824,12 @@ class ModelAuditor:
 
     @staticmethod
     def strip_thinking(text: str) -> str:
+        # Custom targets may hand back None or a list of content parts; a
+        # TypeError from re.sub here would discard the whole scenario.
+        if not isinstance(text, str):
+            from .provider_errors import _content_to_text
+
+            text = _content_to_text(text)
         # Remove complete <think>...</think> / <thinking>...</thinking> blocks.
         cleaned = re.sub(
             r"(?is)<\s*(think|thinking)\s*>.*?<\s*/\s*(think|thinking)\s*>",
@@ -846,12 +879,20 @@ class ModelAuditor:
         max_retries: int = 0,
         retry_backoff: float = 0.5,
         params: Optional[Dict[str, Any]] = None,
+        require_content: bool = False,
     ) -> tuple[str, int, int]:
         """Returns (content, input_tokens, output_tokens).
 
         Failed calls are retried up to max_retries times with exponential
         backoff before the exception propagates, so a single transient
         provider blip does not turn a whole scenario into an ERROR result.
+
+        "Failed" includes responses that arrive with HTTP 200 but are not a
+        usable completion (an ``error`` body, no ``choices``, a crash inside
+        the client library while converting them) and, with
+        ``require_content``, a completion with no text. Validation happens
+        inside the retry loop so these are retried like any other transient
+        failure; if they persist the raised error says what happened.
         """
         messages = []
         if system:
@@ -879,19 +920,41 @@ class ModelAuditor:
         attempt = 0
         while True:
             try:
-                response = await client.acompletion(**kwargs)
+                try:
+                    response = await client.acompletion(**kwargs)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    wrapped = wrap_client_exception(exc)
+                    if wrapped is exc:
+                        raise
+                    raise wrapped from exc
+                # content is Optional in the OpenAI-style schema (content
+                # filters, tool-call-only turns, reasoning-only outputs) and
+                # some servers send a list of parts — normalised to str here.
+                content, finish_reason = extract_completion(response)
+                if require_content and not content.strip():
+                    raise EmptyResponseError(
+                        f"Model {model!r} returned an empty response"
+                        f" (finish_reason={finish_reason!r})"
+                        + (
+                            "; the token budget was used up before any text — raise "
+                            "max_tokens or lower the reasoning effort"
+                            if finish_reason == "length"
+                            else ""
+                        ),
+                        finish_reason=finish_reason,
+                    )
                 break
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                if attempt >= max_retries:
+            except Exception as exc:
+                if attempt >= max_retries or getattr(exc, "retryable", True) is False:
                     raise
-                await asyncio.sleep(retry_backoff * (2 ** attempt))
+                # Exponential backoff with jitter, so parallel scenarios that
+                # failed together do not retry in lockstep.
+                await asyncio.sleep(retry_backoff * (2 ** attempt) * (1 + 0.25 * _random.random()))
                 attempt += 1
-        # content is Optional in the OpenAI-style schema (content filters,
-        # tool-call-only turns, reasoning-only outputs) — coerce to "" so
-        # downstream string handling never sees None.
-        content = response.choices[0].message.content or ""
         usage = getattr(response, "usage", None)
         input_tokens = getattr(usage, "prompt_tokens", 0) or 0
         output_tokens = getattr(usage, "completion_tokens", 0) or 0
@@ -909,6 +972,7 @@ class ModelAuditor:
         max_retries: int = 0,
         retry_backoff: float = 0.5,
         params: Optional[Dict[str, Any]] = None,
+        require_content: bool = False,
     ) -> tuple[str, int, int]:
         # Probe prompts may opt into the language parameter via a literal
         # "{language}" placeholder (plain .replace, not .format, so JSON
@@ -949,6 +1013,7 @@ Generate the next user message to probe this scenario."""
             max_retries=max_retries,
             retry_backoff=retry_backoff,
             params=params,
+            require_content=require_content,
         )
         if isinstance(content, str):
             content = _PROBE_ROLE_LABEL.sub("", content, count=1)
@@ -974,6 +1039,7 @@ Generate the next user message to probe this scenario."""
         evidence_spans: Optional[List[Dict[str, Any]]] = None,
         agentic_evaluation: Optional[Dict[str, Any]] = None,
         agentic_guidance: Optional[str] = None,
+        require_content: bool = False,
     ) -> tuple[Dict, int, int]:
         validate = getattr(postprocess, "validate_scenario", None)
         if validate is not None:
@@ -1082,6 +1148,7 @@ Evaluate this conversation and respond with this exact JSON structure:
             max_retries=max_retries,
             retry_backoff=retry_backoff,
             params=params,
+            require_content=require_content,
         )
         # Reasoning judges wrap their verdict in <think> blocks whose prose
         # routinely contains braces and JSON fragments that would win the
@@ -1199,6 +1266,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         # turn 4 of 5 would otherwise discard the whole transcript and the
         # token spend already accumulated on the completed turns.
         error: Optional[str] = None
+        error_traceback: Optional[str] = None
         try:
             validate = getattr(self.judge_postprocess, "validate_scenario", None)
             if validate is not None:
@@ -1228,6 +1296,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                         max_retries=self.max_retries,
                         retry_backoff=self.retry_backoff,
                         params=effective_auditor or None,
+                        require_content=self.empty_response == "error",
                     )
                     auditor_input_tokens += a_in
                     auditor_output_tokens += a_out
@@ -1277,6 +1346,20 @@ Evaluate this conversation and respond with this exact JSON structure:
                     else ModelAuditor.strip_thinking(target_resp.content)
                 )
                 self._fire_on_turn(turn, turns, "target", effective_on_turn)
+
+                # Custom targets (HTTP, callables) bypass _call_async, so the
+                # empty-reply rule is applied here too. A reply that carries a
+                # decision, tool events or an explicit end is not "empty".
+                if (
+                    self.empty_response == "error"
+                    and (response is None or (isinstance(response, str) and not response.strip()))
+                    and getattr(target_resp, "decision", None) is None
+                    and not getattr(target_resp, "tool_events", None)
+                    and getattr(target_resp, "end_conversation", False) is not True
+                ):
+                    raise EmptyResponseError(
+                        f"Target returned an empty response on turn {turn + 1}/{turns}"
+                    )
 
                 response_preview = response[:80] + "..." if len(response) > 80 else response
                 self._log(f"TARGET: {response_preview}", name=name)
@@ -1329,6 +1412,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     resolved_evidence = evidence_spans
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
+            error_traceback = _short_traceback()
             self._log(f"--- Scenario FAILED mid-conversation: {name} [{error}] ---")
         finally:
             # Runs on failure and cancellation too, so a target can release its
@@ -1383,6 +1467,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                         evidence_spans=resolved_evidence,
                         agentic_evaluation=resolved_agentic,
                         agentic_guidance=resolved_guidance,
+                        require_content=self.empty_response == "error",
                     )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out
@@ -1393,6 +1478,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     judgment["judge_fallback"] = "default"
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
+                error_traceback = _short_traceback()
                 self._log(f"--- Judging FAILED: {name} [{error}] ---")
 
         if error is not None:
@@ -1404,7 +1490,12 @@ Evaluate this conversation and respond with this exact JSON structure:
                     "Re-run this scenario; check API credentials, rate limits, and connectivity."
                 ],
                 "error": error,
+                # Kept so a failure can be diagnosed from the saved JSON alone;
+                # the one-line error string loses where it was raised.
+                "traceback": error_traceback,
             }
+        else:
+            judgment = coerce_judgment_fields(judgment)
 
         if pbar_judge:
             pbar_judge.update(1)
@@ -1565,7 +1656,11 @@ Evaluate this conversation and respond with this exact JSON structure:
                         summary=f"Scenario did not complete due to an error: {exc}"[:500],
                         recommendations=["Re-run this scenario; check API credentials, rate limits, and connectivity."],
                         expected_behavior=scenario.get("expected_behavior"),
-                        judgment={"severity": "ERROR", "error": f"{type(exc).__name__}: {exc}"},
+                        judgment={
+                            "severity": "ERROR",
+                            "error": f"{type(exc).__name__}: {exc}",
+                            "traceback": _short_traceback(),
+                        },
                     )
         with tqdm(total=total_audit_steps, desc=audit_desc, disable=not self.show_progress, position=0) as pbar_audit:
             with tqdm(total=total_judge_steps, desc=judge_desc, disable=not self.show_progress, position=1) as pbar_judge:

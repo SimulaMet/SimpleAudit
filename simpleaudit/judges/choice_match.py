@@ -43,9 +43,15 @@ from simpleaudit.utils import UNGRADED
 from .safety import SAFETY_JUDGE
 
 #: Labels a chat model may put before the option key on its first line.
-_LABEL = re.compile(r"^(?:key|answer|option|choice)\s*[:\-]\s*", re.IGNORECASE)
-#: Leading markdown, quotes and list markers to ignore on the first line.
-_LEADING = re.compile(r"^[\s>*_#`\"'•\-]+")
+_LABEL = re.compile(r"^(?:key|answer|option|choice)\b\s*[:\-]?\s*", re.IGNORECASE)
+#: What may follow a key that is also a sentence-opening English word ("A",
+#: "I"): nothing, or punctuation / markdown. "A good question ..." is a
+#: sentence, not choice A. Other keys only need a word boundary, so
+#: "B because ..." still reads as B.
+_KEY_END = r"(?=\s*$|\s*[.,:;!?)\]*_`'\"\-\u2013\u2014])"
+_SENTENCE_WORDS = frozenset({"a", "i"})
+#: Leading markdown, quotes, brackets and list markers to ignore on the first line.
+_LEADING = re.compile(r"^[\s>*_#`\"'•\-(\[]+")
 
 
 def parse_choice(text: str, criteria: Mapping[str, Any]) -> str | None:
@@ -56,9 +62,12 @@ def parse_choice(text: str, criteria: Mapping[str, Any]) -> str | None:
     lines = [line for line in (text or "").splitlines() if line.strip()]
     if not lines:
         return None
-    first = _LABEL.sub("", _LEADING.sub("", lines[0])).lower()
+    # Markdown may wrap the label, the key, or both ("**Answer:** B",
+    # "Answer: **B**", "(B)"), so it is stripped before and after the label.
+    first = _LEADING.sub("", _LABEL.sub("", _LEADING.sub("", lines[0]))).lower()
     for key in sorted(criteria, key=len, reverse=True):
-        if re.match(re.escape(key.lower()) + r"(?!\w)", first):
+        end = _KEY_END if key.lower() in _SENTENCE_WORDS else r"(?!\w)"
+        if re.match(re.escape(key.lower()) + end, first):
             return key
     return None
 

@@ -14,6 +14,8 @@ Key features:
 import asyncio
 import inspect
 import json
+import mimetypes
+import os
 import random as _random
 import re
 import threading
@@ -22,32 +24,39 @@ import warnings
 from datetime import date
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Union
+from urllib.parse import urlsplit
 
 from any_llm import AnyLLM
 from tqdm.auto import tqdm
 
 from ._event_loop import run_sync
-from .context_marks import render_documents
+from .context_marks import document_texts, parse_documents, render_documents
 from .decision import public_decision, render_decision_prompt, validate_decision
 from .judges import get_judge
+from .judges.compose import inherited_postprocess
 from .judges.compose import SEVERITY_RESPONSE_SCHEMA
 from .judges.default import DEFAULT_JUDGE_CRITERIA, DEFAULT_JUDGE_SEVERITY_LEVELS, DEFAULT_PROBE_PROMPT
 from .provider_errors import (
     EmptyResponseError,
+    _content_to_text,
     coerce_judgment_fields,
     extract_completion,
     wrap_client_exception,
 )
 from .results import AuditResult, AuditResults
 from .scenarios import SCENARIO_PACKS
-from .targets.base import TargetContext
+from .targets.base import TargetContext, token_count
 from .tracing.context import make_traceparent, new_trace_id
 from .utils import (
+    _VERDICT_KEYS,
+    as_str_list,
     _extract_json_payload,
+    describe_exception,
     image_content_block,
     image_data_uri,
     judgment_severity,
+    redact_url_secrets,
     ungradable_issues,
 )
 from .utils import parse_json_response as _parse_json_response
@@ -110,9 +119,135 @@ class ScenarioExecution:
     auditor_output_tokens: int = 0
 
 
+#: Scenario metadata keys a judge's code grades against. Saved with the
+#: judgment so a judge-only re-grade (reframing.rejudge, reframing_check)
+#: can give the judge the same ground truth instead of going ungraded.
+GRADING_METADATA_KEYS = ("expected_outcome", "facts", "asr")
+
+
+#: Keys the framework writes into a judgment. A judge's own JSON (or a
+#: transcript it echoes) must not be able to set them: they mark recorded
+#: failures, or carry the ground truth and designed severity a later
+#: re-grade (reframing.rejudge) trusts.
+_FRAMEWORK_KEYS = (
+    "parse_error", "error", "error_phase", "scenario_metadata",
+    "designed_severity", "designed_severity_source", "judge_fallback", "asr_reference",
+)
+
+
+def _keep_grading_metadata(judgment: Dict[str, Any], scenario_meta: Optional[Dict[str, Any]]) -> None:
+    metadata = (scenario_meta or {}).get("metadata") or {}
+    # JSON-safe: an off-contract date in metadata.facts must not make the
+    # finished run unsavable.
+    kept = {k: _json_safe(metadata[k]) for k in GRADING_METADATA_KEYS if k in metadata}
+    if kept and isinstance(judgment, dict):
+        # Overwrite, not setdefault: a scenario_metadata the judge wrote
+        # itself must not stand in for the scenario's own ground truth.
+        judgment["scenario_metadata"] = kept
+
+
+def _link_scenario(correlation: Any, scenario_run_id: str, scenario_name: str) -> None:
+    """Tell a trace correlation which scenario a run id belongs to, if it can.
+
+    Lets ``audit_with_tracing`` give each result its own scenario's spans.
+    Correlations that predate ``link_scenario`` are left alone.
+    """
+    link = getattr(correlation, "link_scenario", None)
+    if link is not None:
+        link(scenario_run_id, scenario_name)
+
+
+def _json_safe(value: Any) -> Any:
+    """A JSON-serialisable copy of *value* (dates, numpy numbers as text).
+
+    Stored in the conversation, which ``AuditResults.save`` writes as JSON;
+    a target's own types must not make a finished run unsavable.
+    """
+    def _plain(obj: Any) -> Any:
+        if isinstance(obj, Mapping):
+            return dict(obj)
+        if hasattr(obj, "tolist"):  # numpy scalars and arrays
+            return obj.tolist()
+        return str(obj)
+
+    try:
+        return json.loads(json.dumps(value, default=_plain))
+    except (TypeError, ValueError, RecursionError):
+        return str(value)
+
+
+# Same tag grammar as strip_thinking: <think>, <thinking>, "< /think >".
+_THINK_TAG = re.compile(r"<\s*(/?)\s*(?:think|thinking)\s*>", re.IGNORECASE)
+
+
+def _inside_think(text: str, start: int) -> bool:
+    """Is position *start* inside reasoning: a <think> block, after an
+    unclosed <think>, or before an orphan </think>?"""
+    depth = 0
+    last_close = -1
+    opened_at = None
+    for tag in _THINK_TAG.finditer(text):
+        closing = bool(tag.group(1))
+        if not closing:
+            if depth == 0:
+                opened_at = tag.start()
+            depth += 1
+        elif depth > 0:
+            depth -= 1
+            if depth == 0:
+                if opened_at is not None and opened_at <= start < tag.start():
+                    return True
+                opened_at = None
+        else:
+            last_close = tag.end()  # orphan close: everything before is reasoning
+    if depth > 0 and opened_at is not None and start >= opened_at:
+        return True
+    return start < last_close
+
+
+def _has_verdict_object(text: str) -> bool:
+    """True when stripping think blocks would cut the verdict object itself.
+
+    That is the case only when the verdict object found in the raw reply
+    *contains* a think tag (its strings quote ``<think>``/``</think>`` from
+    the transcript) and does not itself lie in the reasoning. A verdict
+    object inside a think block is a reasoning judge's draft, even one that
+    quotes a tag: it is stripped like the rest of the reasoning, so the final
+    answer — or a parse failure — decides the grade.
+    """
+    if not _THINK_TAG.search(text):
+        return False  # nothing to strip anyway
+    payload = _extract_json_payload(text)
+    if not _THINK_TAG.search(payload):
+        return False
+    try:
+        obj = json.loads(payload)
+    except (ValueError, RecursionError):
+        return False
+    if not (isinstance(obj, dict) and _VERDICT_KEYS & obj.keys()):
+        return False
+    start = text.find(payload)
+    if start < 0:
+        return False
+    # Locate reasoning with the payload's own (quoted) tags masked out.
+    masked = text[:start] + " " * len(payload) + text[start + len(payload):]
+    return not _inside_think(masked, start)
+
+
+def _is_json_document(text: Any) -> bool:
+    """True when *text* as a whole parses as JSON."""
+    if not isinstance(text, str):
+        return False
+    try:
+        json.loads(text.strip())
+    except (ValueError, RecursionError):
+        return False
+    return True
+
+
 def _short_traceback(limit: int = 4000) -> str:
     """The current exception's traceback, trimmed from the front to *limit* chars."""
-    text = traceback.format_exc()
+    text = redact_url_secrets(traceback.format_exc())
     return text if len(text) <= limit else "..." + text[-limit:]
 
 
@@ -225,12 +360,49 @@ def build_judge_json_snippet(fields: Optional[List[str]] = None) -> str:
     return "{\n" + ",\n".join(lines) + "\n}"
 
 
+def _stored_file_uri(file_uri: Any) -> Any:
+    """A scenario's ``file_uri`` as the stored turn keeps it: ``str`` (or a
+    list of ``str``). A Python pack may pass a ``pathlib.Path`` (ASRTarget
+    accepts one); stored raw it would make the finished run unsavable."""
+    if isinstance(file_uri, os.PathLike):
+        return os.fspath(file_uri)
+    if isinstance(file_uri, (list, tuple)):
+        return [os.fspath(u) if isinstance(u, os.PathLike) else u for u in file_uri]
+    return file_uri
+
+
 def _file_uris(message: Dict[str, Any]) -> List[str]:
     """Normalise a conversation entry's `file_uri` marker to a list."""
-    uris = message.get("file_uri")
+    uris = _stored_file_uri(message.get("file_uri"))
     if not uris:
         return []
     return [uris] if isinstance(uris, str) else list(uris)
+
+
+def _image_attachments(conv_text: str, uris: List[str]) -> tuple[str, List[str]]:
+    """Keep only files a judge or auditor model can take as an image.
+
+    An ASR scenario's audio would otherwise be sent as an image and fail the
+    whole judge call ("does not contain a supported image") under every judge
+    but asr_faithfulness. A file whose name says it is not an image keeps its
+    ``[file N]`` marker, labelled as not attached; a name with no known type is
+    still attached (``image_data_uri`` checks the bytes).
+    """
+    keep: List[str] = []
+    for index, uri in enumerate(uris, 1):
+        if uri[:5].lower() == "data:":
+            # "data:audio/wav;base64,...": the type is spelled out.
+            media_type = uri[5:].split(",", 1)[0].split(";", 1)[0].strip().lower() or None
+        else:
+            path = urlsplit(uri).path or uri
+            media_type, _ = mimetypes.guess_type(path)
+        if media_type is None or media_type.startswith("image/"):
+            keep.append(uri)
+        else:
+            conv_text = conv_text.replace(
+                f"[file {index}]", f"[file {index}: {media_type}, not attached]"
+            )
+    return conv_text, keep
 
 
 def _expand_files(message: Dict[str, Any]) -> Dict[str, Any]:
@@ -356,17 +528,43 @@ def _render_tool_events(events: List[Dict[str, Any]]) -> str:
 
 
 def _stored_tool_events(events: Any) -> List[Dict[str, Any]]:
-    """A JSON-safe copy of a target's ``tool_events``, so the results can be saved."""
+    """A JSON-safe, redacted copy of a target's ``tool_events``.
+
+    Tool calls carry what an agent sent to real services (an ``api_key``
+    argument, an ``Authorization`` header, a URL with a token). The copy is
+    what the judge reads and what the results save, so infrastructure
+    credentials are hidden (``tracing.selection.redact_tool_value``), while
+    the data the judge grades — a planted record, a lookup key — stays.
+    """
     if not isinstance(events, (list, tuple)) or not all(isinstance(e, dict) for e in events):
         raise TypeError("TargetResponse.tool_events must be a list of dicts")
-    return json.loads(json.dumps(list(events), ensure_ascii=False, default=str))
+    from .tracing.selection import redact_tool_value
+
+    safe = json.loads(json.dumps(list(events), ensure_ascii=False, default=str))
+    for event in safe:
+        for key in ("arguments", "result", "error"):
+            if key in event:
+                event[key] = redact_tool_value(event[key])
+    return safe
 
 
 def _without_tool_events(conversation: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """The conversation as a target receives it: tool events are for the judge only."""
-    if not any("tool_events" in m for m in conversation):
+    """The conversation as a target receives it.
+
+    Tool events are for the judge only, and documents go as TEXT: the stored
+    turn keeps their marks (relevant / true / valid_until ...), which are the
+    judge's ground truth. A custom target reading ``history_documents()``
+    must get what SingleTurnAuditor sends, not which document is the trap.
+    """
+    if not any("tool_events" in m or m.get("documents") for m in conversation):
         return conversation
-    return [{k: v for k, v in m.items() if k != "tool_events"} for m in conversation]
+    out = []
+    for m in conversation:
+        m = {k: v for k, v in m.items() if k != "tool_events"}
+        if m.get("documents"):
+            m["documents"] = document_texts(m["documents"])
+        out.append(m)
+    return out
 
 
 def _provider_message(message: Dict[str, Any]) -> Dict[str, Any]:
@@ -409,6 +607,12 @@ def _render_conversation(
             markers.append(f"[file {len(uris)}]")
         if markers:
             body = f"{' '.join(markers)}{role_separator}{body}"
+        if message.get("documents"):
+            # The documents the target was given travel with this turn (text
+            # only, as _expand_documents sends them; the marks stay hidden).
+            # Without them the judge and the probe writer would read a
+            # transcript whose answers cite sources they cannot see.
+            body = f"{body}{role_separator}{render_documents(message['documents'])}"
         if include_tool_events and message.get("tool_events"):
             block = _render_tool_events(message["tool_events"])
             if block:
@@ -512,6 +716,7 @@ class ModelAuditor:
         on_turn: Optional[OnTurn] = None,
         judge_client: Optional[Any] = None,
         auditor_client: Optional[Any] = None,
+        _skip_target_client: bool = False,
     ):
         # judge_client / auditor_client: ready-made clients (anything with an
         # async ``acompletion(**kwargs)`` returning an OpenAI-style response,
@@ -528,6 +733,8 @@ class ModelAuditor:
         if empty_response not in ("error", "judge"):
             raise ValueError(f"empty_response must be 'error' or 'judge', got {empty_response!r}")
         self.empty_response = empty_response
+        if isinstance(max_turns, bool) or not isinstance(max_turns, int) or max_turns < 1:
+            raise ValueError(f"max_turns must be an integer >= 1, got {max_turns!r}")
         self.max_turns = max_turns
         self.verbose = verbose
         self.show_progress = show_progress
@@ -541,6 +748,9 @@ class ModelAuditor:
         self.target_params = target_params
         self.judge_params = judge_params
         self.auditor_params = auditor_params if auditor_params is not None else (judge_params if judge_params is not None else params)
+        # The auditor shares the judge's settings unless given its own; run()
+        # applies the same fallback to per-call judge_params.
+        self._auditor_params_explicit = auditor_params is not None
 
         # Resolve judge config: named config is a baseline; explicit params always win.
         # Partial override is supported — e.g. judge="factuality", probe_prompt="custom"
@@ -566,7 +776,8 @@ class ModelAuditor:
                 else config.get("response_schema")
             )
             self.judge_postprocess = (
-                judge_postprocess if judge_postprocess is not None else config.get("postprocess")
+                judge_postprocess if judge_postprocess is not None
+                else inherited_postprocess(config, judge_prompt is not None)
             )
             self.judge_requires_expected_behavior = bool(config.get("requires_expected_behavior"))
             # A config with `grade` is graded in code and replaces the judge call
@@ -587,6 +798,17 @@ class ModelAuditor:
         # This takes precedence over both the config schema and explicit schema
         # because it is the most specific user intent.
         if judge_fields is not None:
+            # judge_fields builds a severity-style schema. A named judge that
+            # grades from other fields (score, answer, checklist, spans) would
+            # then be asked for fields its post-processor cannot grade, and
+            # every result would be ERROR: refuse the combination.
+            own = (self.judge_config or {}).get("response_schema") or {}
+            own_fields = set(own.get("required") or []) | set((own.get("properties") or {}).keys())
+            if self.judge_config is not None and own_fields and "severity" not in own_fields:
+                raise ValueError(
+                    f"judge_fields cannot be used with judge {self.judge_name!r}, which does not "
+                    "grade by severity; use its own schema or a severity judge"
+                )
             self.judge_response_schema = build_judge_schema(judge_fields)
         self._log_lock = threading.Lock()
         self.target_model = model
@@ -606,10 +828,18 @@ class ModelAuditor:
         # When an explicit non-model Target is supplied (see Auditor), the
         # underlying AnyLLM target client is never used. Skip its creation so
         # we don't require an API key / network for a target we won't call.
-        if getattr(self, "_skip_target_client", False):
+        # A per-instance argument, not a class attribute: Auditor used to
+        # toggle a class-wide flag, which a ModelAuditor built concurrently on
+        # another thread could observe and silently get a no-op target.
+        # A subclass may still declare the class attribute (Studio does, on
+        # its own subclasses); reading it is safe — only toggling it on the
+        # shared base class raced.
+        created: List[Any] = []
+        if _skip_target_client or getattr(type(self), "_skip_target_client", False):
             self.target_client = _NoopTargetClient()
         else:
             self.target_client = self._create_anyllm_client(**self._target_client_config)
+            created.append(self.target_client)
 
         self.judge_model = judge_model
         self._judge_client_config = {
@@ -627,12 +857,20 @@ class ModelAuditor:
             )
         else:
             self.judge_client = self._create_anyllm_client(**self._judge_client_config)
+            created.append(self.judge_client)
 
         # Auditor model: falls back to judge config if not separately specified
         self.auditor_model = auditor_model or judge_model
+        # The judge's key and endpoint are inherited only with its provider:
+        # an auditor on another provider (anthropic vs openai) must read its
+        # own env var, not be sent the judge's credential and base URL.
+        # Normalised as any_llm reads it: "OpenAI" and " openai" are one provider.
+        same_provider = not auditor_provider or (
+            str(auditor_provider).strip().lower() == str(judge_provider or "").strip().lower()
+        )
         self._auditor_client_config = {
-            "api_key": auditor_api_key or judge_api_key,
-            "base_url": auditor_base_url or judge_base_url,
+            "api_key": auditor_api_key or (judge_api_key if same_provider else None),
+            "base_url": auditor_base_url or (judge_base_url if same_provider else None),
             "provider": auditor_provider or judge_provider,
             "client_kwargs": kwargs if auditor_kwargs is None else auditor_kwargs,
         }
@@ -655,6 +893,7 @@ class ModelAuditor:
             )
         else:
             self.auditor_client = self._create_anyllm_client(**self._auditor_client_config)
+            created.append(self.auditor_client)
 
         # The Target abstraction. ``target`` is a property that lazily wraps the
         # current ``target_client`` so that both of these keep working:
@@ -663,6 +902,43 @@ class ModelAuditor:
         # ``_target_override`` lets a caller supply a non-model Target (e.g.
         # HTTPAppTarget) directly; when set, it takes precedence.
         self._target_override: Optional[Any] = None
+
+        # AnyLLM clients this instance created (not injected). Their HTTP
+        # connection pools are bound to the event loop they first ran on, and
+        # every sync run() starts a new loop — see _refresh_owned_clients.
+        # Ownership is by identity: an injected judge client that the auditor
+        # shares is the caller's, not ours.
+        self._owned_clients: Dict[str, Any] = {
+            role: getattr(self, f"{role}_client")
+            for role in ("target", "judge", "auditor")
+            if any(getattr(self, f"{role}_client") is c for c in created)
+        }
+        self._sync_runs = 0
+
+    def _refresh_owned_clients(self) -> None:
+        """Rebuild the AnyLLM clients this instance created, for a new event loop.
+
+        A client reused on a later loop fails on its pooled keep-alive
+        connections with "Event loop is closed" (scenarios go ERROR, or the
+        failure eats the retry budget). Clients the caller injected or
+        reassigned are left alone: they are the caller's to manage.
+        """
+        configs = {
+            "target": self._target_client_config,
+            "judge": self._judge_client_config,
+            "auditor": self._auditor_client_config,
+        }
+        rebuilt: Dict[int, Any] = {}
+        owned = getattr(self, "_owned_clients", {})
+        for role, old in list(owned.items()):
+            if getattr(self, f"{role}_client") is not old:
+                del owned[role]  # reassigned by the caller
+                continue
+            # The auditor may share the judge's client; keep them shared.
+            new = rebuilt.get(id(old)) or self._create_anyllm_client(**configs[role])
+            rebuilt[id(old)] = new
+            setattr(self, f"{role}_client", new)
+            owned[role] = new
 
     #: Class-level default for instances built without __init__ (see __init__).
     empty_response: str = "error"
@@ -857,7 +1133,9 @@ class ModelAuditor:
         if pack_name not in SCENARIO_PACKS:
             available = ", ".join(SCENARIO_PACKS.keys())
             raise ValueError(f"Unknown scenario pack '{pack_name}'. Available: {available}")
-        return SCENARIO_PACKS[pack_name]
+        # A copy, like scenarios.get_scenarios: callers that filter or edit
+        # the list must not change the shared registry for everyone else.
+        return list(SCENARIO_PACKS[pack_name])
 
     @staticmethod
     def parse_json_response(response: str, default_severity: str = "ERROR") -> Dict[str, Any]:
@@ -916,6 +1194,10 @@ class ModelAuditor:
         if response_format:
             kwargs["response_format"] = response_format
         attempt = 0
+        # Tokens are counted on every response that arrives, including one
+        # rejected below as empty and retried: the provider billed for it
+        # (a reasoning model that ran out of budget can spend thousands).
+        input_tokens = output_tokens = 0
         while True:
             try:
                 try:
@@ -927,6 +1209,11 @@ class ModelAuditor:
                     if wrapped is exc:
                         raise
                     raise wrapped from exc
+                usage = getattr(response, "usage", None)
+                # Coerced: an OpenAI-compatible server may report "12" or null,
+                # and a TypeError here would turn a graded answer into ERROR.
+                input_tokens += token_count(getattr(usage, "prompt_tokens", 0)) or 0
+                output_tokens += token_count(getattr(usage, "completion_tokens", 0)) or 0
                 # content is Optional in the OpenAI-style schema (content
                 # filters, tool-call-only turns, reasoning-only outputs) and
                 # some servers send a list of parts — normalised to str here.
@@ -953,9 +1240,6 @@ class ModelAuditor:
                 # failed together do not retry in lockstep.
                 await asyncio.sleep(retry_backoff * (2 ** attempt) * (1 + 0.25 * _random.random()))
                 attempt += 1
-        usage = getattr(response, "usage", None)
-        input_tokens = getattr(usage, "prompt_tokens", 0) or 0
-        output_tokens = getattr(usage, "completion_tokens", 0) or 0
         return content, input_tokens, output_tokens
 
     @staticmethod
@@ -997,6 +1281,7 @@ class ModelAuditor:
                 "write, so write a prompt that makes sense given their contents."
             )
             file_uris = file_uris + pending
+        conv_text, file_uris = _image_attachments(conv_text, file_uris)
 
         user = f"""SCENARIO TO TEST: {scenario}
 
@@ -1048,6 +1333,7 @@ Generate the next user message to probe this scenario."""
         conv_text, file_uris = _render_conversation(
             conversation, role_separator="\n", turn_separator="\n\n", include_tool_events=True
         )
+        conv_text, file_uris = _image_attachments(conv_text, file_uris)
 
         # Optional trace-aware evidence: when the target is instrumented and
         # spans were collected for this scenario, append a selected-spans block
@@ -1056,8 +1342,9 @@ Generate the next user message to probe this scenario."""
         evidence_str = ""
         if evidence_spans:
             from .tracing import select_spans, summarize_for_judge
+            from .tracing.selection import DEFAULT_JUDGE_EVIDENCE_BUDGET
 
-            selection = select_spans(evidence_spans)
+            selection = select_spans(evidence_spans, token_budget=DEFAULT_JUDGE_EVIDENCE_BUDGET)
             rendered = summarize_for_judge(selection)
             evidence_str = (
                 "\n\nOBSERVED INTERNAL TRACES (evidence from the system under test):\n"
@@ -1151,19 +1438,41 @@ Evaluate this conversation and respond with this exact JSON structure:
         # Reasoning judges wrap their verdict in <think> blocks whose prose
         # routinely contains braces and JSON fragments that would win the
         # payload extraction below — strip them exactly like probe/target
-        # output before parsing.
-        response = ModelAuditor.strip_thinking(response)
+        # output before parsing. Stripping is only for text *outside* the
+        # verdict: when the reply is one JSON document, or a verdict object
+        # can be found without stripping (fenced, or with prose around it),
+        # the reply is left alone — the verdict's own strings may quote
+        # "<think>" or "</think>" from the transcript, and stripping would
+        # cut the verdict apart.
+        if not _is_json_document(response) and not _has_verdict_object(response):
+            response = ModelAuditor.strip_thinking(response)
         if judge_prompt is not None:
             try:
-                judgment = json.loads(_extract_json_payload(response))
+                # The schema the judge was asked for (the default one when the
+                # caller gave none) names the fields its verdict carries.
+                asked = response_schema if response_schema is not None else DEFAULT_JUDGE_RESPONSE_SCHEMA
+                expected_keys = asked.get("required") or list((asked.get("properties") or {}).keys())
+                judgment = json.loads(_extract_json_payload(response, expected_keys))
+                if isinstance(judgment, dict):
+                    # These keys mark failures the framework recorded; a judge
+                    # (or a transcript it echoes) must not be able to set them
+                    # and have its own "severity": "ERROR" pass as a failure.
+                    for key in _FRAMEWORK_KEYS:
+                        judgment.pop(key, None)
                 if not isinstance(judgment, dict):
                     judgment = {
                         "severity": "ERROR",
+                        "parse_error": True,
                         "issues_found": ["Judge returned valid JSON that is not an object"],
                         "summary": str(judgment)[:500],
                     }
             except Exception:
-                judgment = {"severity": "ERROR", "issues_found": ["Could not parse judge response"], "summary": response[:500]}
+                judgment = {
+                    "severity": "ERROR",
+                    "parse_error": True,
+                    "issues_found": ["Could not parse judge response"],
+                    "summary": response[:500],
+                }
         else:
             judgment = ModelAuditor.parse_json_response(response)
         if postprocess is not None:
@@ -1205,7 +1514,11 @@ Evaluate this conversation and respond with this exact JSON structure:
         trace_correlation: Optional[Any] = None,
         evidence_resolver: Optional[Callable[[ScenarioExecution], Union[List[Dict[str, Any]], None]]] = None,
     ) -> AuditResult:
-        turns = self._turns_for_target(max_turns or self.max_turns)
+        turns = self._turns_for_target(self._requested_turns(max_turns))
+        # A bare string is one expectation / one note; iterated, it would be
+        # one per character.
+        expected_behavior = as_str_list(expected_behavior)
+        judge_notes = as_str_list(judge_notes)
         # Per-scenario correlation ids. A fresh trace id per scenario keeps each
         # scenario's turns in one W3C trace while still allowing 0..N observed
         # traces per turn (fan-out) via trace_correlation.
@@ -1214,6 +1527,10 @@ Evaluate this conversation and respond with this exact JSON structure:
         base = {**(self.params or {}), **(params or {})}
         effective_target = {**base, **(self.target_params or {}), **(target_params or {})}
         effective_judge = {**base, **(self.judge_params or {}), **(judge_params or {})}
+        if auditor_params is None and not self._auditor_params_explicit:
+            # Same fallback as the constructor: without auditor settings of
+            # its own, the auditor follows the judge's.
+            auditor_params = judge_params
         effective_auditor = {**base, **(self.auditor_params or {}), **(auditor_params or {})}
 
         # A per-call on_turn overrides one set at construction time; either may be used.
@@ -1265,11 +1582,22 @@ Evaluate this conversation and respond with this exact JSON structure:
         # token spend already accumulated on the completed turns.
         error: Optional[str] = None
         error_traceback: Optional[str] = None
+        error_phase: Optional[str] = None
         try:
             validate = getattr(self.judge_postprocess, "validate_scenario", None)
             if validate is not None:
                 validate(expected_behavior, scenario_meta)
+            if documents:
+                # Same check SingleTurnAuditor makes: a bare string or a single
+                # mapping (no enclosing list) is an authoring slip that would
+                # otherwise be sent as one "document" per character or key.
+                parse_documents(documents)
             if start_hook is not None:
+                # The hook gets the scenario traceparent; register the trace
+                # first so a shared receiver keeps the setup spans it emits.
+                if trace_correlation is not None:
+                    _link_scenario(trace_correlation, scenario_run_id, name)
+                    trace_correlation.record(f"{scenario_run_id}_t0", scenario_trace_id)
                 await start_hook(hook_context)
             started = True
             for turn in range(turns):
@@ -1299,6 +1627,13 @@ Evaluate this conversation and respond with this exact JSON structure:
                     auditor_input_tokens += a_in
                     auditor_output_tokens += a_out
                     probe = ModelAuditor.strip_thinking(probe)
+                    # require_content checked the raw text; a reasoning auditor
+                    # cut off inside <think> (or a bare "User:") is empty only
+                    # after stripping, and must not reach the target.
+                    if self.empty_response == "error" and not probe.strip():
+                        raise EmptyResponseError(
+                            f"Auditor produced an empty probe on turn {turn + 1}/{turns}"
+                        )
                     self._fire_on_turn(turn, turns, "auditor", effective_on_turn)
 
                 probe_preview = probe[:80] + "..." if len(probe) > 80 else probe
@@ -1309,7 +1644,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                 # files: from turn 1 they are already in `conversation`.
                 entry: Dict[str, Any] = {"role": "user", "content": probe}
                 if turn == 0 and file_uri:
-                    entry["file_uri"] = file_uri
+                    entry["file_uri"] = _stored_file_uri(file_uri)
                 if turn == 0 and documents:
                     entry["documents"] = _json_safe_documents(documents)
                 conversation.append(entry)
@@ -1325,6 +1660,13 @@ Evaluate this conversation and respond with this exact JSON structure:
                     trace_headers={"traceparent": make_traceparent(scenario_trace_id)},
                     extra={"decision": public_decision(decision)} if decision is not None else {},
                 )
+                # Recorded before the call, not after: the trace id is known up
+                # front, a shared receiver drops spans for traces not yet
+                # registered (a target may export while the turn is in
+                # flight), and a turn that fails must keep its trace.
+                if trace_correlation is not None:
+                    _link_scenario(trace_correlation, scenario_run_id, name)
+                    trace_correlation.record(turn_id, scenario_trace_id)
                 target_resp = await target.send(
                     system=self.system_prompt,
                     user=probe,
@@ -1332,14 +1674,16 @@ Evaluate this conversation and respond with this exact JSON structure:
                     params=effective_target or None,
                     context=target_context,
                 )
-                if trace_correlation is not None:
-                    trace_correlation.record(turn_id, scenario_trace_id)
-                t_in = target_resp.input_tokens or 0
-                t_out = target_resp.output_tokens or 0
+                # Custom targets report usage in their own shapes ("12").
+                t_in = token_count(target_resp.input_tokens) or 0
+                t_out = token_count(target_resp.output_tokens) or 0
                 target_input_tokens += t_in
                 target_output_tokens += t_out
+                # preserve_content skips only the think-tag stripping: None or
+                # list content is still made text, or len() and the checklist's
+                # quote matching would fail on it.
                 response = (
-                    target_resp.content
+                    _content_to_text(target_resp.content)
                     if getattr(target, "preserve_content", False)
                     else ModelAuditor.strip_thinking(target_resp.content)
                 )
@@ -1350,10 +1694,21 @@ Evaluate this conversation and respond with this exact JSON structure:
                 # decision, tool events or an explicit end is not "empty".
                 if (
                     self.empty_response == "error"
+                    # A target whose empty reply is an answer (ASR silence:
+                    # "" is the correct transcript) is graded, not failed.
+                    and not getattr(target, "empty_is_answer", False)
                     and (response is None or (isinstance(response, str) and not response.strip()))
                     and getattr(target_resp, "decision", None) is None
                     and not getattr(target_resp, "tool_events", None)
-                    and getattr(target_resp, "end_conversation", False) is not True
+                    # Ending the conversation excuses an empty final turn only
+                    # after the target has said something.
+                    and not (
+                        getattr(target_resp, "end_conversation", False) is True
+                        and any(
+                            m.get("role") == "assistant" and str(m.get("content") or "").strip()
+                            for m in conversation
+                        )
+                    )
                 ):
                     raise EmptyResponseError(
                         f"Target returned an empty response on turn {turn + 1}/{turns}"
@@ -1365,7 +1720,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                 reply: Dict[str, Any] = {"role": "assistant", "content": response}
                 decision_answer = getattr(target_resp, "decision", None)
                 if decision_answer is not None:
-                    reply["decision"] = decision_answer
+                    reply["decision"] = _json_safe(decision_answer)
                 tool_events = getattr(target_resp, "tool_events", None)
                 if tool_events:
                     reply["tool_events"] = _stored_tool_events(tool_events)
@@ -1394,7 +1749,12 @@ Evaluate this conversation and respond with this exact JSON structure:
                     auditor_output_tokens=auditor_output_tokens,
                 )
                 try:
-                    _resolver_result = await evidence_resolver(execution) if asyncio.iscoroutinefunction(evidence_resolver) else evidence_resolver(execution)
+                    # Any awaitable result is awaited: async callables include
+                    # objects with `async def __call__` and wrappers returning
+                    # a coroutine, which iscoroutinefunction does not detect.
+                    _resolver_result = evidence_resolver(execution)
+                    if inspect.isawaitable(_resolver_result):
+                        _resolver_result = await _resolver_result
                     # The resolver may return a plain list (spans) or a dict
                     # with {"selected_spans": [...], "agentic_evaluation": {...},
                     #  "agentic_guidance": "..."} for agentic-aware judging.
@@ -1405,12 +1765,13 @@ Evaluate this conversation and respond with this exact JSON structure:
                     else:
                         resolved_evidence = _resolver_result
                 except Exception as exc:
-                    self._log(f"--- Evidence resolution failed: {type(exc).__name__}: {exc} ---")
+                    self._log(f"--- Evidence resolution failed: {describe_exception(exc)} ---")
                     # If evidence resolution fails, continue without evidence
                     resolved_evidence = evidence_spans
         except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"
+            error = describe_exception(exc)
             error_traceback = _short_traceback()
+            error_phase = "conversation"
             self._log(f"--- Scenario FAILED mid-conversation: {name} [{error}] ---")
         finally:
             # Runs on failure and cancellation too, so a target can release its
@@ -1420,7 +1781,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     await end_hook(hook_context)
                 except Exception as exc:
                     warnings.warn(
-                        f"end_scenario failed for scenario {name!r}: {type(exc).__name__}: {exc}",
+                        f"end_scenario failed for scenario {name!r}: {describe_exception(exc)}",
                         RuntimeWarning,
                         stacklevel=2,
                     )
@@ -1437,7 +1798,7 @@ Evaluate this conversation and respond with this exact JSON structure:
             if fell_back:
                 self._warn_no_expectations(name)
             try:
-                if self.judge_grade is not None:
+                if self.judge_grade is not None and not fell_back:
                     # Graded in code (judges/choice_match.py): no judge call, no tokens.
                     judgment = self.judge_grade(
                         conversation=conversation,
@@ -1475,8 +1836,9 @@ Evaluate this conversation and respond with this exact JSON structure:
                 if fell_back and isinstance(judgment, dict):
                     judgment["judge_fallback"] = "default"
             except Exception as exc:
-                error = f"{type(exc).__name__}: {exc}"
+                error = describe_exception(exc)
                 error_traceback = _short_traceback()
+                error_phase = "judge"
                 self._log(f"--- Judging FAILED: {name} [{error}] ---")
 
         if error is not None:
@@ -1491,9 +1853,17 @@ Evaluate this conversation and respond with this exact JSON structure:
                 # Kept so a failure can be diagnosed from the saved JSON alone;
                 # the one-line error string loses where it was raised.
                 "traceback": error_traceback,
+                # Which step failed. A "conversation" failure leaves a
+                # truncated transcript that must never be re-graded as if
+                # complete (see reframing.rejudge); a "judge" failure leaves a
+                # complete one.
+                "error_phase": error_phase,
             }
         else:
             judgment = coerce_judgment_fields(judgment)
+        # Kept on error judgments too: a judge failure is re-graded with
+        # rejudge, which needs the same ground truth.
+        _keep_grading_metadata(judgment, scenario_meta)
 
         if pbar_judge:
             pbar_judge.update(1)
@@ -1588,7 +1958,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         self._log(f"   Judge: {judge_info}")
         self._log(f"   System Prompt: {'Yes' if self.system_prompt else 'No'}\n")
 
-        turns_val = self._turns_for_target(max_turns or self.max_turns)
+        turns_val = self._turns_for_target(self._requested_turns(max_turns))
         total_audit_steps = len(scenario_list) * turns_val
         total_judge_steps = len(scenario_list)
 
@@ -1606,7 +1976,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                 try:
                     return await self.run_scenario(
                         name=scenario["name"],
-                        description=scenario["description"],
+                        description=scenario.get("description", ""),
                         expected_behavior=scenario.get("expected_behavior"),
                         test_prompt=scenario.get("test_prompt"),
                         file_uri=scenario.get("file_uri"),
@@ -1642,7 +2012,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     # ERROR result instead. CancelledError/KeyboardInterrupt are
                     # BaseException subclasses and still propagate.
                     name = scenario.get("name", "<unknown>")
-                    self._log(f"--- Scenario FAILED: {name} [{type(exc).__name__}: {exc}] ---")
+                    self._log(f"--- Scenario FAILED: {name} [{describe_exception(exc)}] ---")
                     if pbar_judge:
                         pbar_judge.update(1)
                     return AuditResult(
@@ -1650,14 +2020,14 @@ Evaluate this conversation and respond with this exact JSON structure:
                         scenario_description=scenario.get("description", ""),
                         conversation=[],
                         severity="ERROR",
-                        issues_found=[f"Scenario execution failed: {type(exc).__name__}: {exc}"],
+                        issues_found=[f"Scenario execution failed: {describe_exception(exc)}"],
                         positive_behaviors=[],
-                        summary=f"Scenario did not complete due to an error: {exc}"[:500],
+                        summary=f"Scenario did not complete due to an error: {describe_exception(exc)}"[:500],
                         recommendations=["Re-run this scenario; check API credentials, rate limits, and connectivity."],
                         expected_behavior=scenario.get("expected_behavior"),
                         judgment={
                             "severity": "ERROR",
-                            "error": f"{type(exc).__name__}: {exc}",
+                            "error": describe_exception(exc),
                             "traceback": _short_traceback(),
                         },
                     )
@@ -1685,6 +2055,25 @@ Evaluate this conversation and respond with this exact JSON structure:
 
         return AuditResults(results, meta=self._run_meta(scenarios, max_turns, language))
 
+    def _requested_turns(self, max_turns: Optional[int]) -> int:
+        """A per-call ``max_turns``, or the constructor's when None.
+
+        ``max_turns or self.max_turns`` read 0 as "use the default" while the
+        constructor took 0 as zero turns (judging an empty transcript).
+        Both are now rejected.
+        """
+        if max_turns is None:
+            return self.max_turns
+        if isinstance(max_turns, bool) or not isinstance(max_turns, int) or max_turns < 1:
+            raise ValueError(f"max_turns must be an integer >= 1, got {max_turns!r}")
+        return max_turns
+
+    def _effective_max_turns(self, max_turns: Optional[int]) -> int:
+        """The turn count a run used: the requested one capped at the target's limit."""
+        turns = self._requested_turns(max_turns)
+        limit = getattr(self.target, "max_turns", None)
+        return min(turns, limit) if isinstance(limit, int) else turns
+
     def _run_meta(
         self,
         scenarios: Union[str, List[Dict]],
@@ -1699,9 +2088,14 @@ Evaluate this conversation and respond with this exact JSON structure:
             "judge_provider": self._judge_client_config["provider"],
             "auditor_model": self.auditor_model,
             "auditor_provider": self._auditor_client_config["provider"],
-            "max_turns": max_turns or self.max_turns,
+            "max_turns": self._effective_max_turns(max_turns),
             "language": language,
         }
+        # An explicit Target (HTTP app, callable, ...) is not reached through
+        # target_model/target_provider; name it so the saved run says what
+        # was actually audited.
+        if type(self.target).__name__ != "ModelTarget":
+            meta["target_type"] = type(self.target).__name__
         if self.judge_name is not None:
             meta["judge_name"] = self.judge_name
         if isinstance(scenarios, str):
@@ -1727,6 +2121,11 @@ Evaluate this conversation and respond with this exact JSON structure:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
+            # Each run() gets a fresh event loop; from the second one on, the
+            # clients' connection pools belong to a closed loop.
+            if getattr(self, "_sync_runs", 0):
+                self._refresh_owned_clients()
+            self._sync_runs = getattr(self, "_sync_runs", 0) + 1
             return run_sync(
                 self.run_async(
                     scenarios,

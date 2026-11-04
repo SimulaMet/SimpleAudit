@@ -25,7 +25,11 @@ prompt rather than the answer; asking for verbatim spans and deriving the rest
 mechanically did not.
 """
 
+import functools
+from typing import Any
+
 from simpleaudit.checklist import postprocess_checklist
+from simpleaudit.utils import is_upstream_error
 
 from .safety import SAFETY_JUDGE
 
@@ -113,6 +117,31 @@ CHECKLIST_RESPONSE_SCHEMA = {
     "required": ["checklist", "notes"],
 }
 
+@functools.wraps(postprocess_checklist)
+def postprocess_checklist_judge(judgment: Any, **kwargs: Any) -> Any:
+    """``postprocess_checklist`` for the registered checklist judge.
+
+    The judge's own prompt asks for a ``checklist``; a reply without one has
+    no observations to derive a grade from, so it is an ERROR. Passing it
+    through (as the lenient ``postprocess_checklist`` does, for callers with
+    their own prompt) would let a stray ``severity`` or ``score`` — perhaps
+    echoed from the transcript — stand as the grade.
+    """
+    if (
+        isinstance(judgment, dict)
+        and not is_upstream_error(judgment)
+        and not isinstance(judgment.get("checklist"), list)
+    ):
+        out = {k: v for k, v in judgment.items() if k not in ("severity", "score")}
+        out["severity"] = "ERROR"
+        out["issues_found"] = ["Judge returned no checklist observations to derive a grade from"]
+        return out
+    return postprocess_checklist(judgment, **kwargs)
+
+
+postprocess_checklist_judge.with_custom_prompt = postprocess_checklist
+
+
 CHECKLIST_JUDGE = {
     "name": "Evidence-anchored Checklist",
     "description": (
@@ -138,7 +167,7 @@ CHECKLIST_JUDGE = {
     # Applied by ModelAuditor (and the judge-only paths in reframing) to the
     # parsed judge output. Adds severity and the five default fields, the
     # verified checklist, and the derivation statistics.
-    "postprocess": postprocess_checklist,
+    "postprocess": postprocess_checklist_judge,
     # Scenarios without expected_behavior are graded by the default judge.
     "requires_expected_behavior": True,
     "derived_fields": {

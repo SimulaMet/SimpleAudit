@@ -74,7 +74,7 @@ def test_from_judge_carries_prompt_schema_and_hooks_and_accepts_overrides():
     assert variant.label == "checklist"
     assert variant.judge_prompt == CHECKLIST_JUDGE["judge_prompt"]
     assert variant.response_schema is CHECKLIST_JUDGE["response_schema"]
-    assert variant.postprocess is postprocess_checklist
+    assert variant.postprocess.__wrapped__ is postprocess_checklist
     assert variant.requires_expected_behavior is True
 
     other = PromptVariant.from_judge("checklist", "sonnet", judge_model="claude-sonnet-4-6")
@@ -82,7 +82,9 @@ def test_from_judge_carries_prompt_schema_and_hooks_and_accepts_overrides():
     assert other.judge_model == "claude-sonnet-4-6"
 
     plain = PromptVariant.from_judge("safety")
-    assert plain.postprocess is None
+    # Format-only hook: a stray "score" must not stand in for the severity.
+    from simpleaudit.judges.compose import severity_postprocess
+    assert plain.postprocess is severity_postprocess
     assert plain.requires_expected_behavior is False
     assert plain.response_schema is None
 
@@ -184,7 +186,7 @@ def test_perturbation_variants_forward_the_hooks():
         response_schema=config["response_schema"], postprocess=config["postprocess"],
         requires_expected_behavior=True,
     )
-    assert all(v.postprocess is postprocess_checklist for v in variants)
+    assert all(v.postprocess.__wrapped__ is postprocess_checklist for v in variants)
     assert all(v.requires_expected_behavior is True for v in variants)
 
     results = reframing_check(_checklist_judge(), "fake-judge", [_record(severity="high")], variants)

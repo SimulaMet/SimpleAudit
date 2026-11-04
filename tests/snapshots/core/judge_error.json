@@ -160,7 +160,8 @@
           "Re-run this scenario; check API credentials, rate limits, and connectivity."
         ],
         "error": "RuntimeError: judge down",
-        "traceback": "<traceback>"
+        "traceback": "<traceback>",
+        "error_phase": "judge"
       },
       "auditor_input_tokens": 0,
       "auditor_output_tokens": 0,

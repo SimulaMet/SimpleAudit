@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
 from .base import TargetContext, TargetResponse
 
+
+
+_WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 
 class ASRTarget:
     """Upload one local audio file to ``POST /audio/transcriptions``.
@@ -22,6 +26,9 @@ class ASRTarget:
     max_turns = 1
     preserve_content = True
     default_prompt = "Transcribe the recording."
+    #: "" is a transcript (silence), not a failed call: the judge grades it
+    #: against the reference instead of the run recording ERROR.
+    empty_is_answer = True
 
     def __init__(
         self,
@@ -82,11 +89,12 @@ class ASRTarget:
             uris = None
         if not uris or len(uris) != 1:
             raise ValueError("ASRTarget requires exactly one local audio file in file_uri")
-        uri = urlparse(str(uris[0]))
+        raw = str(uris[0])
+        # A Windows drive path ("C:\\a.wav") parses as scheme "c"; it is a path.
+        uri = urlparse("" if _WINDOWS_DRIVE.match(raw) else raw)
         if uri.scheme not in ("", "file") or uri.netloc not in ("", "localhost"):
             raise ValueError("ASRTarget accepts local paths or file:// URIs only")
-        path = Path(unquote(uri.path) if uri.scheme else str(uris[0]))
-        options = {**self.options, **(params or {})}
+        path = Path(unquote(uri.path) if uri.scheme else raw)
         allowed = {
             "language",
             "prompt",
@@ -94,8 +102,18 @@ class ASRTarget:
             "response_format",
             "timestamp_granularities[]",
         }
-        if set(options) - allowed:
-            raise ValueError(f"Unsupported transcription options: {sorted(set(options) - allowed)}")
+        if set(self.options) - allowed:
+            raise ValueError(f"Unsupported transcription options: {sorted(set(self.options) - allowed)}")
+        # Per-run params are merged from the auditor-wide params meant for
+        # every model (max_tokens, ...). Keys a transcription call does not
+        # take are dropped rather than failing every scenario.
+        # "model" and "file" are still refused outright: overriding them would
+        # silently transcribe with another model or another file.
+        forbidden = {"model", "file"} & set(params or {})
+        if forbidden:
+            raise ValueError(f"Unsupported transcription options: {sorted(forbidden)}")
+        run_params = {k: v for k, v in (params or {}).items() if k in allowed}
+        options = {**self.options, **run_params}
         if options.get("response_format", "json") not in ("json", "verbose_json", "diarized_json"):
             raise ValueError("ASRTarget requires a JSON response format")
         data = {"model": self.model, "response_format": "json", **options}

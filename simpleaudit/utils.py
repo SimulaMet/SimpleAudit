@@ -71,9 +71,13 @@ def is_secret_name(name: Any) -> bool:
 
 #: URL userinfo (``scheme://user:pass@``) and query parameters whose names
 #: look like credentials (``?api_key=...``, ``&token=...``).
-_URL_USERINFO = re.compile(r"(\w+://)[^/?#@\s'\"]+@")
+# user:password up to the LAST "@" (a password may hold "/" or "@"), or a
+# bare user/token with no ":" up to the first "@".
+_URL_USERINFO = re.compile(r"(\w+://)(?:[^/?#@\s'\":]+:[^?#\s'\"]*|[^/?#@\s'\"]+)@")
 _QUERY_PARAM = re.compile(r"([?&#])([^=&?#/\s'\"]+)=([^&\s'\"#]*)")
-_SECRET_PARAM = re.compile(r"^(?:key|code|sig|signature|x-amz-[a-z-]+)$", re.IGNORECASE)
+_SECRET_PARAM = re.compile(
+    r"^(?:key|code|sig|signature|pass|pwd|jwt|sid|session_?id|x-amz-[a-z-]+)$", re.IGNORECASE
+)
 
 
 def redact_url_secrets(text: str) -> str:
@@ -361,6 +365,12 @@ def parse_json_response(response: str, default_severity: str = "ERROR") -> Dict[
             normalized = ""
         if normalized not in valid_severities:
             validated["severity"] = default_severity
+            if validated["severity"] == "ERROR":
+                # Say why: an off-ladder label ("maybe") is a judge failure,
+                # and the result must explain itself like other parse errors.
+                validated["parse_error"] = True
+                issues = validated["issues_found"] if isinstance(validated["issues_found"], list) else []
+                validated["issues_found"] = [*issues, UNGRADABLE_JUDGMENT_ISSUE]
         else:
             validated["severity"] = "ERROR" if normalized == "error" else normalized
 
@@ -504,7 +514,8 @@ def image_media_type(file_uri: str) -> str:
     This reads the name only. image_data_uri labels the payload from the bytes
     it reads, so a file whose name and content disagree is sent as what it is.
     """
-    path = urlsplit(file_uri).path or file_uri
+    # Only a URL has a query or fragment: a local "clip#1.wav" keeps its name.
+    path = (urlsplit(file_uri).path if "://" in file_uri else file_uri) or file_uri
     media_type, _ = mimetypes.guess_type(path)
     if media_type is None:
         raise ValueError(

@@ -86,6 +86,25 @@ _TOKENS = re.compile(r"[ \t]*([^\s'\"\\]{1,4096})(?:[ \t]+([^\s'\"\\]{1,4096}))?
 _CURL_HEADER_FLAG = re.compile(r"(?:^|\s)(?:-H|--header|-b|--cookie)\s+$")
 
 
+_QUOTED_PAIR = re.compile(
+    r"""(['"])([A-Za-z][\w.-]{0,63})\1(\s*[:=]\s*)(?:(['"])((?:\\.|(?!\4)[^\\\n]){0,4096})\4|([^\s,}\]'"]{1,4096}))"""
+)
+_ENV_SECRET = re.compile(
+    r"\b([A-Z][A-Z0-9_]{0,63}_(?:PASSWORD|PASSWD|SECRET|TOKEN|API_KEY|APIKEY|PRIVATE_KEY)=)[^\s'\"]{1,4096}"
+)
+_CURL_USER = re.compile(r"((?:^|\s)(?:-u|--user)\s+[^\s:]{1,256}:)[^\s'\"]{1,4096}")
+
+
+def _redact_quoted_pair(match: "re.Match[str]", secret_name: Any) -> str:
+    quote, name, sep, vquote, qvalue, bare = match.groups()
+    value = qvalue if vquote else bare
+    if not value or "[REDACTED]" in value or not secret_name(name):
+        return match.group(0)
+    if vquote:
+        return f"{quote}{name}{quote}{sep}{vquote}[REDACTED]{vquote}"
+    return f"{quote}{name}{quote}{sep}[REDACTED]"
+
+
 _LINE_BREAK = re.compile(r"\r\n|\n|\r|\\r\\n|\\n|\\r")
 # A Cookie / Set-Cookie value made only of name=value pairs ("sid=abc; x=y"),
 # or one carrying Set-Cookie attributes: not a recipe line ("oatmeal=2 cups").
@@ -344,6 +363,12 @@ def _redacted(attrs: Any, _depth: int = 0, *, _name: Any = None, _text_names: bo
         # Credential headers written as text: the whole value, to the end of
         # the line or quote (any scheme — "token ghp_…", "Digest …" — and
         # every cookie pair, not just the first word).
+        # Key/value pairs with a quoted key, in text that is not strict JSON
+        # (a Python repr, truncated or trailing JSON): {'api_key': 'sk-...'}.
+        attrs = _QUOTED_PAIR.sub(lambda m: _redact_quoted_pair(m, secret_name), attrs)
+        # Unambiguous shell credentials: DB_PASSWORD=..., curl -u user:pass.
+        attrs = _ENV_SECRET.sub(lambda m: m.group(1) + "[REDACTED]", attrs)
+        attrs = _CURL_USER.sub(lambda m: m.group(1) + "[REDACTED]", attrs)
         attrs = _redact_credential_headers(attrs)
         attrs = _BEARER.sub(lambda m: m.group(1) + "[REDACTED]", attrs)
         # "X-Api-Key: value" / "cookie=value" written as text (curl lines,

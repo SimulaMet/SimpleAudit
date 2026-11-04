@@ -1918,3 +1918,76 @@ def test_file_uri_percent_escapes_fingerprint_by_content(tmp_path):
     # The %20 form is what the ASR target opens; before the fix it was
     # fingerprinted by its URI string, so a regenerated clip reused stale runs.
     assert _file_digest(clip.as_uri().replace(" ", "%20")) == digest
+
+
+# --- Pass 25 -------------------------------------------------------------
+
+
+def test_resume_without_adaptive_sets_saved_adaptive_runs_aside(tmp_path):
+    from tests.test_audit_regressions_pass6 import _exp, _run
+
+    scen = [{"name": "a", "description": "d"}]
+    _run(_exp(tmp_path, n_repetitions=2), scen)
+    adaptive = tmp_path / "m" / "adaptive_0.json"
+    adaptive.write_text((tmp_path / "m" / "run_0.json").read_text())
+    _run(_exp(tmp_path, n_repetitions=2), scen)
+    # Before: the file stayed on disk while the combined results left it out.
+    assert not adaptive.exists()
+    assert (tmp_path / "m" / "adaptive_0.json.stale").exists()
+
+
+def test_inspect_severity_counts_between_steps_count_as_more_severe():
+    pytest.importorskip("inspect_ai")
+    from inspect_ai.scorer import SampleScore, Score
+
+    from simpleaudit.integrations.inspect._task import severity_counts
+
+    counts = severity_counts()([SampleScore(score=Score(value=3.7)),
+                                SampleScore(score=Score(value=4.0))])
+    assert counts["low"] == 1.0 and counts["pass"] == 1.0
+
+
+@pytest.mark.parametrize("text, secret", [
+    ("{'api_key': 'sk-proj-LEAKAPIKEY998877'}", "LEAKAPIKEY998877"),
+    ('{"model": "gpt", "api_key": "sk-proj-LEAKAPIKEY998877"', "LEAKAPIKEY998877"),
+    ('{"user": "bob", "password": "Hunter2-SECRET-xyz"} trailing', "Hunter2-SECRET-xyz"),
+    ("export DB_PASSWORD=correcthorsebattery", "correcthorsebattery"),
+    ("curl -u admin:SuperSecretPass http://h", "SuperSecretPass"),
+])
+def test_secrets_in_non_json_text_redacted(text, secret):
+    from simpleaudit.tracing.selection import _redacted
+
+    assert secret not in _redacted({"v": text})["v"]
+
+
+@pytest.mark.parametrize("url, secret", [
+    ("https://bob:hunter2/x@j/v1", "hunter2"),
+    ("https://alice:S3cr3t@ss@h/v1", "S3cr3t@ss"),
+    ("https://h/x?pwd=abc123&sid=9z9z&q=1", "abc123"),
+])
+def test_url_passwords_with_slash_or_at_and_short_param_names(url, secret):
+    from simpleaudit.utils import redact_url_secrets
+
+    out = redact_url_secrets(url)
+    assert secret not in out and "ss@h" not in out.replace("[REDACTED]@h", "")
+
+
+def test_url_path_with_at_sign_left_alone():
+    from simpleaudit.utils import redact_url_secrets
+
+    assert redact_url_secrets("https://h/users/@me") == "https://h/users/@me"
+
+
+def test_local_audio_with_hash_in_name_not_attached_as_image():
+    from simpleaudit.model_auditor import _image_attachments
+
+    text, keep = _image_attachments("[file 1] hi", ["/x/clip#1.wav"])
+    assert keep == [] and "not attached" in text
+
+
+def test_off_ladder_default_severity_explains_itself():
+    from simpleaudit.utils import UNGRADABLE_JUDGMENT_ISSUE
+
+    out = ModelAuditor.parse_json_response('{"severity": "maybe", "issues_found": [], "summary": "x"}')
+    assert out["severity"] == "ERROR" and out.get("parse_error") is True
+    assert UNGRADABLE_JUDGMENT_ISSUE in out["issues_found"]

@@ -394,7 +394,8 @@ def _image_attachments(conv_text: str, uris: List[str]) -> tuple[str, List[str]]
             # "data:audio/wav;base64,...": the type is spelled out.
             media_type = uri[5:].split(",", 1)[0].split(";", 1)[0].strip().lower() or None
         else:
-            path = urlsplit(uri).path or uri
+            # Only a URL has a query or fragment: a local "clip#1.wav" keeps its name.
+            path = (urlsplit(uri).path if "://" in uri else uri) or uri
             media_type, _ = mimetypes.guess_type(path)
         if media_type is None or media_type.startswith("image/"):
             keep.append(uri)

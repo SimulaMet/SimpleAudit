@@ -1159,6 +1159,22 @@ class AuditExperiment:
                 # whole-run scores, and it is saved as adaptive_N.json so a
                 # later resume never mistakes it for a full run_N.json.
                 adaptive_list: List[AuditResults] = []
+                if not self.adaptive_reruns and self.save_dir and not cancelled:
+                    # Adaptive reruns saved by an earlier run with adaptive_reruns
+                    # on are not part of this result; set them aside, so the
+                    # combined file and the directory agree.
+                    directory = self.save_dir / self._sanitize_label(label)
+                    leftovers = sorted(directory.glob("adaptive_*.json"))
+                    settings = directory / "adaptive-settings.json"
+                    if leftovers:
+                        tqdm.write(
+                            f"  {label}: adaptive_reruns is off; setting aside "
+                            f"{len(leftovers)} saved adaptive rerun(s) as *.stale"
+                        )
+                        for old in leftovers:
+                            _quarantine(old)
+                        if settings.exists():
+                            _quarantine(settings)
                 if self.adaptive_reruns and not cancelled and runs_list:
                     target = self.adaptive_reruns["agreement_target"]
                     max_extra = self.adaptive_reruns.get("max_extra", 5)

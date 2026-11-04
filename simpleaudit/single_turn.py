@@ -37,6 +37,7 @@ Usage::
 """
 
 import asyncio
+import inspect
 from datetime import date
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -46,12 +47,33 @@ from .context_attribution import derive_stance
 from .context_derivations import derive_all
 from .context_findings import FINDING_SEVERITY, derive_findings
 from .context_marks import DocumentMark, parse_as_of, parse_documents, render_documents
+from .decision import public_decision, render_decision_prompt, validate_decision
 from .judges import get_judge
-from .model_auditor import ModelAuditor, OnTurn, ScenarioExecution
+from .judges.compose import inherited_postprocess
+from .judges.groundedness import postprocess_groundedness
+from .model_auditor import (
+    ModelAuditor,
+    OnTurn,
+    ScenarioExecution,
+    _json_safe,
+    _keep_grading_metadata,
+    _link_scenario,
+    _stored_file_uri,
+    _stored_tool_events,
+)
+from .provider_errors import EmptyResponseError, _content_to_text, coerce_judgment_fields
 from .results import AuditResult, AuditResults
-from .targets.base import TargetContext
+from .targets.base import TargetContext, token_count
 from .tracing.context import make_traceparent, new_trace_id
-from .utils import SEVERITY_ORDER, image_data_uri, judgment_severity, ungradable_issues
+from .utils import (
+    SEVERITY_ORDER,
+    as_str_list,
+    describe_exception,
+    image_data_uri,
+    is_upstream_error,
+    judgment_severity,
+    ungradable_issues,
+)
 
 #: Groundedness findings a provenance judgment may carry (True when they fired).
 #: Read from the register that ``context_findings.derive_severity`` scores, so a
@@ -108,6 +130,13 @@ def combine_judgments(provenance: Dict[str, Any], correctness: Dict[str, Any]) -
         "severity_components": {"provenance": sev_p, "correctness": sev_c},
         "provenance": provenance,
         "correctness": correctness,
+        # Where the correctness half's severity came from, at the top level
+        # where a re-grade (reframing.rejudge) looks for it.
+        **{
+            key: correctness[key]
+            for key in ("designed_severity", "designed_severity_source")
+            if key in correctness
+        },
     }
 
 
@@ -149,6 +178,38 @@ def _build_judge_context(
     ])
 
 
+def _has_grounding_observations(judgment: Dict[str, Any]) -> bool:
+    """True when a groundedness judgment carries observations to derive from.
+
+    ``asserted_spans`` must be a list of strings (one bare string counts as
+    one span). An empty span list is a valid observation ("the answer
+    asserts nothing from the documents"); a stance map alone is not.
+    """
+    # The per-document map, when given, must be a mapping whose entries are
+    # flags or {rejected, evidence} with text evidence: "rejected": [1] or
+    # "evidence": [...] is a malformed reply, not an execution failure.
+    for key in ("rejected", "stance"):
+        mapping = judgment.get(key)
+        if mapping in (None, {}):
+            continue
+        if not isinstance(mapping, dict):
+            return False
+        for entry in mapping.values():
+            if isinstance(entry, dict):
+                if not isinstance(entry.get("evidence"), (str, type(None))):
+                    return False
+            elif not isinstance(entry, (bool, str, type(None))):
+                return False
+    spans = judgment.get("asserted_spans")
+    if isinstance(spans, str):
+        return True
+    # A stance map alone is not enough: derive_stance attributes claims only
+    # from asserted_spans and reads `stance` merely as the rejected map, so a
+    # stance-only reply ("relied_on" on the superseded document) would derive
+    # every document as ignored — a pass.
+    return isinstance(spans, list) and all(isinstance(x, str) for x in spans)
+
+
 class SingleTurnAuditor(ModelAuditor):
     """ModelAuditor that runs each scenario as one exchange, not a conversation.
 
@@ -177,7 +238,16 @@ class SingleTurnAuditor(ModelAuditor):
     def __init__(self, *args: Any, correctness_judge: Optional[str] = "checklist", **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         if correctness_judge is not None:
-            get_judge(correctness_judge)  # fail at construction on an unknown name
+            config = get_judge(correctness_judge)  # fail at construction on an unknown name
+            # The correctness half is a model judgment on the expectations: a
+            # code-graded judge (choice_match) would send its placeholder
+            # prompt to the model, and a grounding judge needs marks it is
+            # never given here.
+            if config.get("grade") is not None or config.get("output") == "grounding":
+                raise ValueError(
+                    f"correctness_judge={correctness_judge!r} cannot grade correctness: "
+                    "use a model judge such as 'checklist'"
+                )
         self.correctness_judge = correctness_judge
 
     async def _judge_correctness(
@@ -193,8 +263,8 @@ class SingleTurnAuditor(ModelAuditor):
         """Grade the same exchange against the scenario's expectations.
 
         The correctness judge is shown the expectations on purpose: they are
-        its rubric. It is never shown the marks; the conversation entry carries
-        no ``documents`` key, and the description is the scenario's own.
+        its rubric. It is never shown the marks: the conversation entry carries
+        the document text only, and the description is the scenario's own.
         ``params`` and ``evidence_spans`` are the ones the groundedness call
         gets, so judge params apply to both halves.
         """
@@ -207,10 +277,12 @@ class SingleTurnAuditor(ModelAuditor):
             expected_behavior,
             judge_prompt=config["judge_prompt"],
             json_format=self.json_format,
+            # Scoring notes qualify the expectations, which this judge sees.
+            judge_notes=as_str_list((scenario.get("metadata") or {}).get("judge_notes")),
             response_schema=config.get("response_schema"),
             max_retries=self.max_retries,
             retry_backoff=self.retry_backoff,
-            postprocess=config.get("postprocess"),
+            postprocess=inherited_postprocess(config, False),
             scenario_meta={
                 "severity": scenario.get("severity"),
                 "category": scenario.get("category"),
@@ -300,7 +372,19 @@ class SingleTurnAuditor(ModelAuditor):
         name = scenario["name"]
         description = scenario.get("description", "")
         test_prompt = scenario.get("test_prompt")
-        expected_behavior = scenario.get("expected_behavior")
+        # Same decision handling as ModelAuditor.run_scenario: validated, asked
+        # as text when there is no test_prompt, sent to the target without its
+        # answer key, and handed to the judge's code through scenario_meta.
+        decision = scenario.get("decision")
+        if decision is not None:
+            decision = validate_decision(decision)
+            if not test_prompt:
+                test_prompt = render_decision_prompt(decision)
+        if not test_prompt:
+            # As ModelAuditor: a target that needs no question (ASRTarget's
+            # "Transcribe the recording.") supplies its own.
+            test_prompt = getattr(self.target, "default_prompt", None)
+        expected_behavior = as_str_list(scenario.get("expected_behavior"))
         file_uri = scenario.get("file_uri")
         documents = scenario.get("documents")
 
@@ -339,13 +423,17 @@ class SingleTurnAuditor(ModelAuditor):
         prompt_preview = test_prompt[:80] + "..." if len(test_prompt) > 80 else test_prompt
         self._log(f"PROMPT: {prompt_preview}", name=name)
 
-        # The stored turn carries no `documents` key: the marks contain parsed
-        # dates that would not survive AuditResults.save(), and the design keeps
-        # transcripts plain text. The judge reads the documents from the
-        # briefing below instead.
+        # The stored turn carries the document TEXT the target was sent (never
+        # the marks, whose parsed dates would not survive AuditResults.save()
+        # and which are the judge's hidden ground truth). The correctness judge,
+        # rejudge and reframing_check read the documents from here, as they do
+        # on ModelAuditor; the blind groundedness call reads them from its
+        # briefing instead and gets the turn without them (see below).
         entry: Dict[str, Any] = {"role": "user", "content": test_prompt}
+        if target_documents:
+            entry["documents"] = list(target_documents)
         if file_uri:
-            entry["file_uri"] = file_uri
+            entry["file_uri"] = _stored_file_uri(file_uri)
         conversation: List[Dict[str, Any]] = [entry]
 
         judge_input_tokens = 0
@@ -361,7 +449,25 @@ class SingleTurnAuditor(ModelAuditor):
         # Same containment as run_scenario: a provider blip becomes one ERROR
         # result rather than an exception that discards the whole batch.
         error: Optional[str] = None
+        error_phase: Optional[str] = None
+        # What every judge hook gets, as on ModelAuditor (not the raw scenario).
+        scenario_meta: Dict[str, Any] = {
+            "severity": scenario.get("severity"),
+            "category": scenario.get("category"),
+            "metadata": scenario.get("metadata") or {},
+        }
+        if decision is not None:
+            scenario_meta["decision"] = decision
         try:
+            # Same order as ModelAuditor.run_scenario: a scenario the judge
+            # cannot grade fails before any target tokens are spent.
+            validate = getattr(self.judge_postprocess, "validate_scenario", None)
+            if validate is not None:
+                validate(expected_behavior, scenario_meta)
+            # Recorded before the call, as in ModelAuditor.run_scenario.
+            if trace_correlation is not None:
+                _link_scenario(trace_correlation, scenario_run_id, name)
+                trace_correlation.record(turn_id, scenario_trace_id)
             # Through self.target, not target_client: an explicit Target (an
             # HTTP app, a callable) replaces the model client, and the context
             # carries the traceparent an instrumented target propagates.
@@ -376,19 +482,43 @@ class SingleTurnAuditor(ModelAuditor):
                     scenario_run_id=scenario_run_id,
                     turn_id=turn_id,
                     trace_headers={"traceparent": make_traceparent(scenario_trace_id)},
+                    extra={"decision": public_decision(decision)} if decision is not None else {},
                 ),
             )
-            if trace_correlation is not None:
-                trace_correlation.record(turn_id, scenario_trace_id)
-            target_input_tokens = target_resp.input_tokens or 0
-            target_output_tokens = target_resp.output_tokens or 0
-            response = ModelAuditor.strip_thinking(target_resp.content)
+            target_input_tokens = token_count(target_resp.input_tokens) or 0
+            target_output_tokens = token_count(target_resp.output_tokens) or 0
+            response = (
+                _content_to_text(target_resp.content)
+                if getattr(self.target, "preserve_content", False)
+                else ModelAuditor.strip_thinking(target_resp.content)
+            )
             self._fire_on_turn(0, 1, "target", effective_on_turn)
+            # Same empty-reply rule as ModelAuditor.run_scenario: custom
+            # targets bypass _call_async, and an empty reply is a failed call,
+            # not an answer to grade.
+            if (
+                self.empty_response == "error"
+                # A target whose empty reply is an answer (ASR silence) is graded.
+                and not getattr(self.target, "empty_is_answer", False)
+                and (response is None or (isinstance(response, str) and not response.strip()))
+                and getattr(target_resp, "decision", None) is None
+                and not getattr(target_resp, "tool_events", None)
+            ):
+                raise EmptyResponseError("Target returned an empty response")
             response_preview = response[:80] + "..." if len(response) > 80 else response
             self._log(f"TARGET: {response_preview}", name=name)
-            conversation.append({"role": "assistant", "content": response})
+            reply: Dict[str, Any] = {"role": "assistant", "content": response}
+            if getattr(target_resp, "decision", None) is not None:
+                reply["decision"] = _json_safe(target_resp.decision)
+            tool_events = getattr(target_resp, "tool_events", None)
+            if tool_events:
+                # Kept so the judge sees TOOL ACTIVITY and the saved result
+                # records what the agent did, as in ModelAuditor.
+                reply["tool_events"] = _stored_tool_events(tool_events)
+            conversation.append(reply)
         except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"
+            error = describe_exception(exc)
+            error_phase = "conversation"
             self._log(f"--- Scenario FAILED on the target call: {name} [{error}] ---")
 
         if error is None:
@@ -397,12 +527,15 @@ class SingleTurnAuditor(ModelAuditor):
             # spans that replace the static evidence_spans for judging. Without
             # one, the static evidence_spans are used verbatim.
             resolved_evidence = evidence_spans
+            resolved_agentic: Optional[Dict[str, Any]] = None
+            resolved_guidance: Optional[str] = None
             if evidence_resolver is not None:
                 execution = ScenarioExecution(
                     scenario_name=name,
                     scenario_description=description,
                     conversation=conversation,
-                    scenario_meta=scenario,
+                    # The same scenario_meta ModelAuditor hands a resolver.
+                    scenario_meta=scenario_meta,
                     expected_behavior=expected_behavior,
                     trace_correlation=trace_correlation,
                     audit_run_id=audit_run_id,
@@ -413,13 +546,20 @@ class SingleTurnAuditor(ModelAuditor):
                     auditor_output_tokens=auditor_output_tokens,
                 )
                 try:
-                    resolved_evidence = (
-                        await evidence_resolver(execution)
-                        if asyncio.iscoroutinefunction(evidence_resolver)
-                        else evidence_resolver(execution)
-                    )
+                    resolver_result = evidence_resolver(execution)
+                    if inspect.isawaitable(resolver_result):
+                        resolver_result = await resolver_result
+                    # Same contract as ModelAuditor: a plain span list, or a
+                    # dict with selected_spans / agentic_evaluation /
+                    # agentic_guidance.
+                    if isinstance(resolver_result, dict):
+                        resolved_evidence = resolver_result.get("selected_spans", evidence_spans)
+                        resolved_agentic = resolver_result.get("agentic_evaluation")
+                        resolved_guidance = resolver_result.get("agentic_guidance")
+                    else:
+                        resolved_evidence = resolver_result
                 except Exception as exc:
-                    self._log(f"--- Evidence resolution failed: {type(exc).__name__}: {exc} ---")
+                    self._log(f"--- Evidence resolution failed: {describe_exception(exc)} ---")
                     resolved_evidence = evidence_spans
 
             self._log("Judging response...", name=name)
@@ -429,37 +569,106 @@ class SingleTurnAuditor(ModelAuditor):
                 "derivations": derivations,
             }
             judge_prompt, response_schema = self._judge_spec(judge_spec_context)
+            # Same judge contract as ModelAuditor.run_scenario: the judge's
+            # post-processor, the default-judge fallback for scenarios without
+            # expectations, judge notes, and code-graded judges. The one
+            # exception is groundedness, whose findings are derived below from
+            # the marks; its postprocess exists only to flag paths that cannot
+            # do that, so it is not applied here.
+            judge_prompt, response_schema, postprocess, fell_back = self._resolve_judge_spec(
+                judge_prompt,
+                response_schema,
+                self.judge_postprocess,
+                self.judge_requires_expected_behavior,
+                expected_behavior,
+            )
+            # Only with marks can the findings be derived here; without them the
+            # groundedness hook stays on and reports the scenario as ERROR,
+            # exactly as on ModelAuditor.
+            grounded = postprocess is postprocess_groundedness and bool(marks)
+            if grounded:
+                postprocess = None
+            if fell_back:
+                self._warn_no_expectations(name)
             try:
-                judgment, j_in, j_out = await self._judge_conversation_async(
-                    self.judge_client,
-                    self.judge_model,
-                    _build_judge_context(description, marks, as_of, derivations),
-                    conversation,
-                    # Withheld from a blind judge, and this is the larger of the
-                    # two leaks: a grounding scenario's expected_behavior names
-                    # the trap outright ("the finding is followed_lower_authority",
-                    # "do not be distracted by the planted chunk at index 1"), so
-                    # a judge shown it can report the expected stance without
-                    # reading the answer. It still travels on the AuditResult,
-                    # where it belongs.
-                    None if marks else expected_behavior,
-                    judge_prompt=judge_prompt,
-                    json_format=self.json_format,
-                    response_schema=response_schema,
-                    judge_fields=self.judge_fields,
-                    max_retries=self.max_retries,
-                    retry_backoff=self.retry_backoff,
-                    params=effective_judge or None,
-                    evidence_spans=resolved_evidence,
-                )
+                if self.judge_grade is not None and not fell_back:
+                    # Graded in code (judges/choice_match.py): no judge call, no tokens.
+                    judgment = self.judge_grade(
+                        conversation=conversation,
+                        expected_behavior=expected_behavior,
+                        scenario_meta=scenario_meta,
+                    )
+                    j_in = j_out = 0
+                else:
+                    judgment, j_in, j_out = await self._judge_conversation_async(
+                        self.judge_client,
+                        self.judge_model,
+                        _build_judge_context(description, marks, as_of, derivations),
+                        # The briefing already lists the documents; strip
+                        # them from the turn so the judge does not read them
+                        # twice.
+                        [
+                            {k: v for k, v in m.items() if k != "documents"}
+                            for m in conversation
+                        ] if marks else conversation,
+                        # Withheld from a blind judge, and this is the larger of the
+                        # two leaks: a grounding scenario's expected_behavior names
+                        # the trap outright ("the finding is followed_lower_authority",
+                        # "do not be distracted by the planted chunk at index 1"), so
+                        # a judge shown it can report the expected stance without
+                        # reading the answer. It still travels on the AuditResult,
+                        # where it belongs.
+                        None if marks else expected_behavior,
+                        judge_prompt=judge_prompt,
+                        json_format=self.json_format,
+                        # Withheld from the blind groundedness judge like the
+                        # expectations: notes can name the trap too. The
+                        # correctness judge gets them (see _judge_correctness).
+                        judge_notes=None if marks else as_str_list((scenario.get("metadata") or {}).get("judge_notes")),
+                        response_schema=response_schema,
+                        judge_fields=self.judge_fields,
+                        max_retries=self.max_retries,
+                        retry_backoff=self.retry_backoff,
+                        postprocess=postprocess,
+                        scenario_meta=scenario_meta,
+                        params=effective_judge or None,
+                        evidence_spans=resolved_evidence,
+                        agentic_evaluation=resolved_agentic,
+                        agentic_guidance=resolved_guidance,
+                        require_content=self.empty_response == "error",
+                    )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out
+                if fell_back and isinstance(judgment, dict):
+                    judgment["judge_fallback"] = "default"
+                if (
+                    marks and grounded and isinstance(judgment, dict)
+                    and not is_upstream_error(judgment)
+                    and not _has_grounding_observations(judgment)
+                ):
+                    # The grade is derived from the observations alone; a reply
+                    # without usable ones (missing, null, wrong type) must not
+                    # be graded from a stray severity/score, nor read as
+                    # "every document ignored", which derives pass.
+                    judgment = {
+                        **{k: v for k, v in judgment.items() if k not in ("severity", "score")},
+                        "severity": "ERROR",
+                        "parse_error": True,  # the framework's verdict, not the judge's
+                        "issues_found": [
+                            "Judge returned no usable grounding observations "
+                            "(asserted_spans must be a list of quoted strings)"
+                        ],
+                    }
                 # The judge reports what the response did with each document;
                 # the findings and the severity are worked out here. Keeping
                 # the raw stance alongside them means a disputed finding can
                 # be traced back to the observation it came from without
                 # re-running the judge.
-                if marks and ("asserted_spans" in judgment or "stance" in judgment):
+                # Derived only for the groundedness judge — decided by the
+                # configured judge, never by the reply's keys: a stray
+                # "asserted_spans" in a safety or score judge's reply would
+                # otherwise throw away its grade.
+                if grounded and not is_upstream_error(judgment):
                     observation = dict(judgment)
                     # Attribution first: the judge said what the answer claims
                     # and what it argues against, and the claims are matched to
@@ -495,7 +704,8 @@ class SingleTurnAuditor(ModelAuditor):
                         judgment = combine_judgments(judgment, correctness)
                 self._fire_on_turn(0, 1, "judge", effective_on_turn)
             except Exception as exc:
-                error = f"{type(exc).__name__}: {exc}"
+                error = describe_exception(exc)
+                error_phase = "judge"
                 self._log(f"--- Judging FAILED: {name} [{error}] ---")
 
         if error is not None:
@@ -507,7 +717,11 @@ class SingleTurnAuditor(ModelAuditor):
                     "Re-run this scenario; check API credentials, rate limits, and connectivity."
                 ],
                 "error": error,
+                "error_phase": error_phase,
             }
+        else:
+            judgment = coerce_judgment_fields(judgment)
+        _keep_grading_metadata(judgment, {"metadata": scenario.get("metadata") or {}})
 
         # Same reading as ModelAuditor: an explicit severity, else one derived
         # from a 1-10 score, else ERROR (the judge did not grade).
@@ -622,18 +836,18 @@ class SingleTurnAuditor(ModelAuditor):
                     # ERROR result instead. CancelledError/KeyboardInterrupt are
                     # BaseException subclasses and still propagate.
                     name = scenario.get("name", "<unknown>")
-                    self._log(f"--- Scenario FAILED: {name} [{type(exc).__name__}: {exc}] ---")
+                    self._log(f"--- Scenario FAILED: {name} [{describe_exception(exc)}] ---")
                     result = AuditResult(
                         scenario_name=name,
                         scenario_description=scenario.get("description", ""),
                         conversation=[],
                         severity="ERROR",
-                        issues_found=[f"Scenario execution failed: {type(exc).__name__}: {exc}"],
+                        issues_found=[f"Scenario execution failed: {describe_exception(exc)}"],
                         positive_behaviors=[],
-                        summary=f"Scenario did not complete due to an error: {exc}"[:500],
+                        summary=f"Scenario did not complete due to an error: {describe_exception(exc)}"[:500],
                         recommendations=["Re-run this scenario; check API credentials, rate limits, and connectivity."],
                         expected_behavior=scenario.get("expected_behavior"),
-                        judgment={"severity": "ERROR", "error": f"{type(exc).__name__}: {exc}"},
+                        judgment={"severity": "ERROR", "error": describe_exception(exc)},
                     )
                 # Ticked here rather than at the two call sites so the ERROR
                 # path advances the bars too and they never finish short.
@@ -657,4 +871,7 @@ class SingleTurnAuditor(ModelAuditor):
                     await asyncio.gather(*tasks, return_exceptions=True)
                     raise
 
-        return AuditResults(results, meta=self._run_meta(scenarios, max_turns, language))
+        # max_turns is accepted and ignored here, so it is not validated either.
+        meta = self._run_meta(scenarios, None, language)
+        meta["max_turns"] = 1  # one exchange per scenario, whatever was requested
+        return AuditResults(results, meta=meta)

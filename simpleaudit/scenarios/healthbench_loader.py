@@ -371,6 +371,12 @@ def load_healthbench_scenarios(
     """
     if subset not in SUBSETS:
         raise ValueError(f"Unknown HealthBench subset {subset!r}. Available: {', '.join(SUBSETS)}")
+    if limit is not None and limit < 0:
+        raise ValueError(f"limit must be >= 0, got {limit}")
+    # A bare string is one theme: set("hedging") would be its letters, and
+    # the filter would then silently match nothing.
+    if isinstance(themes, str):
+        themes = [themes]
     data = Path(path).read_bytes() if path else _fetch(subset, cache_dir)
     wanted = set(themes) if themes is not None else None
 

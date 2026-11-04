@@ -34,11 +34,13 @@ import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from simpleaudit.spans import MIN_SPAN_CHARS, assistant_texts, find_span, normalise
+from simpleaudit.utils import is_upstream_error
 
 #: Sentence-initial markers used in the shipped packs for items the model may
 #: satisfy but is not required to.
 OPTIONAL_ITEM_RE = re.compile(
-    r"^\s*(?:kan nevne \(ikke påkrevd\)|optionally\b|ideally\b|may\s)",
+    # "may " but not "may not" / "may never": those are prohibitions.
+    r"^\s*(?:kan nevne \(ikke påkrevd\)|optionally\b|ideally\b|may\s(?!not\b|never\b))",
     re.IGNORECASE,
 )
 
@@ -467,7 +469,7 @@ def postprocess_checklist(
     verified ``checklist``, the judge's ``notes``, the derivation statistics,
     and any other key the judge returned.
     """
-    if not isinstance(judgment, dict) or judgment.get("severity") == "ERROR":
+    if not isinstance(judgment, dict) or is_upstream_error(judgment):
         return judgment
     raw_items = judgment.get("checklist")
     if not isinstance(raw_items, list):

@@ -6,7 +6,7 @@ The SimulaChat gateway (OpenAI-compatible) rejects any request whose
 User-Agent identifies the OpenAI SDK, replying 403 "Your request was
 blocked". simpleaudit talks to every provider through any-llm, which
 constructs an AsyncOpenAI client internally, so the override has to be
-passed down via ModelAuditor's `client_kwargs`.
+passed down via ModelAuditor's `kwargs` (all three clients).
 
 Usage:
     export SIMULACHAT_API_KEY=sk-...
@@ -95,7 +95,7 @@ def main() -> None:
         judge_base_url=args.judge_base_url or args.base_url,
         judge_api_key=args.judge_api_key or args.api_key,
         # Without this every call comes back 403 "Your request was blocked".
-        client_kwargs=client_kwargs,
+        kwargs=client_kwargs,
         show_progress=True,
     )
 

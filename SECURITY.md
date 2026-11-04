@@ -34,7 +34,8 @@ If you use SimpleAudit to discover vulnerabilities in AI systems:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+| 0.5.x (latest minor) | :white_check_mark: |
+| < 0.5   | :x:                |
 
 ## Security Considerations for Users
 

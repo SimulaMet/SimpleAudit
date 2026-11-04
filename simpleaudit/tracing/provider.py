@@ -5,7 +5,7 @@ SimpleAudit supports two trace-acquisition modes (mirroring Promptfoo):
 
 1. **BuiltinOTLP** — the auditor runs its own ephemeral OTLP receiver for the
    duration of the audit. The (controlled) target's
-   ``OTEL_EXPORTER_OTLP_ENDPOINT`` is pointed at it. Best for CI, local apps,
+   ``OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`` is pointed at it. Best for CI, local apps,
    staging, and agent SDKs you control. No external collector required.
 
 2. **ExternalTraceProvider** — the target already ships traces to its own
@@ -62,8 +62,10 @@ class TraceProvider:
 class BuiltinOTLP(TraceProvider):
     """Run an ephemeral OTLP receiver for the audit; collect spans in-memory.
 
-    Point the target's ``OTEL_EXPORTER_OTLP_ENDPOINT`` at :attr:`endpoint`
-    (with ``OTEL_EXPORTER_OTLP_PROTOCOL=http/json``) for the duration of the
+    Point the target's ``OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`` at :attr:`endpoint`
+    (with ``OTEL_EXPORTER_OTLP_PROTOCOL=http/json``). The endpoint already
+    ends in ``/v1/traces``: ``OTEL_EXPORTER_OTLP_ENDPOINT`` would get that
+    suffix appended a second time and every export would 404. for the duration of the
     audit. Spans are discarded on :meth:`stop`.
     """
 
@@ -142,7 +144,7 @@ async def audit_with_tracing(
     at an OTLP endpoint:
 
     1. Start the provider (default: :class:`BuiltinOTLP` ephemeral receiver).
-    2. **You** point the target's ``OTEL_EXPORTER_OTLP_ENDPOINT`` at
+    2. **You** point the target's ``OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`` at
        ``provider.endpoint`` (with ``OTEL_EXPORTER_OTLP_PROTOCOL=http/json``)
        for the duration of the run. The helper exposes the endpoint via the
        returned object so you can configure the target before/around the run.
@@ -165,7 +167,9 @@ async def audit_with_tracing(
     -----
     The helper does **not** mutate the target. For a target that reads its
     OTLP endpoint from the environment (e.g. Open WebUI), set
-    ``OTEL_EXPORTER_OTLP_ENDPOINT`` to ``provider.endpoint`` before the run.
+    ``OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`` to ``provider.endpoint`` before the
+    run (not ``OTEL_EXPORTER_OTLP_ENDPOINT``, to which exporters append
+    ``/v1/traces`` again).
     """
     from .context import TraceCorrelation, new_trace_id
 
@@ -185,14 +189,24 @@ async def audit_with_tracing(
             trace_correlation=correlation,
             **run_kwargs,
         )
-        # Collect evidence spans while the provider is still alive.
-        evidence = _scenario_evidence(correlation, provider, token_budget=token_budget)
+        # Collect evidence spans while the provider is still alive: for each
+        # result, only the traces of its own scenario's turns.
+        evidence_by_result = [
+            _scenario_evidence(
+                correlation, provider, token_budget=token_budget,
+                trace_ids=correlation.trace_ids_for_scenario(result.scenario_name),
+            )
+            for result in results.results
+        ]
 
-    # Attach selected evidence spans to each result by scenario.
-    if evidence:
-        for result in results.results:
+    from .selection import redact_span
+
+    for result, evidence in zip(results.results, evidence_by_result, strict=True):
+        if evidence:
             judgment = result.judgment if isinstance(result.judgment, dict) else {}
-            judgment["evidence_spans"] = evidence
+            # Saved with the results: secrets the target captured in span
+            # attributes must not be written to disk.
+            judgment["evidence_spans"] = [redact_span(span) for span in evidence]
             result.judgment = judgment
 
     return results
@@ -203,28 +217,32 @@ def _scenario_evidence(
     provider: Any,
     *,
     token_budget: Optional[int] = None,
+    trace_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Collect + select evidence spans across every trace the correlation saw.
+    """Collect + select evidence spans for ``trace_ids``.
 
-    The correlation records ``turn_id -> trace_id``. We gather all spans for
-    those traces from the provider, de-duplicate, and select the
-    evidence-relevant kinds. Per-scenario attribution is approximate when
-    ``max_workers>1`` (the correlation is shared across scenarios), but each
-    span's provenance carries the exact ``trace_id``/``span_id`` for a
-    Finding's ``EvidenceRef``.
+    ``trace_ids`` are one scenario's traces (see
+    :meth:`TraceCorrelation.trace_ids_for_scenario`). When None — a
+    correlation the engine never linked to scenarios — every trace the
+    correlation saw is used. Spans are de-duplicated and the
+    evidence-relevant kinds selected; each span's provenance carries the
+    exact ``trace_id``/``span_id`` for a Finding's ``EvidenceRef``. A new
+    list is returned on every call.
     """
     from .selection import select_spans
 
+    if trace_ids is None:
+        trace_ids = correlation.all_trace_ids()
     all_spans: List[Dict[str, Any]] = []
     seen: set = set()
-    for turn in correlation.turns():
-        for tid in turn.trace_ids:
-            for span in provider.fetch(tid):
-                sid = span.get("span_id")
-                if sid in seen:
-                    continue
-                seen.add(sid)
-                all_spans.append(span)
+    for tid in trace_ids:
+        for span in provider.fetch(tid):
+            # Span ids are unique only within a trace.
+            sid = (span.get("trace_id"), span.get("span_id"))
+            if sid in seen:
+                continue
+            seen.add(sid)
+            all_spans.append(span)
     if not all_spans:
         return []
     selected = select_spans(all_spans, token_budget=token_budget)

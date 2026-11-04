@@ -89,6 +89,13 @@ _CURL_HEADER_FLAG = re.compile(r"(?:^|\s)(?:-H|--header|-b|--cookie)\s+$")
 _QUOTED_PAIR = re.compile(
     r"""(['"])([A-Za-z][\w.-]{0,63})\1(\s*[:=]\s*)(?:(['"])((?:\\.|(?!\4)[^\\\n]){0,4096})\4|([^\s,}\]'"]{1,4096}))"""
 )
+# Documented API-key prefixes (OpenAI, Anthropic, GitHub, AWS, Slack, Google,
+# Hugging Face): prefix-anchored, so prose is never matched.
+_PROVIDER_KEY = re.compile(
+    r"\b(?:sk-(?:proj-|ant-|or-)?[A-Za-z0-9_-]{20,200}|gh[pousr]_[A-Za-z0-9]{20,200}"
+    r"|github_pat_[A-Za-z0-9_]{20,200}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,200}"
+    r"|AIza[0-9A-Za-z_-]{35}|hf_[A-Za-z0-9]{20,200})\b"
+)
 _ENV_SECRET = re.compile(
     r"\b([A-Z][A-Z0-9_]{0,63}_(?:PASSWORD|PASSWD|SECRET|TOKEN|API_KEY|APIKEY|PRIVATE_KEY)=)[^\s'\"]{1,4096}"
 )
@@ -366,6 +373,8 @@ def _redacted(attrs: Any, _depth: int = 0, *, _name: Any = None, _text_names: bo
         # Key/value pairs with a quoted key, in text that is not strict JSON
         # (a Python repr, truncated or trailing JSON): {'api_key': 'sk-...'}.
         attrs = _QUOTED_PAIR.sub(lambda m: _redact_quoted_pair(m, secret_name), attrs)
+        # Provider keys in free text, by their documented prefixes.
+        attrs = _PROVIDER_KEY.sub("[REDACTED]", attrs)
         # Unambiguous shell credentials: DB_PASSWORD=..., curl -u user:pass.
         attrs = _ENV_SECRET.sub(lambda m: m.group(1) + "[REDACTED]", attrs)
         attrs = _CURL_USER.sub(lambda m: m.group(1) + "[REDACTED]", attrs)

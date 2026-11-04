@@ -941,6 +941,36 @@ class ModelAuditor:
             setattr(self, f"{role}_client", new)
             owned[role] = new
 
+    async def aclose(self) -> None:
+        """Close the HTTP connections of the clients this auditor created.
+
+        Called at the end of each sync :meth:`run` (the next one rebuilds
+        them) and by AuditExperiment after each repetition. Without it a
+        client is closed by its own ``__del__`` on whatever loop is running
+        when it is garbage-collected, which fails with "Event loop is closed"
+        and keeps sockets open until then. Injected clients are the caller's.
+        """
+        seen: set = set()
+        for client in list(getattr(self, "_owned_clients", {}).values()):
+            if id(client) in seen:
+                continue
+            seen.add(id(client))
+            close = getattr(getattr(client, "client", None), "close", None)
+            if close is None:
+                continue
+            try:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:  # closing is best effort; never fail a finished run
+                pass
+
+    async def _run_then_close(self, coro: Any) -> Any:
+        try:
+            return await coro
+        finally:
+            await self.aclose()
+
     #: Class-level default for instances built without __init__ (see __init__).
     empty_response: str = "error"
 
@@ -1609,29 +1639,34 @@ Evaluate this conversation and respond with this exact JSON structure:
                 if turn == 0 and (test_prompt or getattr(target, "default_prompt", None)):
                     probe = test_prompt or target.default_prompt
                 else:
-                    probe, a_in, a_out = await self._generate_probe_async(
-                        self.auditor_client,
-                        self.auditor_model,
-                        description,
-                        conversation,
-                        language,
-                        probe_prompt=self.probe_prompt,
-                        # Only on turn 0: from turn 1 the files are already in
-                        # `conversation`, and passing them again would number
-                        # and attach each one twice.
-                        file_uri=file_uri if turn == 0 else None,
-                        max_retries=self.max_retries,
-                        retry_backoff=self.retry_backoff,
-                        params=effective_auditor or None,
-                        require_content=self.empty_response == "error",
-                    )
-                    auditor_input_tokens += a_in
-                    auditor_output_tokens += a_out
-                    probe = ModelAuditor.strip_thinking(probe)
-                    # require_content checked the raw text; a reasoning auditor
+                    # require_content checks the raw text; a reasoning auditor
                     # cut off inside <think> (or a bare "User:") is empty only
-                    # after stripping, and must not reach the target.
-                    if self.empty_response == "error" and not probe.strip():
+                    # after stripping. That is a model hiccup like an empty
+                    # reply, so it gets the same retry budget, and an empty
+                    # probe never reaches the target.
+                    for probe_attempt in range(self.max_retries + 1):
+                        probe, a_in, a_out = await self._generate_probe_async(
+                            self.auditor_client,
+                            self.auditor_model,
+                            description,
+                            conversation,
+                            language,
+                            probe_prompt=self.probe_prompt,
+                            # Only on turn 0: from turn 1 the files are already in
+                            # `conversation`, and passing them again would number
+                            # and attach each one twice.
+                            file_uri=file_uri if turn == 0 else None,
+                            max_retries=self.max_retries,
+                            retry_backoff=self.retry_backoff,
+                            params=effective_auditor or None,
+                            require_content=self.empty_response == "error",
+                        )
+                        auditor_input_tokens += a_in
+                        auditor_output_tokens += a_out
+                        probe = ModelAuditor.strip_thinking(probe)
+                        if self.empty_response != "error" or probe.strip():
+                            break
+                    else:
                         raise EmptyResponseError(
                             f"Auditor produced an empty probe on turn {turn + 1}/{turns}"
                         )
@@ -2127,7 +2162,7 @@ Evaluate this conversation and respond with this exact JSON structure:
             if getattr(self, "_sync_runs", 0):
                 self._refresh_owned_clients()
             self._sync_runs = getattr(self, "_sync_runs", 0) + 1
-            return run_sync(
+            return run_sync(self._run_then_close(
                 self.run_async(
                     scenarios,
                     max_turns=max_turns,
@@ -2142,7 +2177,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     audit_run_id=audit_run_id,
                     trace_correlation=trace_correlation,
                     evidence_resolver=evidence_resolver,
-                )
+                ))
             )
         msg = "ModelAuditor.run() cannot be called from an active event loop. Use await <object>.run_async()."
         raise RuntimeError(msg)

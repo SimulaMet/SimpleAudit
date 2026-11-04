@@ -354,7 +354,13 @@ class AuditExperiment:
         max_retries_per_rep: int = 2,
         rep_is_done: Optional[Callable[..., Any]] = None,
         max_error_reps: int = 3,
+        max_parallel_reps: int = 1,
     ):
+        """``max_parallel_reps`` lets :meth:`run_scenario_reps` run that many
+        independent repetitions at once (default 1: one after another, as
+        before). Results are still returned in repetition order;
+        ``on_rep_done`` fires as each repetition finishes.
+        """
         if not models or any("model" not in m for m in models):
             raise ValueError("Models must be dicts with a 'model' key.")
         # Integers, checked up front: a float fails only in range() after
@@ -434,6 +440,9 @@ class AuditExperiment:
         self.max_retries_per_rep = int(max_retries_per_rep)
         self.rep_is_done = rep_is_done
         self.max_error_reps = int(max_error_reps)
+        if not _is_int(max_parallel_reps) or max_parallel_reps < 1:
+            raise ValueError("max_parallel_reps must be an integer >= 1")
+        self.max_parallel_reps = int(max_parallel_reps)
 
     def _make_label(self, model_info: Dict[str, Any]) -> str:
         return model_info.get("label") or model_info["model"]
@@ -854,16 +863,20 @@ class AuditExperiment:
             # trace_correlation may be a zero-arg callable (resolved per rep so
             # the caller can swap in a fresh correlation at each rep boundary).
             corr = trace_correlation() if callable(trace_correlation) else trace_correlation
-            partial = await auditor.run_async(
-                to_run,
-                max_turns=max_turns,
-                language=language,
-                max_workers=max_workers,
-                on_turn=on_turn,
-                audit_run_id=audit_run_id,
-                trace_correlation=corr,
-                evidence_resolver=evidence_resolver,
-            )
+            try:
+                partial = await auditor.run_async(
+                    to_run,
+                    max_turns=max_turns,
+                    language=language,
+                    max_workers=max_workers,
+                    on_turn=on_turn,
+                    audit_run_id=audit_run_id,
+                    trace_correlation=corr,
+                    evidence_resolver=evidence_resolver,
+                )
+            finally:
+                # Close this rep's clients on this loop (see ModelAuditor.aclose).
+                await auditor.aclose()
             if result is None or not by_name:
                 result = partial
             else:
@@ -962,6 +975,51 @@ class AuditExperiment:
             cache_reusable = self._check_run_config(
                 cache_label, fingerprint, quarantine_combined=False
             )
+
+        async def one_rep(i: int) -> Optional[List[AuditResult]]:
+            """Rep *i*: its results, or None when cancelled or done elsewhere."""
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                return None
+            if await self._call_rep_is_done(label, i):
+                return None
+            if self.save_dir and cache_reusable:
+                run_path = self._run_path(cache_label, i)
+                if run_path.exists():
+                    try:
+                        cached = AuditResults.load(str(run_path))
+                        if (
+                            len(cached) == 1
+                            and cached[0].scenario_name == scenario["name"]
+                            and not any(_rerunnable_error(r) for r in cached)
+                        ):
+                            return list(cached)
+                    except (ValueError, KeyError, TypeError):
+                        pass
+            rep_result = await self._run_single_rep(
+                merged, [scenario], max_turns, language, max_workers=1,
+                on_turn=on_turn,
+                audit_run_id=audit_run_id,
+                trace_correlation=trace_correlation,
+                evidence_resolver=evidence_resolver,
+            )
+            if self.save_dir:
+                run_path = self._run_path(cache_label, i)
+                run_path.parent.mkdir(parents=True, exist_ok=True)
+                rep_result.save(str(run_path))
+            await self._call_on_rep_done(label, i, rep_result)
+            return list(rep_result)
+
+        if getattr(self, "max_parallel_reps", 1) > 1:
+            # Independent reps at once (opt-in); results kept in rep order.
+            gate = asyncio.Semaphore(self.max_parallel_reps)
+
+            async def gated(i: int) -> Optional[List[AuditResult]]:
+                async with gate:
+                    return await one_rep(i)
+
+            for rep in await asyncio.gather(*(gated(i) for i in range(self.n_repetitions))):
+                results.extend(rep or [])
+            return results
 
         for i in range(self.n_repetitions):
             # Cancellation check

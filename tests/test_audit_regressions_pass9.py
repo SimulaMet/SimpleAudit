@@ -2087,3 +2087,70 @@ def test_changed_model_set_sets_old_combined_file_aside(tmp_path):
     _run(exp(["m1", "m2"]), scen)
     _run(exp(["m1"]), scen)
     assert (tmp_path / "experiment_results.json.stale").exists()
+
+
+def test_parallel_reps_run_concurrently_and_keep_rep_order():
+    import asyncio as _asyncio
+    import time as _time
+
+    from simpleaudit.experiment import AuditExperiment
+
+    exp = AuditExperiment(models=[{"model": "m", "provider": "openai"}], judge_model="j",
+                          judge_provider="openai", show_progress=False, n_repetitions=4,
+                          max_parallel_reps=4)
+    order = []
+
+    async def fake_rep(merged, scenarios, *a, **kw):
+        n = len(order)
+        order.append(n)
+        await _asyncio.sleep(0.2)
+        return AuditResults([AuditResult(scenario_name=f"rep{n}", scenario_description="d",
+                                         conversation=[], severity="pass", issues_found=[],
+                                         positive_behaviors=[], summary="", recommendations=[])])
+
+    with patch.object(AuditExperiment, "_run_single_rep", new=fake_rep), \
+         patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()):
+        start = _time.perf_counter()
+        out = _asyncio.run(exp.run_scenario_reps(0, {"name": "s", "description": "d"}))
+        elapsed = _time.perf_counter() - start
+    assert elapsed < 0.6  # four 0.2 s reps at once, not 0.8 s in sequence
+    assert [r.scenario_name for r in out] == ["rep0", "rep1", "rep2", "rep3"]
+
+
+def test_max_parallel_reps_validated():
+    from simpleaudit.experiment import AuditExperiment
+
+    with pytest.raises(ValueError, match="max_parallel_reps"):
+        AuditExperiment(models=[{"model": "m", "provider": "openai"}], judge_model="j",
+                        judge_provider="openai", show_progress=False, max_parallel_reps=0)
+
+
+def test_probe_empty_after_think_stripping_is_retried():
+    replies = iter(["<think>planning the next question</think>", "And which planet is largest?"])
+    a = _auditor()
+    a.max_retries = 1
+    a.target_client = FakeClient(lambda **k: "Mars.")
+    a.auditor_client = FakeClient(lambda **k: next(replies))
+    a.judge_client = FakeClient(lambda **k: json.dumps({"severity": "pass"}))
+    res = a.run([{"name": "s", "description": "d", "test_prompt": "Name a planet."}], max_turns=2)[0]
+    # Before: ERROR "Auditor produced an empty probe" with retries left.
+    assert res.severity == "pass", res.judgment
+    assert res.conversation[2]["content"] == "And which planet is largest?"
+
+
+def test_sync_run_closes_owned_clients_and_next_run_rebuilds():
+    closed = []
+
+    class Inner:
+        async def close(self):
+            closed.append(1)
+
+    a = _auditor()
+    owned = MagicMock()
+    owned.client = Inner()
+    a._owned_clients = {"judge": owned}
+    a.target_client = FakeClient(lambda **k: "ok")
+    a.judge_client = owned
+    owned.acompletion = FakeClient(lambda **k: json.dumps({"severity": "pass"})).acompletion
+    a.run([{"name": "s", "description": "d", "test_prompt": "q"}], max_turns=1)
+    assert closed == [1]

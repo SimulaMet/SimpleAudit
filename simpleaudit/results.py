@@ -16,6 +16,16 @@ from pathlib import Path
 from simpleaudit.utils import UNGRADED
 
 
+def _current_umask() -> int:
+    # Read once at import: os.umask can only be read by setting it.
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+_UMASK = _current_umask()
+
+
 def _atomic_json_dump(data: Dict, filepath: str) -> None:
     """Write JSON to filepath via a same-directory temp file + rename.
 
@@ -31,6 +41,9 @@ def _atomic_json_dump(data: Dict, filepath: str) -> None:
         # back, instead of making a finished run unsavable.
         with os.fdopen(fd, "w", encoding="utf-8", errors="backslashreplace") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+        # mkstemp creates 0600; give the file the mode a plain open() would
+        # (0666 less the umask), so CI and shared directories can read it.
+        os.chmod(tmp_name, 0o666 & ~_UMASK)
         os.replace(tmp_name, filepath)
     except BaseException:
         try:

@@ -69,7 +69,13 @@ def _redact_secrets(value: Any, in_headers: bool = False) -> Any:
         return f"{name}: [REDACTED]" if sep else "[REDACTED]"
     if isinstance(value, str) and "://" in value:
         return redact_url_secrets(value)
+    if isinstance(value, str) and _CONN_PASSWORD.search(value):
+        # A connection string: "Server=x;Password=hunter2".
+        return _CONN_PASSWORD.sub(lambda m: m.group(1) + "[REDACTED]", value)
     return value
+
+
+_CONN_PASSWORD = re.compile(r"(?i)((?:^|;)\s*(?:password|pwd)\s*=\s*)[^;]*")
 
 
 def _file_digest(uri: Any) -> Any:
@@ -1084,6 +1090,11 @@ class AuditExperiment:
 
                     runs_ordered: Dict[int, AuditResults] = dict(cached)
                     for i in range(self.n_repetitions):
+                        # A cached rep costs nothing: skip it before the cancel
+                        # check, so a fully cached run is not reported cancelled.
+                        if i in cached:
+                            continue
+
                         # Cancellation
                         if self.cancel_event is not None and self.cancel_event.is_set():
                             yield ExperimentEvent(
@@ -1096,9 +1107,6 @@ class AuditExperiment:
                         # External idempotency
                         if await self._call_rep_is_done(label, i):
                             pbar_reps.update(1)
-                            continue
-
-                        if i in cached:
                             continue
 
                         # A full rep is about to be (re-)run: adaptive reruns
@@ -1278,7 +1286,21 @@ class AuditExperiment:
                 adaptive_runs=adaptive_by_model,
                 n_repetitions=self.n_repetitions,
             )
-            final.save(str(self.save_dir / "experiment_results.json"))
+            combined = self.save_dir / "experiment_results.json"
+            if combined.exists():
+                # A different model set: the old combined file lists models
+                # this run leaves out. Set it aside rather than overwrite it.
+                try:
+                    old_labels = set((json.loads(combined.read_text(encoding="utf-8")) or {}).get("runs") or {})
+                except (OSError, ValueError, AttributeError):
+                    old_labels = set()
+                if old_labels - set(runs_by_model):
+                    tqdm.write(
+                        f"  experiment_results.json listed {sorted(old_labels - set(runs_by_model))} "
+                        "not in this run; set aside as *.stale"
+                    )
+                    _quarantine(combined)
+            final.save(str(combined))
 
     # ------------------------------------------------------------------
     # Public: batch execution (backward-compatible)

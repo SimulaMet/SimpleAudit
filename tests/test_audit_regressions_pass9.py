@@ -1991,3 +1991,99 @@ def test_off_ladder_default_severity_explains_itself():
     out = ModelAuditor.parse_json_response('{"severity": "maybe", "issues_found": [], "summary": "x"}')
     assert out["severity"] == "ERROR" and out.get("parse_error") is True
     assert UNGRADABLE_JUDGMENT_ISSUE in out["issues_found"]
+
+
+# --- Pass 26 -------------------------------------------------------------
+
+
+def test_checklist_duplicate_entries_prefer_verified_quote_whatever_order():
+    from simpleaudit.checklist import verify_checklist
+
+    conv = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "Take 5 tablets now."}]
+    good = {"index": 1, "status": "violated", "quote": "Take 5 tablets now."}
+    bad = {"index": 1, "status": "violated", "quote": "words never said"}
+    expectations = ["Must not advise overdose"]
+    # Before: the first entry won, so the order decided whether it verified.
+    for entries in ([bad, good], [good, bad]):
+        assert verify_checklist(entries, expectations, conv)[0]["verified"] is True
+
+
+def test_optional_violated_item_not_listed_as_issue():
+    from simpleaudit.checklist import flatten
+
+    item = {"index": 1, "expectation": "May mention the deadline", "required": False,
+            "status": "violated", "quote": "x", "verified": True, "turn": 1}
+    from simpleaudit.checklist import derive_severity
+
+    out = flatten([item], derive_severity([item], "high"))
+    assert out["issues_found"] == [] and out["recommendations"] == []
+
+
+def test_saved_results_get_umask_mode(tmp_path):
+    import os
+    import stat
+
+    from simpleaudit.results import AuditResults, _UMASK
+
+    path = tmp_path / "r.json"
+    AuditResults([]).save(str(path))
+    # Before: 0600 from mkstemp, unreadable to CI or a shared directory.
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o666 & ~_UMASK
+
+
+@pytest.mark.parametrize("text, secret", [
+    ("output: sk-proj-AAAA1111BBBB2222CCCC3333 done", "AAAA1111BBBB2222CCCC3333"),
+    ("token ghp_abcdefghijklmnopqrstuvwxyz0123 here", "ghp_abcdefghijklmnopqrstuvwxyz0123"),
+    ("aws AKIAIOSFODNN7EXAMPLE key", "AKIAIOSFODNN7EXAMPLE"),
+])
+def test_provider_keys_in_free_text_redacted(text, secret):
+    from simpleaudit.tracing.selection import _redacted, redact_tool_value
+
+    assert secret not in _redacted({"v": text})["v"]
+    assert secret not in redact_tool_value(text)
+
+
+def test_provider_key_rule_leaves_prose_alone():
+    from simpleaudit.tracing.selection import _redacted
+
+    for prose in ("task-management is fine", "a risk-assessment-framework-document-v2"):
+        assert _redacted({"v": prose})["v"] == prose
+
+
+def test_config_redaction_covers_connection_strings_and_short_names():
+    from simpleaudit.experiment import _redact_secrets
+
+    out = _redact_secrets({"connection_string": "Server=x;Password=hunter2", "dsn": "d",
+                           "pwd": "p", "note": "Server=x;Password=hunter2", "session_ttl": 30})
+    assert "hunter2" not in json.dumps(out)
+    assert out["session_ttl"] == 30
+
+
+def test_fully_cached_experiment_not_reported_cancelled(tmp_path):
+    import asyncio as _asyncio
+    import threading
+
+    from tests.test_audit_regressions_pass6 import _exp, _run
+
+    scen = [{"name": "a", "description": "d"}]
+    _run(_exp(tmp_path, n_repetitions=2), scen)
+    event = threading.Event()
+    event.set()
+    res, calls = _run(_exp(tmp_path, n_repetitions=2, cancel_event=event), scen)
+    assert calls == []
+    assert not getattr(res, "cancelled", False)
+
+
+def test_changed_model_set_sets_old_combined_file_aside(tmp_path):
+    from simpleaudit.experiment import AuditExperiment
+
+    def exp(models):
+        return AuditExperiment(models=[{"model": m, "provider": "openai"} for m in models],
+                               judge_model="j", judge_provider="openai", save_dir=str(tmp_path),
+                               show_progress=False)
+
+    from tests.test_audit_regressions_pass6 import _run
+    scen = [{"name": "a", "description": "d"}]
+    _run(exp(["m1", "m2"]), scen)
+    _run(exp(["m1"]), scen)
+    assert (tmp_path / "experiment_results.json.stale").exists()

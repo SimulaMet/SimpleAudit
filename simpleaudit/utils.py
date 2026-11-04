@@ -50,7 +50,7 @@ SECRET_NAME = re.compile(
     r"(^|[._\-\s])("
     r"auth|authorization|cookies?|set[_-]?cookies?|password|passwd|passphrase|secret|credentials?"
     r"|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?key|subscription[_-]?key"
-    r"|signature|sig|bearer|pat"
+    r"|signature|sig|bearer|pat|pwd|dsn|signing[_-]?key|connection[_-]?string"
     r")($|[._\-\s])"
     r"|(^|[._\-\s])(access[_-]?|bearer[_-]?|session[_-]?|auth[_-]?|refresh[_-]?|id[_-]?)?token$"
     r"|^key$",

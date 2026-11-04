@@ -9,7 +9,7 @@ import inspect
 import json
 import numbers
 import os
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 import re
 import threading
 from collections import Counter
@@ -85,7 +85,8 @@ def _file_digest(uri: Any) -> Any:
         return uri
     path = uri
     if uri[:7].lower() == "file://":
-        path = urlsplit(uri).path
+        # Percent-decoded as the ASR target opens it (targets/asr.py unquote).
+        path = unquote(urlsplit(uri).path)
     elif "://" in uri:
         return uri  # remote: not fetched for a fingerprint
     try:

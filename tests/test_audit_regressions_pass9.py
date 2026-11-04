@@ -1906,3 +1906,15 @@ def test_no_hardcoded_api_keys_in_tracked_sources():
                            capture_output=True, text=True).stdout.split()
     leaks = [f for f in files if re.search(r"sk-[A-Za-z0-9]{24,}", (root / f).read_text(errors="ignore"))]
     assert leaks == [], leaks
+
+
+def test_file_uri_percent_escapes_fingerprint_by_content(tmp_path):
+    from simpleaudit.experiment import _file_digest
+
+    clip = tmp_path / "my clip.wav"
+    clip.write_bytes(b"audio-1")
+    digest = _file_digest(clip.as_uri())
+    assert digest.startswith("sha256:")
+    # The %20 form is what the ASR target opens; before the fix it was
+    # fingerprinted by its URI string, so a regenerated clip reused stale runs.
+    assert _file_digest(clip.as_uri().replace(" ", "%20")) == digest

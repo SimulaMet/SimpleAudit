@@ -65,6 +65,8 @@ def normalize_span(raw: Dict[str, Any]) -> Dict[str, Any]:
         "start_time": raw.get("start_time"),
         "end_time": raw.get("end_time"),
         "status": raw.get("status") or "OK",
+        # Why a span failed: the status message and the exception event (if any).
+        **{key: raw[key] for key in ("status_message", "events") if raw.get(key)},
     }
 
 

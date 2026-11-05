@@ -15,7 +15,7 @@ domain logic and stays out of here.
 """
 
 import math
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 #: z-value for a two-sided 95% interval / test (the common default).
 DEFAULT_Z = 1.96
@@ -72,3 +72,77 @@ def two_proportion_z(k1: int, n1: int, k2: int, n2: int) -> Optional[float]:
     if se == 0:
         return None
     return (k2 / n2 - k1 / n1) / se
+
+
+def krippendorff_alpha(
+    units: Sequence[Sequence[Any]],
+    metric: str = "ordinal",
+    values: Optional[Sequence[Any]] = None,
+) -> Optional[float]:
+    """Krippendorff's alpha: chance-corrected agreement for any number of raters.
+
+    ``alpha = 1 - D_o / D_e``: observed disagreement over the disagreement
+    expected by chance. 1 is perfect agreement, 0 is what chance would give,
+    negative is systematic disagreement. It takes any number of raters, copes
+    with missing ratings, and has a metric for ordinal scales, which is why it
+    is the headline figure for judge-versus-human agreement rather than
+    percent agreement or Cohen's kappa (two raters, nominal, no gaps).
+
+    Args:
+        units: one inner sequence per item, holding each rater's value for
+            that item; ``None`` marks a missing rating. Items with fewer than
+            two ratings carry no information about agreement and are skipped.
+        metric: ``"nominal"`` (same or different), ``"ordinal"`` (ranks, the
+            default: right for a severity ladder) or ``"interval"`` (equally
+            spaced numeric codes, by position in *values*).
+        values: the ordered category list for ordinal and interval metrics.
+            Defaults to the sorted set of observed values, which is right for
+            numbers and wrong for a ladder like ``["pass", "low", ...]``, so
+            pass it whenever the categories are strings.
+
+    Returns:
+        The coefficient, or ``None`` when it is undefined: no item has two
+        ratings, or every rating is the same value (nothing to disagree
+        about, so expected disagreement is zero).
+    """
+    if metric not in ("nominal", "ordinal", "interval"):
+        raise ValueError(f"metric must be nominal, ordinal or interval, got {metric!r}")
+    pairable = [[v for v in unit if v is not None] for unit in units]
+    pairable = [unit for unit in pairable if len(unit) >= 2]
+    if not pairable:
+        return None
+    if values is None:
+        values = sorted({v for unit in pairable for v in unit})
+    values = list(values)
+    index = {c: i for i, c in enumerate(values)}
+    unknown = {v for unit in pairable for v in unit if v not in index}
+    if unknown:
+        raise ValueError(f"ratings {sorted(map(str, unknown))} are not in values {values}")
+
+    # Coincidence matrix: each ordered pair of ratings within an item counts
+    # 1 / (m - 1), so every item contributes its number of ratings in total.
+    coincidence: Dict[Tuple[Any, Any], float] = {}
+    for unit in pairable:
+        m = len(unit)
+        for i in range(m):
+            for j in range(m):
+                if i != j:
+                    key = (unit[i], unit[j])
+                    coincidence[key] = coincidence.get(key, 0.0) + 1.0 / (m - 1)
+    n_c = {c: sum(coincidence.get((c, k), 0.0) for k in values) for c in values}
+    n = sum(n_c.values())
+
+    def delta(c: Any, k: Any) -> float:
+        if metric == "nominal":
+            return 0.0 if c == k else 1.0
+        if metric == "interval":
+            return float((index[c] - index[k]) ** 2)
+        lo, hi = sorted((index[c], index[k]))
+        between = sum(n_c[values[g]] for g in range(lo, hi + 1))
+        return (between - (n_c[c] + n_c[k]) / 2) ** 2
+
+    d_o = sum(coincidence.get((c, k), 0.0) * delta(c, k) for c in values for k in values)
+    d_e = sum(n_c[c] * n_c[k] * delta(c, k) for c in values for k in values) / (n - 1)
+    if d_e == 0:
+        return None
+    return 1 - d_o / d_e

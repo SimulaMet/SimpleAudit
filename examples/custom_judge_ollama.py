@@ -140,7 +140,7 @@ def run_custom():
     out_path = SCRIPT_DIR / "results_custom_judge_ollama.json"
     results.save(str(out_path))
     print(f"\nSaved → {out_path}")
-    print("(Open in SimpleAudit visualizer to see the custom judge output rendered)")
+    print("(Open in SimpleAudit Studio to see the custom judge output rendered)")
 
 
 # ---------------------------------------------------------------------------

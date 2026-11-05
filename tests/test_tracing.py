@@ -146,7 +146,8 @@ def test_ephemeral_receiver_binds_and_serves():
             async with httpx.AsyncClient(timeout=10) as client:
                 r = await client.post(rx.endpoint, json=_otlp_http_payload())
                 assert r.status_code == 200
-                assert r.json() == {"partialSuccess": {"rejectedSpans": 0}}
+                assert r.json()["partialSuccess"] == {"rejectedSpans": 0}
+                assert r.json()["authenticated"] is True
             assert len(rx.store) == 1
             spans = rx.store.by_trace("a" * 32)
             assert len(spans) == 1
@@ -420,6 +421,26 @@ def test_parse_otlp_json_string_body():
 
     spans = parse_otlp_json(json.dumps(_otlp_payload()))
     assert len(spans) == 1
+
+
+def test_parse_otlp_json_preserves_genai_content_attributes():
+    payload = _otlp_http_payload()
+    payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"].extend(
+        [
+            {"key": "gen_ai.input.messages", "value": {"stringValue": "user prompt"}},
+            {"key": "gen_ai.output.messages", "value": {"stringValue": "assistant output"}},
+            {"key": "gen_ai.tool.call.arguments", "value": {"stringValue": '{"x":1}'}},
+            {
+                "key": "gen_ai.retrieval.documents",
+                "value": {"arrayValue": {"values": [{"stringValue": "document text"}]}},
+            },
+        ]
+    )
+    span = parse_otlp_json(payload)[0]
+    assert span["attributes"]["gen_ai.input.messages"] == "user prompt"
+    assert span["attributes"]["gen_ai.output.messages"] == "assistant output"
+    assert span["attributes"]["gen_ai.tool.call.arguments"] == '{"x":1}'
+    assert span["attributes"]["gen_ai.retrieval.documents"] == ["document text"]
 
 
 @pytest.mark.asyncio

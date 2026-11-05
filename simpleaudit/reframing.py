@@ -75,6 +75,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Union
 
+from simpleaudit._event_loop import run_sync
 from simpleaudit.judges import get_judge
 from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.repeated_results import (
@@ -84,6 +85,20 @@ from simpleaudit.repeated_results import (
 )
 from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.utils import SEVERITY_ORDER, severity_direction
+
+
+def _refuse_code_graded(config: Dict[str, Any], name: Any) -> None:
+    """Judge-only paths grade stored transcripts; a code-graded config needs the scenario.
+
+    A config with ``grade`` (judges/choice_match.py) grades against the scenario's
+    decision block, which stored results do not carry.
+    """
+    if config.get("grade") is not None:
+        label = config.get("name") if isinstance(name, dict) else name
+        raise ValueError(
+            f"Judge {label!r} grades in code against the scenario's decision block, which "
+            "stored transcripts do not carry; run the scenarios again to grade them with it."
+        )
 
 #: A function from one conversation (list of role/content dicts) to another.
 Transform = Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
@@ -134,6 +149,7 @@ class PromptVariant:
         ``transform``, ...) and win over the config's values.
         """
         config = get_judge(name)
+        _refuse_code_graded(config, name)
         fields: Dict[str, Any] = {
             "label": label or (config.get("name") or "custom judge" if isinstance(name, dict) else name),
             "judge_prompt": config["judge_prompt"],
@@ -161,9 +177,21 @@ class StoredRecord:
     expected_behavior: Optional[List[str]] = None
     scenario_severity: Optional[str] = None
     scenario_severity_source: Optional[str] = None
+    scenario_metadata: Dict[str, Any] = field(default_factory=dict)
 
     def scenario_meta(self) -> Dict[str, Any]:
-        return {"severity": self.scenario_severity, "severity_source": self.scenario_severity_source}
+        meta = {"severity": self.scenario_severity, "severity_source": self.scenario_severity_source}
+        if self.scenario_metadata:
+            meta["metadata"] = self.scenario_metadata
+        return meta
+
+
+def _stored_asr_metadata(judgment: Mapping[str, Any]) -> Dict[str, Any]:
+    """Restore only the reference settings explicitly saved by the ASR judge."""
+    reference = judgment.get("asr_reference") if isinstance(judgment, Mapping) else None
+    if isinstance(reference, dict) and isinstance(reference.get("reference_text"), str):
+        return {"asr": dict(reference)}
+    return {}
 
 
 def _stored_designed_severity(entry: Mapping[str, Any]) -> Optional[str]:
@@ -240,6 +268,7 @@ def load_stored_records(
                 expected_behavior=entry.get("expected_behavior"),
                 scenario_severity=severity,
                 scenario_severity_source=source_label,
+                scenario_metadata=_stored_asr_metadata(entry.get("judgment") or {}),
             )
         )
     return records
@@ -770,8 +799,9 @@ def _check_transform_output(
 ) -> None:
     """A transform may change wording, never structure.
 
-    Same number of turns, same role sequence, and ``file_uri`` preserved per
-    position; otherwise the perturbed grade is not comparable to the baseline.
+    Same number of turns, same role sequence, and ``file_uri`` and
+    ``tool_events`` preserved per position; otherwise the perturbed grade is
+    not comparable to the baseline.
     """
     prefix = f"transform for variant {label!r}"
     if not isinstance(transformed, list):
@@ -790,6 +820,8 @@ def _check_transform_output(
             )
         if ("file_uri" in before) != ("file_uri" in after) or before.get("file_uri") != after.get("file_uri"):
             raise ValueError(f"{prefix} changed file_uri at turn {index}.")
+        if before.get("tool_events") != after.get("tool_events"):
+            raise ValueError(f"{prefix} changed tool_events at turn {index}.")
 
 
 def _error_judgment(message: str) -> Dict[str, Any]:
@@ -1005,7 +1037,7 @@ def _run_sync(coro_factory: Callable[[], Any], name: str) -> Any:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(coro_factory())
+        return run_sync(coro_factory())
     raise RuntimeError(
         f"{name}() cannot be called from an active event loop. "
         f"Use await {name}_async() instead."
@@ -1099,6 +1131,7 @@ async def rejudge_async(
     requires_expected_behavior = False
     if judge is not None:
         config = get_judge(judge)
+        _refuse_code_graded(config, judge)
         judge_prompt = judge_prompt if judge_prompt is not None else config["judge_prompt"]
         response_schema = (
             response_schema if response_schema is not None else config.get("response_schema")
@@ -1110,11 +1143,12 @@ async def rejudge_async(
 
     def meta_for(result: AuditResult) -> Dict[str, Any]:
         stored = _stored_designed_severity({"judgment": result.judgment})
+        metadata = _stored_asr_metadata(result.judgment)
         if stored:
-            return {"severity": stored, "severity_source": "stored"}
+            return {"severity": stored, "severity_source": "stored", "metadata": metadata}
         if result.scenario_name in lookup:
-            return {"severity": lookup[result.scenario_name], "severity_source": "lookup"}
-        return {"severity": None, "severity_source": None}
+            return {"severity": lookup[result.scenario_name], "severity_source": "lookup", "metadata": metadata}
+        return {"severity": None, "severity_source": None, "metadata": metadata}
 
     semaphore = asyncio.Semaphore(max_concurrency)
 
@@ -1181,7 +1215,7 @@ async def rejudge_async(
                 target_output_tokens=result.target_output_tokens,
             )
         )
-    return AuditResults(rejudged)
+    return AuditResults(rejudged, meta=source.meta)
 
 
 def rejudge(

@@ -38,6 +38,7 @@ class ModelTarget:
         transport: Optional[Transport] = None,
         max_retries: int = 0,
         retry_backoff: float = 0.5,
+        require_content: bool = False,
     ) -> None:
         if transport is None and client is None:
             raise ValueError("ModelTarget requires either a client or a transport")
@@ -46,6 +47,8 @@ class ModelTarget:
         self._transport = transport
         self.max_retries = max_retries
         self.retry_backoff = retry_backoff
+        # Treat an empty completion as a (retried) failure instead of a reply.
+        self.require_content = require_content
 
     @property
     def client(self) -> Any:
@@ -88,8 +91,10 @@ class ModelTarget:
             documents=documents,
             response_format=response_format,
             params=params,
+            context=context,
             max_retries=self.max_retries,
             retry_backoff=self.retry_backoff,
+            require_content=self.require_content,
         )
 
 
@@ -104,15 +109,29 @@ async def _client_send(
     documents: Optional[List[Union[str, Dict[str, Any]]]],
     response_format: Optional[Dict[str, Any]],
     params: Optional[Dict[str, Any]],
+    context: Optional[TargetContext] = None,
     max_retries: int,
     retry_backoff: float,
+    require_content: bool = False,
 ) -> TargetResponse:
     """Delegate to the shared AnyLLM call path.
 
     Imported lazily so that ``simpleaudit.targets`` does not create an import
     cycle with ``model_auditor`` at package import time.
+
+    When the per-turn context carries W3C trace headers (e.g. the engine's
+    scenario traceparent), they are merged into ``extra_headers`` so the
+    target's outgoing call propagates the trace context. This is what lets an
+    instrumented target export spans under the same trace id the engine's
+    TraceCorrelation records. User-supplied extra_headers are preserved.
     """
     from ..model_auditor import ModelAuditor
+
+    if context is not None and context.trace_headers:
+        headers = dict(params.get("extra_headers", {}) if params else {})
+        headers.update(context.trace_headers)
+        params = dict(params or {})
+        params["extra_headers"] = headers
 
     content, input_tokens, output_tokens = await ModelAuditor._call_async(
         client,
@@ -126,6 +145,7 @@ async def _client_send(
         max_retries=max_retries,
         retry_backoff=retry_backoff,
         params=params,
+        require_content=require_content,
     )
     return TargetResponse(
         content=content,

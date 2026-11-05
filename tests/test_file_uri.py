@@ -9,13 +9,21 @@ text; expansion happens only on the way to a provider.
 
 import asyncio
 import base64
+import gzip
 import json
+import mimetypes
 import pathlib
 
 import pytest
 
+from simpleaudit import utils
 from simpleaudit.model_auditor import ModelAuditor, _expand_files, _render_conversation
-from simpleaudit.utils import image_data_uri, image_media_type, image_content_block
+from simpleaudit.utils import (
+    image_content_block,
+    image_data_uri,
+    image_media_type,
+    sniff_image_media_type,
+)
 
 from .fakes import FakeClient, make_auditor
 
@@ -24,6 +32,12 @@ from .fakes import FakeClient, make_auditor
 PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
 )
+
+# Content sniffing reads only the leading signature, so the other formats need
+# no more than a valid header.
+JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00" + b"\x00" * 16
+GIF_BYTES = b"GIF89a\x01\x00\x01\x00" + b"\x00" * 16
+WEBP_BYTES = b"RIFF\x1a\x00\x00\x00WEBPVP8 " + b"\x00" * 16
 
 JUDGE_JSON = json.dumps({
     "severity": "pass",
@@ -102,7 +116,7 @@ class TestImageContentBlock:
 
     def test_jpg_extension_normalized_to_jpeg(self, tmp_path):
         path = tmp_path / "photo.JPG"
-        path.write_bytes(b"jpeg-bytes")
+        path.write_bytes(JPEG_BYTES)
         url = image_content_block(file_uri=str(path))["image_url"]["url"]
         assert url.startswith("data:image/jpeg;base64,")
 
@@ -138,6 +152,95 @@ class TestMediaTypeResolution:
     def test_rejects_a_non_image_file(self):
         with pytest.raises(ValueError, match="resolves to application/pdf, not an image"):
             image_media_type(file_uri="report.pdf")
+
+    @pytest.mark.parametrize(
+        "file_uri", ["logo.svg", "scan.tiff", "old.bmp", "favicon.ico", "photo.heic", "photo.avif"]
+    )
+    def test_rejects_image_types_the_vision_apis_do_not_accept(self, file_uri):
+        if mimetypes.guess_type(file_uri)[0] is None:
+            pytest.skip(f"this platform's mimetypes has no entry for {file_uri}")
+        with pytest.raises(ValueError, match="vision APIs do not accept"):
+            image_media_type(file_uri=file_uri)
+
+
+class TestContentSniffing:
+    @pytest.mark.parametrize(
+        "data,expected",
+        [
+            (PNG_BYTES, "image/png"),
+            (JPEG_BYTES, "image/jpeg"),
+            (GIF_BYTES, "image/gif"),
+            (b"GIF87a" + b"\x00" * 8, "image/gif"),
+            (WEBP_BYTES, "image/webp"),
+        ],
+    )
+    def test_identifies_allowed_types(self, data, expected):
+        assert sniff_image_media_type(data) == expected
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            b"",
+            b"<svg xmlns='http://www.w3.org/2000/svg'/>",
+            # mtime=0 keeps the bytes, and so the test ids, identical across
+            # xdist workers.
+            gzip.compress(PNG_BYTES, mtime=0),
+            b"II*\x00" + b"\x00" * 8,
+            b"BM" + b"\x00" * 12,
+            b"RIFF\x1a\x00\x00\x00WAVEfmt ",
+            b"%PDF-1.7",
+        ],
+        ids=["empty", "svg", "gzipped-png", "tiff", "bmp", "riff-wave", "pdf"],
+    )
+    def test_returns_none_for_anything_else(self, data):
+        assert sniff_image_media_type(data) is None
+
+    def test_label_comes_from_content_not_extension(self, tmp_path):
+        path = tmp_path / "renamed.png"
+        path.write_bytes(JPEG_BYTES)
+        url = image_content_block(file_uri=str(path))["image_url"]["url"]
+        assert url.startswith("data:image/jpeg;base64,")
+
+    def test_accepts_a_valid_image_without_an_extension(self, tmp_path):
+        path = tmp_path / "screenshot"
+        path.write_bytes(PNG_BYTES)
+        url = image_content_block(file_uri=str(path))["image_url"]["url"]
+        assert url.startswith("data:image/png;base64,")
+
+    def test_rejects_gzip_named_as_png(self, tmp_path):
+        path = tmp_path / "pic.png.gz"
+        path.write_bytes(gzip.compress(PNG_BYTES, mtime=0))
+        with pytest.raises(ValueError, match="does not contain a supported image"):
+            image_content_block(file_uri=str(path))
+
+    def test_rejects_svg_renamed_to_png(self, tmp_path):
+        path = tmp_path / "logo.png"
+        path.write_bytes(b"<svg xmlns='http://www.w3.org/2000/svg'/>")
+        with pytest.raises(ValueError, match="does not contain a supported image"):
+            image_content_block(file_uri=str(path))
+
+
+class TestSizeGuard:
+    def test_default_limit_keeps_the_payload_within_five_mib(self):
+        limit = utils._max_image_file_bytes()
+        assert len(base64.b64encode(b"\x00" * limit)) <= utils.MAX_IMAGE_PAYLOAD_BYTES
+        assert len(base64.b64encode(b"\x00" * (limit + 1))) > utils.MAX_IMAGE_PAYLOAD_BYTES
+
+    def test_image_at_the_limit_is_accepted(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(utils, "MAX_IMAGE_PAYLOAD_BYTES", 400)
+        limit = utils._max_image_file_bytes()
+        path = tmp_path / "at_limit.png"
+        path.write_bytes(PNG_BYTES + b"\x00" * (limit - len(PNG_BYTES)))
+        url = image_content_block(file_uri=str(path))["image_url"]["url"]
+        assert len(url.split(",", 1)[1]) <= 400
+
+    def test_image_over_the_limit_is_rejected_before_upload(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(utils, "MAX_IMAGE_PAYLOAD_BYTES", 400)
+        limit = utils._max_image_file_bytes()
+        path = tmp_path / "too_big.png"
+        path.write_bytes(PNG_BYTES + b"\x00" * (limit + 1 - len(PNG_BYTES)))
+        with pytest.raises(ValueError, match="per-image limit"):
+            image_content_block(file_uri=str(path))
 
 
 class TestEncodingIsCached:
@@ -178,7 +281,7 @@ class TestEncodingIsCached:
     def test_distinct_uris_are_cached_separately(self, png_path, tmp_path):
         image_data_uri.cache_clear()
         other = tmp_path / "second.png"
-        other.write_bytes(b"different-bytes")
+        other.write_bytes(PNG_BYTES + b"different-bytes")
         first = image_content_block(file_uri=png_path)
         second = image_content_block(file_uri=str(other))
         assert first["image_url"]["url"] != second["image_url"]["url"]
@@ -394,15 +497,17 @@ class TestFileUriEndToEnd:
         # ...but it is read and encoded only once across those turns.
         assert image_data_uri.cache_info().misses == 1
 
-    def test_bad_file_uri_fails_the_scenario_not_the_run(self, png_path):
+    def test_bad_file_uri_fails_the_scenario_not_the_run(self, png_path, tmp_path):
         # A multi-scenario batch: the broken scenario must come back as an
         # ERROR result while the healthy sibling still runs to completion —
         # one bad file must not abort the whole run.
+        not_an_image = tmp_path / "notes.png"
+        not_an_image.write_bytes(b"plain text, not an image")
         target = _Capture(response="A bar chart.")
         judge = _Capture(response=JUDGE_JSON)
         results = _run_batch(
             scenarios=[
-                _image_scenario(file_uri="/tmp/screenshot", name="Broken image"),
+                _image_scenario(file_uri=str(not_an_image), name="Broken image"),
                 _image_scenario(file_uri=png_path, name="Fine image"),
             ],
             target=target,
@@ -412,7 +517,7 @@ class TestFileUriEndToEnd:
         by_name = {r.scenario_name: r for r in results.results}
         assert set(by_name) == {"Broken image", "Fine image"}
         assert by_name["Broken image"].severity == "ERROR"
-        assert "Cannot determine an image type" in " ".join(by_name["Broken image"].issues_found)
+        assert "does not contain a supported image" in " ".join(by_name["Broken image"].issues_found)
         # The sibling ran normally and kept its file_uri in the stored conversation.
         assert by_name["Fine image"].severity != "ERROR"
         assert by_name["Fine image"].conversation[0]["file_uri"] == png_path
@@ -448,214 +553,3 @@ class TestCallAsyncStripsMarker:
         )
         assert all("file_uri" not in message for message in capture.last)
 
-
-# ===========================================================================
-# Visualization server: path traversal, symlink escape, secret comparison
-# ===========================================================================
-
-class _FakeRequest:
-    def __init__(self, headers):
-        self.headers = headers
-
-
-def _load_server():
-    pytest.importorskip("fastapi")
-    pytest.importorskip("uvicorn")
-    from simpleaudit.visualization import server
-    return server
-
-
-def _http_status(excinfo):
-    return excinfo.value.status_code
-
-
-class TestServerPathTraversal:
-    def test_sibling_directory_escape_blocked(self, tmp_path, monkeypatch):
-        server = _load_server()
-        root = tmp_path / "results"
-        root.mkdir()
-        sibling = tmp_path / "results_private"
-        sibling.mkdir()
-        (sibling / "secret.json").write_text('{"results": [1]}')
-
-        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
-        with pytest.raises(server.HTTPException) as exc:
-            server.get_json_file("../results_private/secret.json")
-        assert _http_status(exc) == 403
-
-    def test_legitimate_nested_file_served(self, tmp_path, monkeypatch):
-        server = _load_server()
-        root = tmp_path / "results"
-        (root / "sub").mkdir(parents=True)
-        payload = {"results": [{"scenario_name": "s", "severity": "pass"}]}
-        (root / "sub" / "run_0.json").write_text(json.dumps(payload))
-
-        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
-        resp = server.get_json_file("sub/run_0.json")
-        assert json.loads(bytes(resp.body)) == payload
-
-    def test_symlink_escape_blocked(self, tmp_path, monkeypatch):
-        server = _load_server()
-        root = tmp_path / "results"
-        root.mkdir()
-        outside = tmp_path / "outside"
-        outside.mkdir()
-        (outside / "secret.json").write_text('{"results": [1]}')
-        link = root / "link.json"
-        link.symlink_to(outside / "secret.json")
-
-        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
-        with pytest.raises(server.HTTPException) as exc:
-            server.get_json_file("link.json")
-        assert _http_status(exc) == 403
-
-
-class TestServerAuditShapeRestriction:
-    def test_non_audit_json_rejected(self, tmp_path, monkeypatch):
-        server = _load_server()
-        root = tmp_path / "results"
-        root.mkdir()
-        (root / "config.json").write_text('{"api_key": "secret", "note": "not results"}')
-
-        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
-        with pytest.raises(server.HTTPException) as exc:
-            server.get_json_file("config.json")
-        assert _http_status(exc) == 403
-
-    def test_audit_shaped_json_still_served(self, tmp_path, monkeypatch):
-        server = _load_server()
-        root = tmp_path / "results"
-        root.mkdir()
-        payload = {"results": [{"scenario_name": "s", "severity": "pass"}]}
-        (root / "run.json").write_text(json.dumps(payload))
-
-        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
-        resp = server.get_json_file("run.json")
-        assert json.loads(bytes(resp.body)) == payload
-
-
-class TestServerExperimentFiles:
-    """
-    Experiment files are generated by AuditExperiment. Instead of a top-level results array,
-    they have a "runs" dict, in which each run (model) has its own results array.
-    """
-    def test_experiment_shape_is_valid_and_served(self, tmp_path, monkeypatch):
-        server = _load_server()
-        run = {"results": [{"scenario_name": "s", "severity": "pass"}]}
-        payload = {"runs": {"model-a": [run]}}
-        assert server.is_valid_audit_data(payload) is True
-
-        root = tmp_path / "results"
-        root.mkdir()
-        (root / "expt.json").write_text(json.dumps(payload))
-        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
-        resp = server.get_json_file("expt.json")
-        assert json.loads(bytes(resp.body)) == payload
-
-    def test_empty_runs_rejected(self):
-        server = _load_server()
-        assert server.is_valid_audit_data({"runs": {}}) is False
-
-    def test_file_tree_classifies_experiment_vs_file(self, tmp_path):
-        server = _load_server()
-        root = tmp_path / "results"
-        root.mkdir()
-        plain = {"results": [{"scenario_name": "s", "severity": "pass"}]}
-        expt = {"runs": {"model-a": [plain]}}
-        (root / "plain.json").write_text(json.dumps(plain))
-        (root / "expt.json").write_text(json.dumps(expt))
-
-        tree = server.get_file_tree(str(root))
-        by_name = {item["name"]: item for item in tree}
-        assert by_name["plain.json"]["type"] == "file"
-        assert by_name["expt.json"]["type"] == "experiment"
-        assert by_name["expt.json"]["models"] == ["model-a"]
-
-    def test_tree_and_endpoint_agree_on_experiment_edge_cases(self, tmp_path, monkeypatch):
-        """The tree must never list an entry the JSON endpoint refuses to serve.
-
-        A dict-valued "runs" key alone must not classify a file as an
-        experiment: empty runs, empty results, non-audit result items, and
-        unrelated JSON that happens to use a "runs" key would then show up in
-        the tree only to 403 on click (and leak names of non-audit files).
-        """
-        server = _load_server()
-        root = tmp_path / "results"
-        root.mkdir()
-        cases = {
-            "empty_run_list.json": {"runs": {"model-a": []}},
-            "empty_results.json": {"runs": {"model-a": [{"results": []}]}},
-            "non_audit_items.json": {"runs": {"model-a": [{"results": [1, 2, 3]}]}},
-            "unrelated_runs_key.json": {"runs": {"sweep-1": {"lr": 0.1}}},
-        }
-        for name, payload in cases.items():
-            (root / name).write_text(json.dumps(payload))
-
-        monkeypatch.setattr(server, "RESULTS_DIR", str(root))
-        assert server.get_file_tree(str(root)) == []
-        for name, payload in cases.items():
-            assert server.is_valid_audit_data(payload) is False
-            with pytest.raises(server.HTTPException) as exc:
-                server.get_json_file(name)
-            assert _http_status(exc) == 403
-
-    def test_tree_lists_only_loadable_models(self, tmp_path):
-        server = _load_server()
-        root = tmp_path / "results"
-        root.mkdir()
-        run = {"results": [{"scenario_name": "s", "severity": "pass"}]}
-        payload = {"runs": {"good": [run], "broken": [], "also-good": [run]}}
-        (root / "expt.json").write_text(json.dumps(payload))
-
-        tree = server.get_file_tree(str(root))
-        assert tree[0]["type"] == "experiment"
-        assert tree[0]["models"] == ["good", "also-good"]
-
-
-class TestServerSecret:
-    def test_no_secret_is_noop(self, monkeypatch):
-        server = _load_server()
-        monkeypatch.setattr(server, "SECRET", "")
-        # Should not raise regardless of header.
-        server.check_secret(_FakeRequest({}))
-        server.check_secret(_FakeRequest({"X-Secret": "anything"}))
-
-    def test_wrong_secret_rejected(self, monkeypatch):
-        server = _load_server()
-        monkeypatch.setattr(server, "SECRET", "correct-horse")
-        with pytest.raises(server.HTTPException) as exc:
-            server.check_secret(_FakeRequest({"X-Secret": "wrong"}))
-        assert _http_status(exc) == 401
-
-    def test_missing_header_rejected(self, monkeypatch):
-        server = _load_server()
-        monkeypatch.setattr(server, "SECRET", "correct-horse")
-        with pytest.raises(server.HTTPException) as exc:
-            server.check_secret(_FakeRequest({}))
-        assert _http_status(exc) == 401
-
-    def test_correct_secret_accepted(self, monkeypatch):
-        server = _load_server()
-        monkeypatch.setattr(server, "SECRET", "correct-horse")
-        # No exception means accepted.
-        server.check_secret(_FakeRequest({"X-Secret": "correct-horse"}))
-
-    def test_non_ascii_header_yields_401_not_crash(self, monkeypatch):
-        """A non-ASCII X-Secret must produce a clean 401, not a TypeError/500
-        (secrets.compare_digest rejects non-ASCII str operands)."""
-        server = _load_server()
-        monkeypatch.setattr(server, "SECRET", "correct-horse")
-        with pytest.raises(server.HTTPException) as exc:
-            server.check_secret(_FakeRequest({"X-Secret": "wröng-tökèn"}))
-        assert _http_status(exc) == 401
-
-    def test_non_ascii_secret_round_trips(self, monkeypatch):
-        """A non-ASCII configured secret must still authenticate correctly."""
-        server = _load_server()
-        monkeypatch.setattr(server, "SECRET", "pässwörd-✓")
-        # Correct value accepted (no raise)...
-        server.check_secret(_FakeRequest({"X-Secret": "pässwörd-✓"}))
-        # ...wrong value rejected with 401, not a crash.
-        with pytest.raises(server.HTTPException) as exc:
-            server.check_secret(_FakeRequest({"X-Secret": "pässwörd-x"}))
-        assert _http_status(exc) == 401

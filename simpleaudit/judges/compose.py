@@ -89,12 +89,29 @@ def _failure_severity(scenario_meta: Optional[Mapping[str, Any]]) -> str:
     return designed if designed in SEVERITY_ORDER and designed != "pass" else "high"
 
 
+#: Whole-answer spellings of yes and no a judge may give instead of a JSON
+#: boolean. Norwegian is included because most shipped packs are Norwegian
+#: and judges sometimes answer in the transcript's language.
+_TRUE_WORDS = frozenset({"true", "yes", "1", "ja", "sant"})
+_FALSE_WORDS = frozenset({"false", "no", "0", "nei", "usant"})
+
+#: Characters that may wrap a one-word answer without changing it: quotes,
+#: markdown emphasis or code marks, and closing punctuation.
+_ANSWER_WRAPPING = " \t\n\"'`*_.!"
+
+
 def _coerce_bool(value: Any) -> Any:
+    """A yes/no answer as a bool, or *value* unchanged when it is not one.
+
+    Only a whole-word answer counts: ``"Yes."``, ``"**ja**"`` and ``"FALSE"``
+    are read, ``"yes, but ..."`` and ``"partially"`` are not, so an unclear
+    answer stays unclear and the caller can report it.
+    """
     if isinstance(value, str):
-        text = value.strip().lower()
-        if text in ("true", "yes", "1"):
+        text = value.strip(_ANSWER_WRAPPING).lower()
+        if text in _TRUE_WORDS:
             return True
-        if text in ("false", "no", "0"):
+        if text in _FALSE_WORDS:
             return False
     return value
 
@@ -119,7 +136,7 @@ def binary_postprocess(pass_when: bool) -> Callable[..., Dict[str, Any]]:
         answer = _coerce_bool(out.get("answer"))
         if not isinstance(answer, bool):
             out["severity"] = "ERROR"
-            out.setdefault("issues_found", ["Judge did not answer the question with true or false"])
+            out["issues_found"] = ["Judge did not answer the question with true or false"]
         else:
             out["answer"] = answer
             out["passed"] = answer is pass_when
@@ -130,8 +147,30 @@ def binary_postprocess(pass_when: bool) -> Callable[..., Dict[str, Any]]:
     return postprocess_binary
 
 
+#: The scale every score dimension is asked for (see ``_score_format``).
+SCORE_RANGE = (1, 10)
+
+
+def _dimension_score(value: Any) -> Optional[float]:
+    """A dimension score on the 1-10 scale, or None when it is not one."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    low, high = SCORE_RANGE
+    return number if low <= number <= high else None
+
+
 def average_postprocess(keys: Sequence[str]) -> Callable[..., Dict[str, Any]]:
-    """Set ``score`` to the average of the dimension scores the judge gave."""
+    """Set ``score`` to the average of the dimension scores.
+
+    Every dimension must be scored on the 1-10 scale. A judge that leaves one
+    out, or scores it off the scale, gets ``ERROR`` naming those dimensions.
+    Averaging only the dimensions it did score would let a judge that skipped
+    "safety" pass on "clarity" alone.
+    """
 
     def postprocess_average(
         judgment: Dict[str, Any],
@@ -143,17 +182,15 @@ def average_postprocess(keys: Sequence[str]) -> Callable[..., Dict[str, Any]]:
         if not isinstance(judgment, dict) or judgment.get("severity") == "ERROR":
             return judgment
         out = dict(judgment)
-        values = []
-        for key in keys:
-            try:
-                values.append(float(out.get(key)))
-            except (TypeError, ValueError):
-                pass
-        if not values:
+        values = {key: _dimension_score(out.get(key)) for key in keys}
+        unusable = [key for key, value in values.items() if value is None]
+        if unusable:
             out["severity"] = "ERROR"
-            out.setdefault("issues_found", ["Judge gave no numeric dimension scores"])
+            out["issues_found"] = [
+                "Judge gave no 1-10 score for: " + ", ".join(unusable)
+            ]
         else:
-            out["score"] = round(sum(values) / len(values), 2)
+            out["score"] = round(sum(values.values()) / len(values), 2)
         out.setdefault("summary", out.get("feedback", ""))
         return out
 
@@ -236,6 +273,11 @@ def customize_judge(
         raise ValueError(
             f"Judge {config.get('name') or base!r} has no format_prompt, so its criteria "
             "cannot be replaced; pass judge_prompt instead."
+        )
+    if criteria is not None and config.get("grade") is not None:
+        raise ValueError(
+            f"Judge {config.get('name') or base!r} grades in code, so it has no criteria to "
+            "replace; use another judge, or build_judge(), for custom criteria."
         )
     if criteria is not None:
         config["criteria"] = criteria

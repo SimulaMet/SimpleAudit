@@ -15,6 +15,9 @@ Available packs:
 - epistemic_safety: All bullshitbench + health_bullshit combined (170 scenarios)
 - hei_refusal: Norwegian youth Q&A refusal/guidance edge cases (47 scenarios)
 - nav_aap: NAV Arbeidsavklaringspenger / Norwegian welfare scenarios (15 scenarios)
+- nav_sosialhjelp: NAV økonomisk sosialhjelp under sosialtjenesteloven chapter 4 (7 scenarios)
+- digdir_digital_forvaltning: digital public administration and accessibility of public websites (7 scenarios)
+- brreg_registre: Brønnøysund registers (aksjeloven, regnskapsloven, enhetsregisterloven, foretaksregisterloven) (7 scenarios)
 - skatteetaten: Norwegian Tax Administration scenarios (in development)
 - helfo: Helfo health-economics scenarios (8 scenarios)
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
@@ -39,8 +42,10 @@ HealthBench is not a built-in pack: OpenAI asks that its examples are not repost
 plain text, so load_healthbench_scenarios() downloads it and builds scenarios at run time.
 """
 
+import re
 from collections import Counter
-from typing import List, Dict
+from datetime import date, datetime
+from typing import Any, Dict, List, Mapping, Union
 
 from .safety import SAFETY_SCENARIOS
 from .rag import RAG_SCENARIOS
@@ -56,6 +61,9 @@ from .bullshitbench_v1_v2 import (
 from .bullshitbench_health import BROKEN_PREMISE_SCENARIOS
 from .hei_refusal import HEI_REFUSAL_SCENARIOS
 from .nav_aap import NAV_AAP_SCENARIOS
+from .nav_sosialhjelp import NAV_SOSIALHJELP_SCENARIOS
+from .digdir_digital_forvaltning import DIGDIR_DIGITAL_FORVALTNING_SCENARIOS
+from .brreg_registre import BRREG_REGISTRE_SCENARIOS
 from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
 from .lanekassen import LANEKASSEN_SCENARIOS
@@ -86,6 +94,9 @@ SCENARIO_PACKS = {
     "epistemic_safety": BULLSHITBENCH_SCENARIOS + BROKEN_PREMISE_SCENARIOS,
     "hei_refusal":      HEI_REFUSAL_SCENARIOS,
     "nav_aap":          NAV_AAP_SCENARIOS,
+    "nav_sosialhjelp":  NAV_SOSIALHJELP_SCENARIOS,
+    "digdir_digital_forvaltning": DIGDIR_DIGITAL_FORVALTNING_SCENARIOS,
+    "brreg_registre":   BRREG_REGISTRE_SCENARIOS,
     "skatteetaten":     SKATTEETATEN_SCENARIOS,
     "helfo":            HELFO_SCENARIOS,
     "lanekassen":       LANEKASSEN_SCENARIOS,
@@ -124,7 +135,10 @@ SCENARIO_PACKS = {
                         + HUMAN_RIGHTS_WATER_SCENARIOS
                         + HUMAN_RIGHTS_EDUCATION_SCENARIOS
                         + HUMAN_RIGHTS_FAIR_TRIAL_SCENARIOS
-                        + HEALTHBENCH_BEHAVIOURS_SCENARIOS,
+                        + HEALTHBENCH_BEHAVIOURS_SCENARIOS
+                        + NAV_SOSIALHJELP_SCENARIOS
+                        + DIGDIR_DIGITAL_FORVALTNING_SCENARIOS
+                        + BRREG_REGISTRE_SCENARIOS
 }
 
 
@@ -180,10 +194,76 @@ def duplicate_scenario_names(scenarios: List[Dict]) -> Dict[str, int]:
     return {name: c for name, c in counts.items() if c > 1}
 
 
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _fact_date(value: Any, where: str) -> date:
+    if isinstance(value, str) and _ISO_DATE.fullmatch(value):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            pass
+    raise ValueError(f"{where}: {value!r} is not a valid YYYY-MM-DD date")
+
+
+def stale_facts(packs: Mapping[str, List[Dict]], as_of: Union[date, str]) -> List[Dict[str, Any]]:
+    """
+    Return the dated facts whose ``review_by`` date is before ``as_of``.
+
+    A scenario can list the dated facts it rests on in ``metadata.facts``, each a dict
+    with ``claim``, ``value``, ``valid_from``, ``verified_at``, ``review_by``,
+    ``source_url`` and ``source_quote``, and optionally ``anchors`` (read by the
+    fact_check judge, ignored here). Dates are ``YYYY-MM-DD`` strings. ``valid_from``
+    is None when the source gives no date. ``review_by`` follows the rule's own rhythm
+    and is None for a figure fixed in statute, which is never returned. Scenarios
+    without ``facts`` are skipped.
+
+    No clock is read: ``as_of`` is required, so a call with a fixed date gives the same
+    answer on any day.
+
+    Args:
+        packs: Mapping of pack name to scenario list, e.g. ``SCENARIO_PACKS``. A scenario
+            in several packs (as every scenario in ``all`` is) is reported once, under
+            the first pack it appears in.
+        as_of: The date to check against, as a ``date`` or a ``YYYY-MM-DD`` string
+
+    Returns:
+        The stale facts, each with ``pack`` and ``scenario`` added
+
+    Raises:
+        ValueError: If ``as_of`` or a date in a fact is not a valid ``YYYY-MM-DD`` date,
+            or a fact has no ``review_by`` key
+    """
+    if isinstance(as_of, datetime):
+        as_of = as_of.date()
+    elif not isinstance(as_of, date):
+        as_of = _fact_date(as_of, "as_of")
+
+    stale, seen = [], set()
+    for pack, scenarios in packs.items():
+        for s in scenarios:
+            facts = (s.get("metadata") or {}).get("facts") or []
+            for i, fact in enumerate(facts):
+                where = f"{pack} / {s.get('name')} / facts[{i}]"
+                # A missing key is an error, not "never stale": a misspelt review_by
+                # would otherwise hide the fact from every check.
+                if "review_by" not in fact:
+                    raise ValueError(f"{where}: no review_by (use None for a figure fixed in statute)")
+                dates = {field: _fact_date(fact[field], f"{where}.{field}")
+                         for field in ("valid_from", "verified_at", "review_by")
+                         if fact.get(field) is not None}
+                key = (s.get("name"), fact.get("claim"))
+                if "review_by" in dates and dates["review_by"] < as_of and key not in seen:
+                    seen.add(key)
+                    stale.append({"pack": pack, "scenario": s.get("name"), **fact})
+    return stale
+
+
 __all__ = [
     "get_scenarios",
     "list_scenario_packs",
     "duplicate_scenario_names",
+    "stale_facts",
     "load_healthbench_scenarios",
     "SCENARIO_PACKS",
 ]

@@ -11,15 +11,20 @@ Concrete targets:
     - ``ModelTarget``    — an LLM endpoint via AnyLLM (the historical default)
     - ``HTTPAppTarget``  — an external application over HTTP (black-box)
     - ``CallableTarget`` — an in-process Python callable (handy for tests)
+    - ``DecisionTarget`` — a decision model over a System One endpoint
+    - ``OpenEnvTarget``  — an agent hosted in an OpenEnv environment
 
 The model integration (AnyLLM) is an implementation detail of
 ``ModelTarget``; it is not the architectural center of the engine.
 """
 
+from .asr import ASRTarget
 from .base import Target, TargetContext, TargetResponse
 from .callable import CallableTarget
+from .decision import DecisionTarget
 from .http import HTTPAppTarget
 from .model import ModelTarget
+from .openenv import OpenEnvTarget
 
 __all__ = [
     "Target",
@@ -28,4 +33,7 @@ __all__ = [
     "ModelTarget",
     "HTTPAppTarget",
     "CallableTarget",
+    "DecisionTarget",
+    "ASRTarget",
+    "OpenEnvTarget",
 ]

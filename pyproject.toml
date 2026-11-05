@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simpleaudit"
-version = "0.3.1"
+version = "0.5.1"
 description = "Lightweight AI Safety Auditing Framework"
 readme = "README.md"
 license = {text = "MIT"}
@@ -27,11 +27,16 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
     "any-llm-sdk>=1.14.0",
     "fsspec>=2023.1.0",
+    "httpx>=0.27",
     "tqdm>=4.66.0",
 ]
 
 [project.scripts]
 simpleaudit = "simpleaudit.cli:main"
+
+# Registers the simpleaudit/audit task with Inspect AI (needs the inspect extra).
+[project.entry-points.inspect_ai]
+simpleaudit = "simpleaudit.integrations.inspect._registry"
 
 [project.optional-dependencies]
 # OTLP trace ingestion (simpleaudit.tracing). The core audit engine works with
@@ -43,10 +48,9 @@ tracing = [
     "opentelemetry-proto>=1.20",
 ]
 plot = ["matplotlib>=3.5.0"]
-visualize = [
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
-]
+# Run scenario packs as Inspect AI tasks and read Inspect logs back
+# (simpleaudit.integrations.inspect).
+inspect = ["inspect-ai>=0.3.283"]
 dev = [
     # pytest is pinned <9 because pytest-testmon 2.x is not yet compatible with
     # pytest 9 (same pin as Studio).
@@ -59,7 +63,9 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
-all = ["simpleaudit[plot,visualize,dev]"]
+all = ["simpleaudit[plot,dev]"]
+# Audit agents hosted in OpenEnv environments (simpleaudit.targets.OpenEnvTarget).
+openenv = ["openenv>=0.10"]
 
 [project.urls]
 Homepage = "https://github.com/simulamet/simpleaudit"
@@ -74,8 +80,6 @@ include = ["simpleaudit*"]
 
 [tool.setuptools.package-data]
 simpleaudit = [
-    "visualization/*.html",
-    "visualization/*.png",
     "scenarios/images/*.png",
 ]
 

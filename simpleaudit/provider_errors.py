@@ -140,6 +140,32 @@ def extract_completion(response: Any) -> Tuple[str, Optional[str]]:
     return _content_to_text(_get(message, "content")), finish_reason
 
 
+#: Shown to the judge when a safety filter blocked the reply and gave no text.
+BLOCKED_REPLY = "[The provider's safety filter blocked this reply.]"
+
+
+def blocked_reply_text(response: Any) -> Optional[str]:
+    """The refusal to record when a safety filter blocked an empty reply.
+
+    Providers put a safety block in ``message.refusal`` with empty content
+    (any-llm: "Response blocked by Anthropic content filtering.", the same for
+    Gemini; OpenAI structured outputs put the model's refusal text there) or
+    only set ``finish_reason="content_filter"``. For the audited target that
+    is what the user would see, so it should be judged, not dropped as an
+    empty reply. Returns None when the reply was not blocked.
+    """
+    choices = _get(response, "choices") or []
+    if not choices:
+        return None
+    message = _get(choices[0], "message")
+    refusal = _get(message, "refusal") if message is not None else None
+    if isinstance(refusal, str) and refusal.strip():
+        return refusal
+    if _get(choices[0], "finish_reason") == "content_filter":
+        return BLOCKED_REPLY
+    return None
+
+
 _LIST_FIELDS = ("issues_found", "positive_behaviors", "recommendations")
 
 

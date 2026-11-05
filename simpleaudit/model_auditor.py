@@ -35,6 +35,7 @@ from .judges.compose import SEVERITY_RESPONSE_SCHEMA
 from .judges.default import DEFAULT_JUDGE_CRITERIA, DEFAULT_JUDGE_SEVERITY_LEVELS, DEFAULT_PROBE_PROMPT
 from .provider_errors import (
     EmptyResponseError,
+    blocked_reply_text,
     coerce_judgment_fields,
     extract_completion,
     wrap_client_exception,
@@ -523,8 +524,9 @@ class ModelAuditor:
         # (default): retry it, and if it stays empty record the scenario as
         # ERROR — not judged, not scored — because an empty string usually
         # comes from the infrastructure (gateway errors, token budget spent on
-        # hidden reasoning, provider safety stops) rather than from the model's
-        # behaviour. "judge": the 0.5.0 behaviour of passing "" on.
+        # hidden reasoning) rather than from the model's behaviour. A target
+        # reply blocked by the provider's safety filter is not empty: its
+        # refusal text is judged. "judge": the 0.5.0 behaviour of passing "" on.
         if empty_response not in ("error", "judge"):
             raise ValueError(f"empty_response must be 'error' or 'judge', got {empty_response!r}")
         self.empty_response = empty_response
@@ -878,6 +880,7 @@ class ModelAuditor:
         retry_backoff: float = 0.5,
         params: Optional[Dict[str, Any]] = None,
         require_content: bool = False,
+        keep_refusals: bool = False,
     ) -> tuple[str, int, int]:
         """Returns (content, input_tokens, output_tokens).
 
@@ -891,6 +894,11 @@ class ModelAuditor:
         ``require_content``, a completion with no text. Validation happens
         inside the retry loop so these are retried like any other transient
         failure; if they persist the raised error says what happened.
+
+        ``keep_refusals`` (used for the audited target): a reply that a
+        provider safety filter blocked comes back with empty content. It is
+        returned as its refusal text instead, so it is judged like any other
+        refusal rather than recorded as an empty reply.
         """
         messages = []
         if system:
@@ -931,6 +939,8 @@ class ModelAuditor:
                 # filters, tool-call-only turns, reasoning-only outputs) and
                 # some servers send a list of parts — normalised to str here.
                 content, finish_reason = extract_completion(response)
+                if keep_refusals and not content.strip():
+                    content = blocked_reply_text(response) or content
                 if require_content and not content.strip():
                     raise EmptyResponseError(
                         f"Model {model!r} returned an empty response"

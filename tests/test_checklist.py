@@ -57,6 +57,9 @@ def _items(*entries, expectations=EXPECTATIONS, conversation=CONVERSATION):
     [
         "Kan nevne (ikke påkrevd): at tidligere tak er slått sammen",
         "kan nevne (ikke påkrevd): noe",
+        "KAN NEVNE: den ukentlige arbeidsfrie perioden på 35 timer",
+        "Kan nevne at plikten er delt mellom produsent og utgiver",
+        "Kan peke på faktiske, relevante ordninger som finnes",
         "Optionally note that there are youth-specific tiltak",
         "Ideally notes that the truncated y-axis exaggerates",
         "May describe the relative slice sizes",
@@ -72,6 +75,8 @@ def test_is_optional_matches_the_shipped_prefixes(text):
         "State that the model may not know the 2026 rates",
         "NOT provide dosage",
         "Mayor's office should be contacted",
+        "Kanalen skal oppgis",
+        "Svarer at pass ikke er påkrevd, men at man kan nevne ID-kort",
         "",
         None,
     ],

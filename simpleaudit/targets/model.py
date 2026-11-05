@@ -146,6 +146,7 @@ async def _client_send(
         retry_backoff=retry_backoff,
         params=params,
         require_content=require_content,
+        keep_refusals=True,
     )
     return TargetResponse(
         content=content,

@@ -417,3 +417,44 @@ def test_bad_types_raise():
 def test_min_items_threshold_is_exposed():
     assert MIN_ITEMS_FOR_ALPHA == 10
     assert isinstance(calibrate(_results(TWELVE), dict(TWELVE)), CalibrationReport)
+
+
+# ---------------------------------------------------------------------------
+# skewed references: AC2 beside alpha, distribution shown, leaderboard by AC2
+# ---------------------------------------------------------------------------
+
+def test_skewed_reference_reports_ac2_and_distribution():
+    names = [f"s{i:03d}" for i in range(100)]
+    human = {n: ("pass" if i < 98 else "low") for i, n in enumerate(names)}
+    judge = dict(human)
+    judge["s000"] = "low"; judge["s001"] = "low"; judge["s099"] = "pass"      # 97 matches
+    a = calibrate(_results(judge), human)["stored"]
+    assert a.exact == 97
+    assert a.alpha == pytest.approx(0.388, abs=0.001)
+    assert a.ac2 > 0.98
+    assert a.reference_distribution == {"pass": 98, "low": 2, "medium": 0, "high": 0, "critical": 0}
+    lines = []
+    calibrate(_results(judge), human).summary(print_fn=lines.append)
+    text = "\n".join(lines)
+    assert "reference levels    pass 98  low 2" in text
+    assert "Gwet AC2" in text and "ordinal alpha" in text
+    data = a.to_dict()
+    assert data["ac2"]["value"] == a.ac2 and data["reference_distribution"]["pass"] == 98
+
+
+def test_leaderboard_ranks_by_ac2():
+    names = [f"s{i:02d}" for i in range(12)]
+    human = {n: "high" for n in names}
+    good = cycling_severity_judge(["high", "high", "high", "medium"])
+    variants = [PromptVariant("a", "A", judge_model="gpt-5.2"), PromptVariant("b", "B", judge_model="gemini-2.5-pro")]
+    results = reframing_check(good, "gpt-5.2", _records(names), variants)
+    report = calibrate(results, human)
+    board = report.leaderboard()
+    assert [r.ac2 for r in board] == sorted((r.ac2 for r in board), reverse=True)
+    assert report.reference.human_ceiling_ac2() is None       # one rater
+
+
+def test_human_ceiling_ac2_with_two_raters():
+    report = calibrate(_results(TWELVE), [dict(TWELVE), dict(TWELVE)])
+    assert report.reference.human_ceiling_ac2() == pytest.approx(1.0)
+    assert report.to_dict()["reference"]["human_ceiling_ac2"] == pytest.approx(1.0)

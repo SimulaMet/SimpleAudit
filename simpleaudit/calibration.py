@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from .results import AuditResults, _atomic_json_dump
-from .stats import krippendorff_alpha, wilson_interval
+from .stats import gwet_ac, krippendorff_alpha, wilson_interval
 from .utils import SEVERITY_ORDER, UNGRADED, normalize_severity
 
 #: Below this many compared items the report prints "indicative only" and
@@ -378,15 +378,27 @@ class Reference:
         kinds = {r.kind for r in self.raters}
         return kinds.pop() if len(kinds) == 1 else "mixed"
 
+    def _rater_units(self) -> List[List[Optional[str]]]:
+        units = [[r.ratings.get(name) for r in self.raters] for name in self.consensus]
+        return [u for u in units if sum(v is not None for v in u) >= 2]
+
     def human_ceiling(self) -> Optional[float]:
         """Ordinal alpha among the raters; ``None`` with one rater or too few items."""
         if len(self.raters) < 2:
             return None
-        units = [[r.ratings.get(name) for r in self.raters] for name in self.consensus]
-        units = [u for u in units if sum(v is not None for v in u) >= 2]
+        units = self._rater_units()
         if len(units) < MIN_ITEMS_FOR_ALPHA:
             return None
         return krippendorff_alpha(units, "ordinal", SEVERITY_ORDER)
+
+    def human_ceiling_ac2(self) -> Optional[float]:
+        """Gwet's AC2 (linear) among the raters, the companion to :meth:`human_ceiling`."""
+        if len(self.raters) < 2:
+            return None
+        units = self._rater_units()
+        if len(units) < MIN_ITEMS_FOR_ALPHA:
+            return None
+        return gwet_ac(units, "linear", SEVERITY_ORDER)
 
 
 def _build_reference(refs: Sequence[Any], reference_model: Optional[str]) -> Reference:
@@ -445,6 +457,14 @@ class Agreement:
     stays a plain record. ``n_compared`` is the denominator for everything
     except the pass/fail rates, which use the human-fail and human-pass
     subsets.
+
+    Two chance-corrected figures are given because they fail differently.
+    ``alpha`` (ordinal Krippendorff) corrects for chance from the observed
+    category frequencies, so when nearly every reference item is ``pass`` it
+    reads low even at 97% exact agreement. ``ac2`` (Gwet, linear weights)
+    does not have that problem and is the one ``leaderboard()`` ranks by;
+    ``reference_distribution`` shows the skew that explains a gap between
+    the two.
     """
 
     label: str
@@ -461,8 +481,11 @@ class Agreement:
     n_lenient: int
     bias_mean: Optional[float]
     bias_interval: Optional[Tuple[float, float]]
-    alpha: Optional[float]
+    alpha: Optional[float]                      # ordinal Krippendorff's alpha
     alpha_interval: Optional[Tuple[float, float]]
+    ac2: Optional[float]                        # Gwet's AC2, linear weights
+    ac2_interval: Optional[Tuple[float, float]]
+    reference_distribution: Dict[str, int]      # reference level -> count, compared items
     sensitivity: Tuple[int, int]        # judge fail | reference fail
     specificity: Tuple[int, int]        # judge pass | reference pass
     severe_misses: Tuple[int, int]      # judge pass/low | reference high/critical
@@ -494,6 +517,8 @@ class Agreement:
                 "stricter": self.n_stricter, "lenient": self.n_lenient,
             },
             "alpha": {"value": self.alpha, "interval": list(self.alpha_interval) if self.alpha_interval else None},
+            "ac2": {"value": self.ac2, "interval": list(self.ac2_interval) if self.ac2_interval else None},
+            "reference_distribution": self.reference_distribution,
             "sensitivity": self.rate(*self.sensitivity),
             "specificity": self.rate(*self.specificity),
             "severe_misses": self.rate(*self.severe_misses),
@@ -536,10 +561,15 @@ def _agreement(
     def alpha_of(sample: List[Tuple[str, str, str]]) -> Optional[float]:
         return krippendorff_alpha([[ref, v] for _, ref, v in sample], "ordinal", SEVERITY_ORDER)
 
+    def ac2_of(sample: List[Tuple[str, str, str]]) -> Optional[float]:
+        return gwet_ac([[ref, v] for _, ref, v in sample], "linear", SEVERITY_ORDER)
+
     def bias_of(sample: List[Tuple[str, str, str]]) -> Optional[float]:
         return sum(_LADDER_INDEX[v] - _LADDER_INDEX[ref] for _, ref, v in sample) / len(sample) if sample else None
 
     alpha = alpha_of(pairs) if n >= MIN_ITEMS_FOR_ALPHA else None
+    ac2 = ac2_of(pairs) if n >= MIN_ITEMS_FOR_ALPHA else None
+    distribution = {s: sum(1 for _, ref, _v in pairs if ref == s) for s in SEVERITY_ORDER}
     return Agreement(
         label=label,
         judge_model=judge_model,
@@ -557,6 +587,9 @@ def _agreement(
         bias_interval=_bootstrap(bias_of, pairs) if n else None,
         alpha=alpha,
         alpha_interval=_bootstrap(alpha_of, pairs) if alpha is not None else None,
+        ac2=ac2,
+        ac2_interval=_bootstrap(ac2_of, pairs) if ac2 is not None else None,
+        reference_distribution=distribution,
         sensitivity=(sum(1 for _, v in ref_fail if _LADDER_INDEX[v] >= fail_rank), len(ref_fail)),
         specificity=(sum(1 for _, v in ref_pass if _LADDER_INDEX[v] < fail_rank), len(ref_pass)),
         severe_misses=(sum(1 for _, v in ref_severe if _LADDER_INDEX[v] <= _LADDER_INDEX["low"]), len(ref_severe)),
@@ -614,10 +647,15 @@ class CalibrationReport:
         return sum(1 for v in self.reference.split.values() if v)
 
     def leaderboard(self) -> List[Agreement]:
-        """Judges ordered best first: alpha when every judge has one, else exact agreement."""
+        """Judges ordered best first: Gwet's AC2 when every judge has one, else exact agreement.
+
+        AC2 rather than alpha, because a reference where most items pass
+        pulls alpha down for every judge at once and by different amounts,
+        so it would rank judges by the skew rather than by their agreement.
+        """
         rows = list(self.judges.values())
-        if rows and all(r.alpha is not None for r in rows):
-            return sorted(rows, key=lambda r: (r.alpha, r.exact / max(r.n_compared, 1)), reverse=True)
+        if rows and all(r.ac2 is not None for r in rows):
+            return sorted(rows, key=lambda r: (r.ac2, r.exact / max(r.n_compared, 1)), reverse=True)
         return sorted(rows, key=lambda r: (r.exact / max(r.n_compared, 1), r.n_compared), reverse=True)
 
     # -- output ---------------------------------------------------------------
@@ -645,7 +683,9 @@ class CalibrationReport:
         out.append(line)
         ceiling = self.reference.human_ceiling()
         if ceiling is not None:
-            out.append(f"  agreement among raters (ordinal alpha): {ceiling:.2f}   <- the ceiling to read the judge against")
+            ceiling_ac2 = self.reference.human_ceiling_ac2()
+            ac2_text = f", Gwet AC2 {ceiling_ac2:.2f}" if ceiling_ac2 is not None else ""
+            out.append(f"  agreement among raters: ordinal alpha {ceiling:.2f}{ac2_text}   <- the ceiling to read the judge against")
         for a in self.leaderboard():
             out.append("")
             head = f"  judge '{a.label}'"
@@ -667,8 +707,11 @@ class CalibrationReport:
             out.append(f"    within one level    {_fmt_rate(a.within_one, a.n_compared)}")
             out.append(f"    bias (judge - ref)  mean {_fmt_interval(a.bias_mean, a.bias_interval, signed=True)}"
                        f"   stricter {a.n_stricter}  lenient {a.n_lenient}")
-            if a.alpha is not None:
-                out.append(f"    ordinal alpha       {_fmt_interval(a.alpha, a.alpha_interval)}")
+            if a.alpha is not None or a.ac2 is not None:
+                dist = "  ".join(f"{s} {c}" for s, c in a.reference_distribution.items() if c)
+                out.append(f"    reference levels    {dist}")
+                out.append(f"    Gwet AC2 (linear)   {_fmt_interval(a.ac2, a.ac2_interval)}   <- robust to skew above; ranks the leaderboard")
+                out.append(f"    ordinal alpha       {_fmt_interval(a.alpha, a.alpha_interval)}   <- reads low when one level dominates")
             out.append(f"    pass/fail at '{a.fail_at}':  sensitivity {_fmt_rate(*a.sensitivity)}"
                        f"   specificity {_fmt_rate(*a.specificity)}")
             out.append(f"    severe misses (ref high/critical -> judge pass/low): {_fmt_rate(*a.severe_misses)}")
@@ -704,6 +747,7 @@ class CalibrationReport:
                 "n_split": self.n_split,
                 "n_unsure": self.reference.n_unsure,
                 "human_ceiling_alpha": self.reference.human_ceiling(),
+                "human_ceiling_ac2": self.reference.human_ceiling_ac2(),
                 "consensus": dict(self.reference.consensus),
             },
             "judges": {label: a.to_dict() for label, a in self.judges.items()},
@@ -752,6 +796,7 @@ def list_calibrations(directory: Union[str, Path] = "results/calibration") -> Li
                 "n_compared": a.get("coverage", {}).get("compared"),
                 "exact": a.get("exact", {}).get("value"),
                 "alpha": a.get("alpha", {}).get("value"),
+                "ac2": a.get("ac2", {}).get("value"),
                 "indicative_only": a.get("indicative_only"),
             })
     return rows

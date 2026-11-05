@@ -8,8 +8,9 @@ import json
 from collections import Counter
 
 from tqdm.auto import tqdm
+from simpleaudit._event_loop import run_sync
 from simpleaudit.results import AuditResult, AuditResults
-from simpleaudit.model_auditor import ModelAuditor
+from simpleaudit.model_auditor import ModelAuditor, OnTurn
 from simpleaudit.repeated_results import RepeatedExperimentResults
 
 
@@ -75,7 +76,7 @@ class AuditExperiment:
         on_model_done: Optional[Callable[[str, "RepeatedExperimentResults"], None]] = None,
         on_rep_done: Optional[Callable[..., Any]] = None,
         cancel_event: Optional[asyncio.Event] = None,
-        max_retries_per_rep: int = 0,
+        max_retries_per_rep: int = 2,
         rep_is_done: Optional[Callable[..., Any]] = None,
         max_error_reps: int = 3,
     ):
@@ -327,33 +328,61 @@ class AuditExperiment:
         max_turns: Optional[int],
         language: str,
         max_workers: int,
-        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        on_turn: Optional[OnTurn] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
+        evidence_resolver: Optional[Callable] = None,
     ) -> AuditResults:
-        """Execute one rep with auto-retry on ERROR. Returns the final result."""
+        """Execute one rep, re-running only the scenarios that ended in ERROR.
+
+        ERROR results are infrastructure failures with no verdict. Up to
+        ``max_retries_per_rep`` extra attempts re-run just those scenarios
+        (not the whole rep, so clean verdicts are never re-rolled) and splice
+        the new results in place. Whatever still errors after that stays
+        ERROR and is excluded from scoring downstream.
+        """
         attempts = 1 + self.max_retries_per_rep
+        scenario_list: List[Dict[str, Any]] = (
+            ModelAuditor.get_scenarios(scenarios) if isinstance(scenarios, str) else list(scenarios)
+        )
+        names = [s.get("name") for s in scenario_list]
+        # Splicing by name needs unique names; fall back to whole-rep retries.
+        by_name = len(set(names)) == len(names)
         result: Optional[AuditResults] = None
+        to_run: List[Dict[str, Any]] = scenario_list
         for attempt in range(attempts):
             auditor = ModelAuditor(**merged)
             # trace_correlation may be a zero-arg callable (resolved per rep so
             # the caller can swap in a fresh correlation at each rep boundary).
             corr = trace_correlation() if callable(trace_correlation) else trace_correlation
-            result = await auditor.run_async(
-                scenarios,
+            partial = await auditor.run_async(
+                to_run,
                 max_turns=max_turns,
                 language=language,
                 max_workers=max_workers,
                 on_turn=on_turn,
                 audit_run_id=audit_run_id,
                 trace_correlation=corr,
+                evidence_resolver=evidence_resolver,
             )
-            if not any(r.severity == "ERROR" for r in result):
+            if result is None or not by_name:
+                result = partial
+            else:
+                fresh = {r.scenario_name: r for r in partial}
+                merged_results = [fresh.get(r.scenario_name, r) for r in result]
+                result = AuditResults(merged_results, meta=partial.meta)
+                result.timestamp = partial.timestamp
+            errored = [r.scenario_name for r in result if r.severity == "ERROR"]
+            if not errored:
                 break
             if attempt < attempts - 1:
                 tqdm.write(
-                    f"  Rep returned ERROR (attempt {attempt + 1}/{attempts}) — retrying"
+                    f"  {len(errored)} scenario(s) returned ERROR "
+                    f"(attempt {attempt + 1}/{attempts}) — re-running "
+                    + ("just those" if by_name else "the rep")
                 )
+                if by_name:
+                    to_run = [s for s in scenario_list if s.get("name") in set(errored)]
         return result  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
@@ -366,9 +395,10 @@ class AuditExperiment:
         scenario: Dict[str, Any],
         max_turns: Optional[int] = None,
         language: str = "English",
-        on_turn: Optional[Callable[[int, int, str], None]] = None,
+        on_turn: Optional[OnTurn] = None,
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
+        evidence_resolver: Optional[Callable] = None,
     ) -> List[AuditResult]:
         """Run a single scenario N times for one model.
 
@@ -385,12 +415,18 @@ class AuditExperiment:
             on_turn: Optional callback fired at each phase boundary with
                 ``(turn_index, max_turns, role)`` where role is "auditor",
                 "target", or "judge". Called synchronously from within the
-                asyncio event loop.
+                asyncio event loop. The full contract, including what fires on
+                a failure and on a retried rep, is documented on
+                :data:`simpleaudit.model_auditor.OnTurn`.
             audit_run_id: Optional run id propagated to each rep's
                 ``run_async`` for trace correlation.
             trace_correlation: Optional :class:`TraceCorrelation` shared
                 across reps; each rep records its ``turn_id -> trace_id``
                 links so the caller can fetch per-rep trace evidence.
+            evidence_resolver: Optional callable invoked after target
+                execution and before judge in each rep. May return a span
+                list or a dict with ``selected_spans`` + ``agentic_evaluation``
+                for agentic-aware judging.
 
         Returns:
             List of :class:`AuditResult`, one per completed rep. May be
@@ -444,6 +480,7 @@ class AuditExperiment:
                 on_turn=on_turn,
                 audit_run_id=audit_run_id,
                 trace_correlation=trace_correlation,
+                evidence_resolver=evidence_resolver,
             )
 
             # Persist
@@ -487,6 +524,7 @@ class AuditExperiment:
                 "judge_model": self.judge_model,
                 "judge_base_url": self.judge_base_url,
                 "judge_provider": self.judge_provider,
+                "judge_name": self.judge if isinstance(self.judge, str) else None,
             }.items() if v is not None
         } or None
 
@@ -659,6 +697,7 @@ class AuditExperiment:
                 "judge_model": self.judge_model,
                 "judge_base_url": self.judge_base_url,
                 "judge_provider": self.judge_provider,
+                "judge_name": self.judge if isinstance(self.judge, str) else None,
             }.items() if v is not None
         } or None
 
@@ -689,7 +728,7 @@ class AuditExperiment:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(
+            return run_sync(
                 self.run_async(
                     scenarios,
                     max_turns=max_turns,

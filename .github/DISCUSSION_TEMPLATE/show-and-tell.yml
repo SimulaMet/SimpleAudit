@@ -1,0 +1,46 @@
+title: "[Show and tell] "
+labels: ["show-and-tell"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Show off something you've made with SimpleAudit — an audit you ran, a scenario pack, a custom judge, or a tool you built.
+  - type: textarea
+    id: audited
+    attributes:
+      label: "What you audited"
+      description: "Target (model, chatbot, RAG app, agent — name/version, language), scenario pack(s) (e.g. safety, sika, health, judge-the-judge, custom), and SimpleAudit version."
+      value: |
+        - **Target:**
+        - **Scenario pack(s):**
+        - **SimpleAudit version:**
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: "How you ran it"
+      description: "The command or script that produced the results."
+      render: bash
+    validations:
+      required: false
+  - type: textarea
+    id: found
+    attributes:
+      label: "What you found"
+      description: "Scores, fragility signals, notable judge disagreements, a screenshot, or a link to a Studio/visualizer view."
+    validations:
+      required: false
+  - type: textarea
+    id: means
+    attributes:
+      label: "What it means for you"
+      description: "What you'd do differently, what you'd recommend to others."
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        *Tip: browse results interactively in [SimpleAudit Studio](https://github.com/SimulaMet/SimpleAuditStudio) (demo: https://sushantgautam-simpleaudit-studio.hf.space/visualizer). Please remove any harmful model output, personal data or API keys before sharing transcripts.*

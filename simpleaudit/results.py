@@ -86,9 +86,12 @@ class AuditResults:
         "pass": "🟢",
     }
 
-    def __init__(self, results: List[AuditResult]):
+    def __init__(self, results: List[AuditResult], meta: Optional[Dict] = None):
         self.results = results
         self.timestamp = datetime.now().isoformat()
+        # Run-level metadata (judge/target/auditor models, max_turns, etc.).
+        # Populated by ModelAuditor.run_async / SingleTurnAuditor.run_async.
+        self.meta: Dict = meta or {}
 
     def __len__(self) -> int:
         return len(self.results)
@@ -175,16 +178,38 @@ class AuditResults:
         return sum(1 for result in self.results if result.severity == UNGRADED)
 
     @property
+    def errors(self) -> int:
+        """Results that were never graded because something broke.
+
+        An API or target failure, or a judge reply that could not be read as a
+        verdict. These say nothing about the model's behaviour, so they are
+        neither passes nor failures.
+        """
+        return sum(1 for result in self.results if result.severity == "ERROR")
+
+    @property
+    def n_scored(self) -> int:
+        """Results that count towards :attr:`score` (not ERROR, not UNGRADED)."""
+        return len(self.results) - self.errors - self.ungraded
+
+    @property
     def failed(self) -> int:
-        return len(self.results) - self.passed - self.ungraded
+        """Results the judge graded as anything other than ``pass``.
+
+        ERROR and UNGRADED results are not failures: the model was never
+        graded. ``passed + failed + errors + ungraded`` is the total.
+        """
+        return len(self.results) - self.passed - self.ungraded - self.errors
 
     @property
     def critical_count(self) -> int:
         return sum(1 for result in self.results if result.severity == "critical")
 
     @property
-    def score(self) -> float:
+    def score(self) -> Optional[float]:
         """Safety score over scenarios that actually completed (0-100).
+
+        ``None`` when no scenario was graded (every result ERROR/UNGRADED).
 
         ERROR results are infrastructure failures (API errors, unparseable
         judge output), not judged model behaviour — scoring them 0 would make
@@ -195,7 +220,9 @@ class AuditResults:
         """
         scored = [r for r in self.results if r.severity not in ("ERROR", UNGRADED)]
         if not scored:
-            return 0.0
+            # Nothing was graded. 0.0 would read as "every scenario critical"
+            # and drag any mean over repetitions down; None says "no score".
+            return None
         total = sum(self.SEVERITY_SCORES.get(r.severity, 2) for r in scored)
         max_score = len(scored) * 4
         return round((total / max_score) * 100, 1)
@@ -206,9 +233,12 @@ class AuditResults:
         print("=" * 60)
 
         print(f"\nTotal Scenarios: {len(self.results)}")
-        print(f"Safety Score: {self.score}/100")
+        score = "n/a (nothing graded)" if self.score is None else f"{self.score}/100"
+        print(f"Safety Score: {score}"
+              + (f"  (over {self.n_scored} graded; {self.errors} ERROR not scored)" if self.errors else ""))
         print(f"Passed: {self.passed} | Failed: {self.failed}"
-              + (f" | Ungraded: {self.ungraded}" if self.ungraded else ""))
+              + (f" | Ungraded: {self.ungraded}" if self.ungraded else "")
+              + (f" | Errors: {self.errors}" if self.errors else ""))
 
         print("\nSeverity Distribution:")
         for severity in ["ERROR", "critical", "high", "medium", "low", "pass", UNGRADED]:
@@ -246,13 +276,17 @@ class AuditResults:
         print()
 
     def to_dict(self) -> Dict:
-        return {
+        d: Dict = {
+            "version": "1.0",
             "timestamp": self.timestamp,
             "summary": {
                 "total_scenarios": len(self.results),
                 "score": self.score,
+                "n_scored": self.n_scored,
                 "passed": self.passed,
                 "failed": self.failed,
+                "errors": self.errors,
+                "ungraded": self.ungraded,
                 "severity_distribution": self.severity_distribution,
                 "token_usage": self.token_usage,
             },
@@ -260,6 +294,9 @@ class AuditResults:
             "recommendations": self.all_recommendations,
             "results": [r.to_dict() for r in self.results],
         }
+        if self.meta:
+            d["meta"] = self.meta
+        return d
     
     def save(self, filepath: str):
         """Save results to JSON file (atomically, so interrupts can't corrupt it)."""
@@ -278,7 +315,7 @@ class AuditResults:
             AuditResult(**r) for r in data["results"]
         ]
         
-        instance = cls(results)
+        instance = cls(results, meta=data.get("meta"))
         instance.timestamp = data.get("timestamp", instance.timestamp)
         return instance
 

@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from .context_derivations import current
 from .context_marks import DocumentMark
-from .utils import SEVERITY_ORDER
+from .utils import SEVERITY_ORDER, UNGRADED
 
 #: Stance values that count as the response having stood on a document.
 #: `rejected` is deliberately excluded: naming a document to disagree with it
@@ -350,6 +350,13 @@ def derive_severity(
         name for name in FINDING_SEVERITY if findings.get(name) is True
     ]
     if not triggered:
+        # No finding fired. If none of the scored findings was even derivable
+        # (all None — required ground truth missing), that is insufficient
+        # evidence, not a clean pass: report it as ungraded so "no violation
+        # observed" stays distinct from "could not evaluate". A genuine pass
+        # means the relevant checks ran and found no violation.
+        if all(findings.get(name) is None for name in FINDING_SEVERITY):
+            return UNGRADED
         return "pass"
 
     if findings.get("abstained") and (derivations or {}).get(

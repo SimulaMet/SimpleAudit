@@ -37,6 +37,7 @@ class SelectionResult:
     elided: List[Dict[str, Any]] = field(default_factory=list)
     budget_used: int = 0
     budget: Optional[int] = None
+    selector_version: str = "v1"  # Track the selection policy version
 
     @property
     def elided_count(self) -> int:
@@ -66,6 +67,8 @@ def select_spans(
     evidence_kinds: Sequence[str] = DEFAULT_EVIDENCE_KINDS,
     noise_kinds: Sequence[str] = DEFAULT_NOISE_KINDS,
     token_budget: Optional[int] = None,
+    prefer_failing_spans: bool = False,
+    selector_version: str = "v1",
 ) -> SelectionResult:
     """Select evidence-relevant spans within an optional size budget.
 
@@ -79,6 +82,10 @@ def select_spans(
         Kinds to drop unless nothing else is selected.
     token_budget:
         Max total serialized size (chars) of selected spans. ``None`` = no cap.
+    prefer_failing_spans:
+        Prioritize spans with error/failure status over success spans.
+    selector_version:
+        Version identifier for the selection policy (recorded in provenance).
     """
     ev = {k.upper() for k in evidence_kinds}
     noise = {k.upper() for k in noise_kinds}
@@ -87,12 +94,27 @@ def select_spans(
     noise_spans = [s for s in spans if (s.get("kind") or "").upper() in noise]
     other = [s for s in spans if (s.get("kind") or "").upper() not in ev and (s.get("kind") or "").upper() not in noise]
 
-    # Priority: evidence kinds first, then other, then noise (only if nothing else).
-    candidates = list(evidence) + list(other)
+    # If prefer_failing_spans, partition into failing and non-failing
+    if prefer_failing_spans:
+        def _is_failing(span: Dict[str, Any]) -> bool:
+            status = (span.get("status") or "").lower()
+            return status in ("error", "failed", "exception")
+
+        evidence_failing = [s for s in evidence if _is_failing(s)]
+        evidence_passing = [s for s in evidence if not _is_failing(s)]
+        other_failing = [s for s in other if _is_failing(s)]
+        other_passing = [s for s in other if not _is_failing(s)]
+
+        # Priority: failing evidence, passing evidence, failing other, passing other, then noise
+        candidates = evidence_failing + evidence_passing + other_failing + other_passing
+    else:
+        # Priority: evidence kinds first, then other, then noise (only if nothing else).
+        candidates = list(evidence) + list(other)
+
     if not candidates:
         candidates = list(noise_spans)
 
-    result = SelectionResult(budget=token_budget)
+    result = SelectionResult(budget=token_budget, selector_version=selector_version)
     used = 0
     for span in candidates:
         size = _span_size(span)
@@ -121,6 +143,8 @@ def evidence_spans_for_turn(
     evidence_kinds: Sequence[str] = DEFAULT_EVIDENCE_KINDS,
     noise_kinds: Sequence[str] = DEFAULT_NOISE_KINDS,
     token_budget: Optional[int] = None,
+    prefer_failing_spans: bool = False,
+    selector_version: str = "v1",
 ) -> List[Dict[str, Any]]:
     """Build judge-ready ``evidence_spans`` for one audit turn.
 
@@ -140,6 +164,8 @@ def evidence_spans_for_turn(
         evidence_kinds=evidence_kinds,
         noise_kinds=noise_kinds,
         token_budget=token_budget,
+        prefer_failing_spans=prefer_failing_spans,
+        selector_version=selector_version,
     )
     return result.selected
 
@@ -164,3 +190,64 @@ def summarize_for_judge(result: SelectionResult, *, max_chars_per_span: int = 20
             f"{e.get('kind', '?')}:{e.get('span_id', '?')[:8]}" for e in result.elided[:10]
         ) + (", …" if result.elided_count > 10 else "") + ")"
     return text
+
+
+def render_agentic_for_judge(agentic_evaluation: Dict[str, Any]) -> str:
+    """Render a structured agentic evaluation into a compact judge-prompt block.
+
+    The agentic evaluation contains deterministic check results and optional
+    semantic dimension assessments computed from the observed trajectory.
+    This block is inserted into the judge prompt so the judge can weigh
+    execution-quality evidence alongside conversation quality.
+
+    Args:
+        agentic_evaluation: Dict with keys ``checks`` (list), optionally
+            ``semantic_judgement`` (dict with ``dimensions``), and
+            ``trace_completeness`` (dict).
+    """
+    if not agentic_evaluation:
+        return ""
+    lines: list[str] = ["AGENTIC EVALUATION (observed execution facts):", ""]
+
+    # Deterministic checks
+    checks = agentic_evaluation.get("checks") or []
+    if checks:
+        lines.append("Deterministic checks:")
+        for check in checks[:15]:
+            status = check.get("status", "?")
+            name = check.get("id", check.get("category", "unknown"))
+            summary = (check.get("summary") or "")[:120]
+            lines.append(f"  - {name}: {status}" + (f" — {summary}" if summary else ""))
+        lines.append("")
+
+    # Semantic judgement
+    semantic = agentic_evaluation.get("semantic_judgement") or {}
+    dims = semantic.get("dimensions") or {}
+    if dims:
+        lines.append("Semantic assessment:")
+        for dim_name, dim_data in list(dims.items())[:8]:
+            if isinstance(dim_data, dict):
+                status = dim_data.get("status", "?")
+                rationale = (dim_data.get("rationale") or "")[:100]
+                lines.append(f"  - {dim_name}: {status}" + (f" — {rationale}" if rationale else ""))
+        lines.append("")
+
+    # Trace completeness
+    tc = agentic_evaluation.get("trace_completeness") or {}
+    if tc:
+        complete = tc.get("complete", False)
+        span_count = tc.get("span_count", 0)
+        lines.append(f"Trace: {'complete' if complete else 'INCOMPLETE'} ({span_count} spans observed)")
+        if not complete and tc.get("missing_reason"):
+            lines.append(f"  Note: {tc['missing_reason'][:100]}")
+        lines.append("")
+
+    # Overall pre-assessment
+    overall = agentic_evaluation.get("status")
+    if overall:
+        lines.append(f"Agentic pre-assessment: {overall}")
+        reason = agentic_evaluation.get("reason")
+        if reason:
+            lines.append(f"  Reason: {str(reason)[:150]}")
+
+    return "\n".join(lines)

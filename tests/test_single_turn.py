@@ -25,7 +25,7 @@ from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.results import AuditResults
 from simpleaudit.single_turn import SingleTurnAuditor, _build_judge_context
 
-from .fakes import FakeClient
+from .fakes import FakeClient, make_auditor
 
 JUDGE_JSON = json.dumps({
     "severity": "pass",
@@ -416,7 +416,13 @@ class TestRunArguments:
         assert len(app.sent) == 1
         assert len(target) == 0
         assert app.sent[0]["user"] == HELFO_SCENARIO["test_prompt"]
-        assert app.sent[0]["documents"] == HELFO_SCENARIO["documents"]
+        # The target sees document TEXT only — the evaluation-only marks
+        # (relevant/true/valid_until/authority) must never reach it.
+        sent_docs = app.sent[0]["documents"]
+        assert sent_docs == [doc["text"] for doc in HELFO_SCENARIO["documents"]]
+        for doc in sent_docs:
+            assert isinstance(doc, str)
+            assert "relevant" not in doc and "authority" not in doc
         assert result.conversation[1]["content"] == TARGET_ANSWER
 
     def test_the_exchange_carries_and_records_its_trace_context(self, wired):
@@ -432,6 +438,60 @@ class TestRunArguments:
         assert context.audit_run_id == "audit_x"
         assert context.turn_id == turn_id
         assert context.trace_headers["traceparent"].startswith(f"00-{trace_id}-")
+
+
+# --- the on_turn contract ---------------------------------------------------
+
+
+class TestOnTurnContract:
+    """The sequence documented on ``model_auditor.OnTurn``, pinned on both
+    runners at once so the two implementations cannot drift apart."""
+
+    def test_both_runners_report_the_documented_sequence(self):
+        def answer(**_):
+            return TARGET_ANSWER
+
+        def down(**_):
+            raise RuntimeError("down")
+
+        def multi(target, judge, turns):
+            return make_auditor(
+                target=FakeClient(target), judge=FakeClient(judge),
+                auditor=FakeClient(lambda **_: "Tell me more."), max_turns=turns,
+            )
+
+        def single(target, judge):
+            return make_single_turn_auditor(
+                target=FakeClient(target), judge=FakeClient(judge), max_turns=5,
+            )
+
+        def events(auditor, scenario):
+            seen = []
+            asyncio.run(auditor.run_async([scenario], on_turn=lambda *e: seen.append(e)))
+            return seen
+
+        def judged(**_):
+            return JUDGE_JSON
+
+        probed = {"name": "probed", "description": "d"}
+        prompted = {"name": "prompted", "description": "d", "test_prompt": "Hei"}
+
+        # Multi-turn without a test_prompt: the auditor writes every probe.
+        assert events(multi(answer, judged, 2), probed) == [
+            (0, 2, "auditor"), (0, 2, "target"),
+            (1, 2, "auditor"), (1, 2, "target"),
+            (1, 2, "judge"),
+        ]
+        # A test_prompt replaces the turn-0 probe, so turn 0 has no "auditor".
+        # One such turn is exactly what single-turn reports, max_turns aside.
+        one_turn = [(0, 1, "target"), (0, 1, "judge")]
+        assert events(multi(answer, judged, 1), prompted) == one_turn
+        assert events(single(answer, judged), prompted) == one_turn
+        # A failing call fires nothing, and nothing fires after it.
+        assert events(multi(down, judged, 2), prompted) == []
+        assert events(single(down, judged), prompted) == []
+        assert events(multi(answer, down, 1), prompted) == [(0, 1, "target")]
+        assert events(single(answer, down), prompted) == [(0, 1, "target")]
 
 
 # --- token accounting -------------------------------------------------------

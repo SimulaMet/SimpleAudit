@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 from simpleaudit.results import AuditResult, AuditResults, _atomic_json_dump
-from simpleaudit.utils import SEVERITY_ORDER
+from simpleaudit.utils import SEVERITY_ORDER, UNGRADED
 
 
 #: Default modal-verdict share below which a scenario counts as fragile.
@@ -189,7 +189,8 @@ class ScenarioStats:
     agreement_rate: float                  # fraction of runs matching the mode
     normalised_entropy: float = 0.0        # 0.0 = unanimous; see _normalised_entropy
     ordinal_spread: Optional[float] = 0.0  # std on the 0-4 ladder; None if off-ladder
-    n_observations: int = 0                # runs this scenario actually appeared in
+    n_observations: int = 0                # graded runs (ERROR runs excluded)
+    n_errors: int = 0                      # runs that ended in ERROR (no verdict)
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -203,23 +204,37 @@ class ScenarioStats:
 class ModelStabilityReport:
     model: str
     n_runs: int
-    scores: List[float]
-    mean_score: float
-    std_score: float                       # 0.0 when n_runs == 1
-    min_score: float
-    max_score: float
-    cv: float                              # (std / mean) * 100  — coefficient of variation in %
+    scores: List[float]                    # one per run that graded at least one scenario
+    mean_score: Optional[float]            # None when no run graded anything
+    std_score: Optional[float]             # 0.0 when only one run was graded
+    min_score: Optional[float]
+    max_score: Optional[float]
+    cv: Optional[float]                    # (std / mean) * 100  — coefficient of variation in %
     per_scenario: Dict[str, ScenarioStats]
+    n_runs_scored: int = 0                 # runs that contributed a score
+    n_graded: int = 0                      # scenario-runs with a verdict
+    n_errors: int = 0                      # scenario-runs that ended in ERROR (not scored)
+    pooled_score: Optional[float] = None   # score over all graded scenario-runs together
 
     def summary(self) -> None:
         print()
         print("=" * 60)
         print(f"STABILITY REPORT: {self.model} ({self.n_runs} run{'s' if self.n_runs != 1 else ''})")
         print("=" * 60)
-        print(f"Mean Score :  {self.mean_score:.1f} / 100")
-        if self.n_runs > 1:
+        if self.mean_score is None:
+            print("Mean Score :  n/a — no scenario was graded in any run")
+        else:
+            print(f"Mean Score :  {self.mean_score:.1f} / 100")
+        if self.n_runs_scored > 1:
             print(f"Std Dev    :  {self.std_score:.1f}  (CV: {self.cv:.1f}%)")
             print(f"Range      :  {self.min_score:.1f} – {self.max_score:.1f}")
+        if self.n_errors:
+            print(
+                f"Errors     :  {self.n_errors} of {self.n_graded + self.n_errors} scenario-runs "
+                f"ended in ERROR and are not scored"
+                + (f"; {self.n_runs - self.n_runs_scored} run(s) had nothing graded"
+                   if self.n_runs_scored < self.n_runs else "")
+            )
 
         if self.per_scenario:
             print()
@@ -330,6 +345,10 @@ class ModelStabilityReport:
             "min_score": self.min_score,
             "max_score": self.max_score,
             "cv": self.cv,
+            "n_runs_scored": self.n_runs_scored,
+            "n_graded": self.n_graded,
+            "n_errors": self.n_errors,
+            "pooled_score": self.pooled_score,
             "per_scenario": {k: v.to_dict() for k, v in self.per_scenario.items()},
         }
 
@@ -347,9 +366,11 @@ def _build_model_aggregate(runs: List[AuditResults]) -> Dict:
         std = statistics.stdev(values) if n >= 2 else 0.0
         return {"mean": round(mean, 2), "std": round(std, 2), "total": sum(values)}
 
-    scores = [r.score for r in runs]
-    score_mean = statistics.mean(scores)
-    score_std = statistics.stdev(scores) if n >= 2 else 0.0
+    # A run where every scenario errored has no score (None); averaging it in
+    # as 0 would make an outage look like a run of critical failures.
+    scores = [r.score for r in runs if r.score is not None]
+    score_mean = statistics.mean(scores) if scores else None
+    score_std = statistics.stdev(scores) if len(scores) >= 2 else (0.0 if scores else None)
 
     all_severities: set = set()
     for r in runs:
@@ -359,9 +380,17 @@ def _build_model_aggregate(runs: List[AuditResults]) -> Dict:
 
     return {
         "n_runs": n,
-        "score": {"mean": round(score_mean, 1), "std": round(score_std, 2)},
+        "score": {
+            "mean": None if score_mean is None else round(score_mean, 1),
+            "std": None if score_std is None else round(score_std, 2),
+            "n_runs_scored": len(scores),
+            "pooled": _pooled_score(runs),
+        },
+        "errors": stats([r.errors for r in runs]),
         "passed": stats([r.passed for r in runs]),
         "failed": stats([r.failed for r in runs]),
+        "errors": stats([r.errors for r in runs]),
+        "ungraded": stats([r.ungraded for r in runs]),
         "severity_distribution": {
             sev: stats([r.severity_distribution.get(sev, 0) for r in runs])
             for sev in sorted(all_severities)
@@ -378,10 +407,17 @@ def _index_by_name(audit_results: AuditResults) -> Dict[str, AuditResult]:
 
 
 def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabilityReport:
-    scores = [r.score for r in runs]
-    mean = statistics.mean(scores)
-    std = statistics.stdev(scores) if len(scores) >= 2 else 0.0
-    cv = (std / mean * 100) if mean != 0.0 else 0.0
+    # Runs with nothing graded (score None) are left out of mean/SD rather
+    # than counted as 0 — see _build_model_aggregate.
+    scores = [r.score for r in runs if r.score is not None]
+    if scores:
+        mean: Optional[float] = statistics.mean(scores)
+        std: Optional[float] = statistics.stdev(scores) if len(scores) >= 2 else 0.0
+        cv: Optional[float] = (std / mean * 100) if mean != 0.0 else 0.0
+    else:
+        mean = std = cv = None
+    n_errors = sum(r.errors for r in runs)
+    n_graded = sum(r.n_scored for r in runs)
 
     # Collect scenario names across ALL runs (first-seen order). Using only
     # run 0 would silently drop stats for any scenario that failed to appear
@@ -412,29 +448,58 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
                     severities.append(indexed[scenario_name].severity)
             if not severities:
                 continue
-            agg = aggregate_severities(severities)
-            spread = _ordinal_spread(severities)
+            # ERROR runs carry no verdict: leave them out of the verdict
+            # statistics (pass rate, mode, agreement, spread) and report how
+            # many there were. A scenario that errored in every run keeps
+            # "ERROR" as its mode so it is still visible.
+            graded = [sev for sev in severities if sev != "ERROR"]
+            basis = graded if graded else severities
+            agg = aggregate_severities(basis)
+            spread = _ordinal_spread(basis)
             per_scenario[scenario_name] = ScenarioStats(
-                pass_rate=severities.count("pass") / len(severities),
-                severity_distribution=agg["severity_distribution"],
+                pass_rate=(graded.count("pass") / len(graded)) if graded else 0.0,
+                severity_distribution=aggregate_severities(severities)["severity_distribution"],
                 most_common_severity=agg["most_common_severity"],
                 agreement_rate=agg["agreement_rate"],
-                normalised_entropy=round(_normalised_entropy(severities), 4),
+                normalised_entropy=round(_normalised_entropy(basis), 4),
                 ordinal_spread=None if spread is None else round(spread, 4),
-                n_observations=len(severities),
+                n_observations=len(graded),
+                n_errors=len(severities) - len(graded),
             )
 
     return ModelStabilityReport(
         model=model,
         n_runs=len(runs),
         scores=scores,
-        mean_score=round(mean, 1),
-        std_score=round(std, 2),
-        min_score=round(min(scores), 1),
-        max_score=round(max(scores), 1),
-        cv=round(cv, 1),
+        mean_score=None if mean is None else round(mean, 1),
+        std_score=None if std is None else round(std, 2),
+        min_score=round(min(scores), 1) if scores else None,
+        max_score=round(max(scores), 1) if scores else None,
+        cv=None if cv is None else round(cv, 1),
         per_scenario=per_scenario,
+        n_runs_scored=len(scores),
+        n_graded=n_graded,
+        n_errors=n_errors,
+        pooled_score=_pooled_score(runs),
     )
+
+
+def _pooled_score(runs: List[AuditResults]) -> Optional[float]:
+    """Score over every graded scenario-run of every repetition, pooled.
+
+    The mean of per-run scores weights a run with 2 graded scenarios the same
+    as one with 8; pooling weights each graded scenario-run once. ERROR and
+    UNGRADED results are excluded, as in :attr:`AuditResults.score`.
+    """
+    points = [
+        AuditResults.SEVERITY_SCORES.get(r.severity, 2)
+        for run in runs
+        for r in run
+        if r.severity not in ("ERROR", UNGRADED)
+    ]
+    if not points:
+        return None
+    return round(sum(points) / (4 * len(points)) * 100, 1)
 
 
 # ---------------------------------------------------------------------------

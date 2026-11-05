@@ -162,8 +162,11 @@ class TestCallAsync:
         mock_message.content = response_text
         mock_choice = MagicMock()
         mock_choice.message = mock_message
+        mock_choice.finish_reason = "stop"
+        mock_choice.error = None
         mock_response = MagicMock()
         mock_response.choices = [mock_choice]
+        mock_response.error = None
         mock_client.acompletion = AsyncMock(return_value=mock_response)
         return mock_client
 

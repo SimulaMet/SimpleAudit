@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from .auth import OTLPAuth
 from .otlp import EphemeralOTLPReceiver
 from .store import SpanStore
 
@@ -66,14 +67,22 @@ class BuiltinOTLP(TraceProvider):
     audit. Spans are discarded on :meth:`stop`.
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 0) -> None:
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 0,
+        auth: Optional[OTLPAuth] = None,
+    ) -> None:
         self._host = host
         self._port = port
+        self._auth = auth
         self._receiver: Optional[EphemeralOTLPReceiver] = None
 
     def start(self) -> "BuiltinOTLP":
         if self._receiver is None:
-            self._receiver = EphemeralOTLPReceiver(host=self._host, port=self._port).start()
+            self._receiver = EphemeralOTLPReceiver(
+                host=self._host, port=self._port, auth=self._auth
+            ).start()
         return self
 
     def stop(self) -> None:

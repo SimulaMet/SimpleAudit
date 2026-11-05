@@ -1215,7 +1215,18 @@ async def rejudge_async(
                 target_output_tokens=result.target_output_tokens,
             )
         )
-    return AuditResults(rejudged, meta=source.meta)
+    # The transcripts are the source's, the verdicts are the new judge's: say
+    # so in the metadata, or a calibration would read the old judge's model.
+    meta = dict(source.meta)
+    if source.meta.get("judge_model") and source.meta.get("judge_model") != judge_model:
+        meta["rejudged_from"] = {k: source.meta[k] for k in ("judge_model", "judge_provider", "judge_name") if k in source.meta}
+    meta["judge_model"] = judge_model
+    meta.pop("judge_provider", None)
+    if isinstance(judge, str):
+        meta["judge_name"] = judge
+    elif judge is not None or judge_prompt is not None:
+        meta.pop("judge_name", None)
+    return AuditResults(rejudged, meta=meta)
 
 
 def rejudge(

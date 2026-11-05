@@ -89,3 +89,53 @@ def test_two_proportion_z_matches_closed_form():
     se = math.sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n2))
     expected = (k2 / n2 - k1 / n1) / se
     assert two_proportion_z(k1, n1, k2, n2) == pytest.approx(expected)
+
+
+# ---------------------------------------------------------------------------
+# krippendorff_alpha
+# ---------------------------------------------------------------------------
+
+from simpleaudit.stats import krippendorff_alpha  # noqa: E402
+
+# Krippendorff (2011), "Computing Krippendorff's Alpha-Reliability": four
+# observers, twelve units, with missing values. The published coefficients
+# are the fixture.
+_A = [1, 2, 3, 3, 2, 1, 4, 1, 2, None, None, None]
+_B = [1, 2, 3, 3, 2, 2, 4, 1, 2, 5, None, 3]
+_C = [None, 3, 3, 3, 2, 3, 4, 2, 2, 5, 1, None]
+_D = [1, 2, 3, 3, 2, 4, 4, 1, 2, 5, 1, None]
+_UNITS = [list(t) for t in zip(_A, _B, _C, _D)]
+
+
+@pytest.mark.parametrize("metric, expected", [("nominal", 0.743), ("ordinal", 0.815), ("interval", 0.849)])
+def test_alpha_reproduces_the_published_example(metric, expected):
+    assert krippendorff_alpha(_UNITS, metric, values=[1, 2, 3, 4, 5]) == pytest.approx(expected, abs=0.0005)
+
+
+def test_alpha_default_values_are_the_sorted_observed_set():
+    assert krippendorff_alpha(_UNITS, "ordinal") == pytest.approx(0.815, abs=0.0005)
+
+
+def test_alpha_on_a_string_ladder_uses_the_given_order():
+    ladder = ["pass", "low", "medium", "high", "critical"]
+    units = [["pass", "low"], ["high", "critical"], ["medium", "medium"], ["low", "pass"], ["critical", "high"]]
+    ordinal = krippendorff_alpha(units, "ordinal", ladder)
+    nominal = krippendorff_alpha(units, "nominal", ladder)
+    assert nominal < ordinal          # the disagreements are all one step apart
+    with pytest.raises(ValueError, match="not in values"):
+        krippendorff_alpha(units, "ordinal", ["pass", "fail"])
+
+
+def test_alpha_perfect_agreement_is_one():
+    units = [["a", "a"], ["b", "b"], ["c", "c", "c"]]
+    assert krippendorff_alpha(units, "nominal") == pytest.approx(1.0)
+
+
+def test_alpha_is_undefined_without_pairs_or_variation():
+    assert krippendorff_alpha([[1], [2, None], []], "nominal") is None
+    assert krippendorff_alpha([[1, 1], [1, 1]], "nominal") is None
+
+
+def test_alpha_rejects_unknown_metric():
+    with pytest.raises(ValueError):
+        krippendorff_alpha(_UNITS, "ratio")

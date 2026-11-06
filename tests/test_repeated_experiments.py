@@ -724,8 +724,13 @@ class TestAdaptiveReruns:
             results = asyncio.run(exp.run_async(scenarios=self.SCENARIOS))
 
         # 2 base runs + 1 adaptive rerun = 3 runs total
-        assert len(results._runs["test-model"]) == 3
+        # Adaptive reruns are partial (fragile scenarios only), so they are
+        # kept apart from the full repetitions rather than counted as reps.
+        assert len(results._runs["test-model"]) == 2
+        assert len(results.adaptive_runs("test-model")) == 1
         assert call_count == 3
+        # ...but their verdicts do feed the per-scenario stability stats.
+        assert results.stability("test-model").per_scenario["s1"].n_observations == 3
 
     def test_adaptive_reruns_no_extra_when_all_stable(self):
         """All scenarios agree → no adaptive reruns."""
@@ -791,8 +796,9 @@ class TestAdaptiveReruns:
              patch.object(ModelAuditor, "run_async", new=fake_run_async):
             results = asyncio.run(exp.run_async(scenarios=[{"name": "s1", "description": "d"}]))
 
-        # 2 base + 2 adaptive = 4 runs
-        assert len(results._runs["test-model"]) == 4
+        # 2 base runs + 2 adaptive reruns (kept separately)
+        assert len(results._runs["test-model"]) == 2
+        assert len(results.adaptive_runs("test-model")) == 2
         assert call_count == 4
 
     def test_adaptive_reruns_backward_compatible(self):

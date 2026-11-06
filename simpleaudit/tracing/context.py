@@ -73,6 +73,29 @@ class TraceCorrelation:
     _turns: Dict[str, TurnTraceLink] = field(default_factory=dict)
     on_new_trace: Optional[Any] = field(default=None, repr=False)
     _seen_traces: set = field(default_factory=set, repr=False)
+    # scenario_run_id -> scenario name, filled by the engine.
+    _scenarios: Dict[str, str] = field(default_factory=dict, repr=False)
+
+    def link_scenario(self, scenario_run_id: str, scenario_name: str) -> None:
+        """Record which scenario a ``scenario_run_id`` (turn-id prefix) belongs to."""
+        self._scenarios[scenario_run_id] = scenario_name
+
+    def trace_ids_for_scenario(self, scenario_name: str) -> Optional[List[str]]:
+        """Trace ids of every turn of the named scenario, in first-seen order.
+
+        None when the engine never linked scenarios to this correlation (the
+        caller then cannot attribute traces to scenarios).
+        """
+        if not self._scenarios:
+            return None
+        run_ids = {rid for rid, name in self._scenarios.items() if name == scenario_name}
+        seen: List[str] = []
+        for turn_id, link in self._turns.items():
+            if turn_id.rsplit("_t", 1)[0] in run_ids:
+                for tid in link.trace_ids:
+                    if tid not in seen:
+                        seen.append(tid)
+        return seen
 
     def link_turn(self, turn_id: str, traceparent: Optional[str] = None) -> TurnTraceLink:
         if turn_id not in self._turns:
@@ -118,7 +141,7 @@ class TraceCorrelation:
         seen: set = set()
         for tid in self.trace_ids_for_turn(turn_id):
             for span in store.by_trace(tid):
-                sid = span.get("span_id")
+                sid = (span.get("trace_id"), span.get("span_id"))
                 if sid in seen:
                     continue
                 seen.add(sid)

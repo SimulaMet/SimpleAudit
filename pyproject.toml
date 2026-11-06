@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simpleaudit"
-version = "0.5.1"
+version = "0.6.0"
 description = "Lightweight AI Safety Auditing Framework"
 readme = "README.md"
 license = {text = "MIT"}
@@ -43,7 +43,8 @@ simpleaudit = "simpleaudit.integrations.inspect._registry"
 # no tracing; install this extra to run the builtin OTLP receiver (HTTP-JSON
 # and gRPC) that captures spans from instrumented targets.
 tracing = [
-    "aiohttp>=3.9",
+    # Runs as an HTTP server: keep above releases with known request-parsing CVEs.
+    "aiohttp>=3.12.14",
     "grpcio>=1.60",
     "opentelemetry-proto>=1.20",
 ]

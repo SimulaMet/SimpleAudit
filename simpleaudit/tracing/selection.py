@@ -569,8 +569,61 @@ def evidence_spans_for_turn(
     return result.selected
 
 
-def summarize_for_judge(result: SelectionResult, *, max_chars_per_span: int = 2000) -> str:
-    """Render selected spans into a compact text block for the judge prompt."""
+def _clip_values(value: Any, limit: int) -> Any:
+    """``value`` with every string longer than ``limit`` shortened (structure kept)."""
+    if isinstance(value, str):
+        return value if len(value) <= limit else value[:limit] + "…(truncated)"
+    if isinstance(value, dict):
+        return {key: _clip_values(item, limit) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_clip_values(item, limit) for item in value]
+    return value
+
+
+def _span_body(attrs: Dict[str, Any], max_chars_per_span: int, max_chars_per_value: int) -> str:
+    """The span's attributes as JSON within ``max_chars_per_span``, every key kept.
+
+    Long values are shortened first (halving the per-value limit until the span
+    fits, down to 80 chars), so a long input history no longer pushes later
+    attributes such as the model's output out of view. Only if the keys alone
+    exceed the budget is the JSON cut at the end.
+    """
+    limit = max(80, max_chars_per_value)
+    body = json.dumps(_clip_values(attrs, limit), ensure_ascii=False, default=str)
+    while len(body) > max_chars_per_span and limit > 80:
+        limit = max(80, limit // 2)
+        body = json.dumps(_clip_values(attrs, limit), ensure_ascii=False, default=str)
+    if len(body) > max_chars_per_span:
+        body = body[:max_chars_per_span] + "…(truncated)"
+    return body
+
+
+def _failure_lines(span: Dict[str, Any], limit: int) -> List[str]:
+    """Why a span failed: its status message and exception events."""
+    lines: List[str] = []
+    if str(span.get("status") or "").upper() == "ERROR":
+        message = span.get("status_message")
+        lines.append("status: ERROR" + (f" — {str(message)[:limit]}" if message else ""))
+    for event in span.get("events") or []:
+        if not isinstance(event, dict) or event.get("name") != "exception":
+            continue
+        attrs = event.get("attributes") or {}
+        kind = attrs.get("exception.type") or "exception"
+        message = str(attrs.get("exception.message") or "")[:limit]
+        lines.append(f"exception: {kind}" + (f": {message}" if message else ""))
+    return lines
+
+
+def summarize_for_judge(
+    result: SelectionResult, *, max_chars_per_span: int = 2000, max_chars_per_value: int = 600
+) -> str:
+    """Render selected spans into a compact text block for the judge prompt.
+
+    Each span keeps all its attributes within ``max_chars_per_span``: long values
+    are shortened (``max_chars_per_value``, reduced further when needed) instead of
+    cutting the span's JSON from the front. A failed span also shows its status
+    message and exception.
+    """
     if not result.selected:
         note = f"\n(elided {result.elided_count} span(s))" if result.elided else ""
         return f"(no evidence spans){note}"
@@ -579,10 +632,9 @@ def summarize_for_judge(result: SelectionResult, *, max_chars_per_span: int = 20
         prov = span.get("provenance", {})
         header = f"[{prov.get('kind', '?')} {prov.get('name', '?')}] trace={prov.get('trace_id', '?')[:8]} span={prov.get('span_id', '?')[:8]}"
         attrs = _redacted(span.get("attributes") or {})
-        body = json.dumps(attrs, ensure_ascii=False, default=str)
-        if len(body) > max_chars_per_span:
-            body = body[:max_chars_per_span] + "…(truncated)"
-        blocks.append(f"{header}\n{body}")
+        body = _span_body(attrs, max_chars_per_span, max_chars_per_value)
+        lines = [header, *(_redacted(line) for line in _failure_lines(span, max_chars_per_value)), body]
+        blocks.append("\n".join(lines))
     text = "\n\n".join(blocks)
     if result.elided:
         text += f"\n\n(elided {result.elided_count} additional span(s): " + ", ".join(

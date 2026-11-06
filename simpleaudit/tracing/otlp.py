@@ -113,9 +113,39 @@ def parse_otlp_json(payload: Any) -> List[Dict[str, Any]]:
                         "end_time": _proto_ts_to_unix(span.get("endTimeUnixNano")),
                         "status": _status_code(span.get("status")),
                         "attributes": attrs,
+                        **_status_message_and_events(
+                            span.get("status"), span.get("events"), _decode_attrs, "timeUnixNano"
+                        ),
                     }
                 )
     return spans
+
+
+def _status_message_and_events(
+    status: Optional[Dict[str, Any]], events: Any, decode_attrs: Any, time_key: str
+) -> Dict[str, Any]:
+    """A span's status message and events, when it has them (exceptions live in events).
+
+    OpenTelemetry records an exception as an ``exception`` event whose attributes
+    carry ``exception.type`` and ``exception.message``; the status message holds
+    the error description. Both are what a reader needs to see *why* a span failed.
+    """
+    out: Dict[str, Any] = {}
+    message = (status or {}).get("message") if isinstance(status, dict) else None
+    if isinstance(message, str) and message:
+        out["status_message"] = message
+    decoded = [
+        {
+            "name": event.get("name") or "event",
+            "time": _proto_ts_to_unix(event.get(time_key)),
+            "attributes": decode_attrs(event.get("attributes")),
+        }
+        for event in events or []
+        if isinstance(event, dict)
+    ]
+    if decoded:
+        out["events"] = decoded
+    return out
 
 
 def _decode_attrs(attrs: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
@@ -672,6 +702,9 @@ def _spans_from_otlp_dict(data: Dict[str, Any]) -> List[Dict[str, Any]]:
                         "end_time": _proto_ts_to_unix(span.get("end_time_unix_nano")),
                         "status": _status_from_dict(span.get("status")),
                         "attributes": attrs,
+                        **_status_message_and_events(
+                            span.get("status"), span.get("events"), _attrs_from_list, "time_unix_nano"
+                        ),
                     }
                 )
     return spans

@@ -16,6 +16,16 @@ from pathlib import Path
 from simpleaudit.utils import UNGRADED
 
 
+def _current_umask() -> int:
+    # Read once at import: os.umask can only be read by setting it.
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+_UMASK = _current_umask()
+
+
 def _atomic_json_dump(data: Dict, filepath: str) -> None:
     """Write JSON to filepath via a same-directory temp file + rename.
 
@@ -26,8 +36,14 @@ def _atomic_json_dump(data: Dict, filepath: str) -> None:
     path = Path(filepath)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        # backslashreplace: a lone surrogate (half an emoji from a judge's or
+        # target's \ud83d escape) is written as \ud83d, which json.load reads
+        # back, instead of making a finished run unsavable.
+        with os.fdopen(fd, "w", encoding="utf-8", errors="backslashreplace") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+        # mkstemp creates 0600; give the file the mode a plain open() would
+        # (0666 less the umask), so CI and shared directories can read it.
+        os.chmod(tmp_name, 0o666 & ~_UMASK)
         os.replace(tmp_name, filepath)
     except BaseException:
         try:
@@ -241,11 +257,17 @@ class AuditResults:
               + (f" | Errors: {self.errors}" if self.errors else ""))
 
         print("\nSeverity Distribution:")
-        for severity in ["ERROR", "critical", "high", "medium", "low", "pass", UNGRADED]:
+        known = ["ERROR", "critical", "high", "medium", "low", "pass", UNGRADED]
+        # Custom judge vocabularies survive normalisation; list them too
+        # rather than dropping them from the distribution (they are scored
+        # as medium).
+        others = sorted(sev for sev in self.severity_distribution if sev not in known)
+        for severity in known + others:
             count = self.severity_distribution.get(severity, 0)
             if count > 0:
                 icon = self.SEVERITY_ICONS.get(severity, "⚪")
-                print(f"  {icon} {severity.upper()}: {count}")
+                note = " (off the ladder; scored as medium)" if severity in others else ""
+                print(f"  {icon} {severity.upper()}: {count}{note}")
 
         if self.critical_count > 0:
             print(f"\n⚠️  WARNING: {self.critical_count} critical issue(s) found!")
@@ -362,29 +384,36 @@ class AuditResults:
         }
         
         # === PIE CHART ===
-        severity_order = ["ERROR", "critical", "high", "medium", "low", "pass"]
+        severity_order = ["ERROR", "critical", "high", "medium", "low", "pass", UNGRADED]
+        severity_order += sorted(s for s in self.severity_distribution if s not in severity_order)
         labels, sizes, pie_colors = [], [], []
-        
+
         for sev in severity_order:
             count = self.severity_distribution.get(sev, 0)
             if count > 0:
                 labels.append(sev.upper())
                 sizes.append(count)
-                pie_colors.append(severity_colors[sev])
+                pie_colors.append(severity_colors.get(sev, "#bdc3c7"))
         
         if sizes:
             axes[0].pie(sizes, labels=labels, colors=pie_colors, autopct="%1.0f%%", startangle=90)
             axes[0].set_title("Severity Distribution", fontsize=14, fontweight="bold")
         
         # === BAR CHART ===
-        scenario_names = [r.scenario_name for r in self.results]
-        severities = [r.severity for r in self.results]
-        scores = [self.SEVERITY_SCORES.get(r.severity, 2) for r in self.results]
-        bar_colors = [severity_colors.get(r.severity, "#95a5a6") for r in self.results]
-        
+        # ERROR and UNGRADED carry no verdict. Drawn on the 0-4 axis they
+        # would sit in the CRITICAL (ERROR scores 0) or MEDIUM column; they
+        # are in the pie chart instead.
+        graded = [r for r in self.results if r.severity not in ("ERROR", UNGRADED)]
+        scenario_names = [r.scenario_name for r in graded]
+        severities = [r.severity for r in graded]
+        scores = [self.SEVERITY_SCORES.get(r.severity, 2) for r in graded]
+        bar_colors = [severity_colors.get(r.severity, "#95a5a6") for r in graded]
+
         # Sort by score
         sorted_data = sorted(zip(scenario_names, scores, bar_colors, severities), key=lambda x: x[1])
-        scenario_names, scores, bar_colors, severities = zip(*sorted_data)
+        scenario_names, scores, bar_colors, severities = (
+            zip(*sorted_data) if sorted_data else ((), (), (), ())
+        )
         
         y_pos = range(len(scenario_names))
         bar_widths = [s + 0.5 for s in scores]

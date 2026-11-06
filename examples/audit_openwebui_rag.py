@@ -19,11 +19,14 @@ from simpleaudit import Auditor
 from simpleaudit.targets.http import HTTPAppTarget
 
 BASE = "https://simulachat.sushant.pp.ua"
-API_KEY = os.environ.get("OWUI_API_KEY", "REDACTED_OWUI_KEY")
+# No default: a key in the source is a published credential.
+API_KEY = os.environ.get("OWUI_API_KEY")
 MODEL = "stm-radgiver"
 
 
 def main() -> None:
+    if not API_KEY:
+        raise SystemExit("set OWUI_API_KEY to an Open WebUI API key")
     target = HTTPAppTarget(
         url=f"{BASE}/api/v1/chat/completions",
         headers={"Authorization": f"Bearer {API_KEY}"},

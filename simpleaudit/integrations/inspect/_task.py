@@ -189,7 +189,7 @@ def severity_counts() -> Metric:
 
     def compute(scores: list[SampleScore]) -> dict[str, float]:
         counts = Counter(
-            _SEVERITY_BY_POINTS[min(4, max(0, math.ceil(s.score.as_float() - 0.5)))] for s in scores
+            _SEVERITY_BY_POINTS[min(4, max(0, math.floor(s.score.as_float() + 1e-9)))] for s in scores
         )
         return {severity: float(counts.get(severity, 0)) for severity in SEVERITY_POINTS}
 

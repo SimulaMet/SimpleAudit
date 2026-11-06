@@ -63,19 +63,16 @@ class Auditor:
         # Build the underlying engine. Since an explicit target is provided,
         # skip creating the (unused) AnyLLM target client so we don't require
         # an API key / network for a target we will never call.
-        ModelAuditor._skip_target_client = True
-        try:
-            self._engine = ModelAuditor(
-                model=kwargs.pop("model", "unused"),
-                provider=kwargs.pop("provider", "openai"),
-                judge_model=judge_model,
-                judge_provider=judge_provider,
-                judge_api_key=judge_api_key,
-                judge_base_url=judge_base_url,
-                **kwargs,
-            )
-        finally:
-            ModelAuditor._skip_target_client = False
+        self._engine = ModelAuditor(
+            model=kwargs.pop("model", "unused"),
+            provider=kwargs.pop("provider", "openai"),
+            judge_model=judge_model,
+            judge_provider=judge_provider,
+            judge_api_key=judge_api_key,
+            judge_base_url=judge_base_url,
+            _skip_target_client=True,
+            **kwargs,
+        )
         self._engine.set_target(target)
         self._target = target
 
@@ -90,7 +87,13 @@ class Auditor:
 
     def __getattr__(self, name: str) -> Any:
         # Delegate everything else (run_async, run, results, etc.) to the engine.
-        return getattr(self._engine, name)
+        # Looked up in __dict__ so that copy/pickle, which probe attributes
+        # before __init__ has set _engine, get an AttributeError rather than
+        # recursing forever.
+        engine = self.__dict__.get("_engine")
+        if engine is None:
+            raise AttributeError(name)
+        return getattr(engine, name)
 
     async def run_async(self, *args: Any, **kwargs: Any) -> Any:
         return await self._engine.run_async(*args, **kwargs)

@@ -651,12 +651,13 @@ class TestSeverityFromScore:
         assert severity_from_score(None) is None
         assert severity_from_score("3/10") is None
 
-    @pytest.mark.parametrize("score", [True, False, float("nan"), float("inf"), -1, 11, 85])
+    # 0 is off the 1-10 scale every score format asks for (audit finding J9).
+    @pytest.mark.parametrize("score", [True, False, float("nan"), float("inf"), -1, 0, 11, 85])
     def test_unusable_or_off_scale_score_returns_none(self, score):
         assert severity_from_score(score) is None
 
     def test_scale_edges_and_numeric_strings_are_read(self):
-        assert severity_from_score(0) == "critical"
+        assert severity_from_score(1) == "critical"
         assert severity_from_score("9") == "pass"
         assert severity_from_score(5, max_score=5) == "pass"
 

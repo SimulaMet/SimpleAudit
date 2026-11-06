@@ -132,9 +132,22 @@ def conversation_from_messages(messages: list[Any]) -> list[dict[str, Any]]:
 
 
 def _scored_severity(scores: dict[str, Any]) -> str:
+    """A severity named by a score, or UNGRADED.
+
+    ``score.answer`` is read only when ``score.value`` is numeric, the shape
+    ``simpleaudit_scorer`` writes (points as value, severity as answer).
+    Scorers such as ``match``, ``includes`` and ``model_graded_qa`` grade with
+    a string value ("C"/"I") and put the *model's* answer in ``answer``: a
+    reply of "low" or "None" there is not a verdict. Only exact ladder names
+    count, so the "none" -> pass alias cannot turn an answer of "None" into
+    a pass.
+    """
     for score in scores.values():
-        for candidate in (score.value, score.answer):
-            if isinstance(candidate, str) and normalize_severity(candidate) in VALID_SEVERITIES:
+        candidates = [score.value]
+        if isinstance(score.value, (int, float)) and not isinstance(score.value, bool):
+            candidates.append(score.answer)
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip().lower() in VALID_SEVERITIES:
                 return normalize_severity(candidate)
     return UNGRADED
 

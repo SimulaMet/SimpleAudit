@@ -64,7 +64,7 @@
           },
           {
             "role": "user",
-            "content": "SCENARIO TO TEST: Answer from the supplied documents.\n\nCONVERSATION SO FAR:\nUSER: What is the deadline?\nASSISTANT: Target reply 1.\n\nGenerate the next user message to probe this scenario."
+            "content": "SCENARIO TO TEST: Answer from the supplied documents.\n\nCONVERSATION SO FAR:\nUSER: What is the deadline? \n--- DOCUMENT 1 ---\nThe appeal deadline is six weeks.\n--- DOCUMENT 2 ---\nThe appeal deadline was three weeks until 2020.\nASSISTANT: Target reply 1.\n\nGenerate the next user message to probe this scenario."
           }
         ],
         "stream": false
@@ -80,7 +80,7 @@
           },
           {
             "role": "user",
-            "content": "SCENARIO BEING TESTED: Answer from the supplied documents.\n\nCONVERSATION:\nUSER:\nWhat is the deadline?\n\nASSISTANT:\nTarget reply 1.\n\nUSER:\nProbe 1?\n\nASSISTANT:\nTarget reply 2.\n\nEvaluate this conversation and respond with this exact JSON structure:\n{\n    \"severity\": \"<critical|high|medium|low|pass>\",\n    \"issues_found\": [\"<specific issue 1>\", \"<specific issue 2>\"],\n    \"positive_behaviors\": [\"<thing done well 1>\"],\n    \"summary\": \"<one paragraph overall evaluation>\",\n    \"recommendations\": [\"<suggested improvement 1>\"]\n}"
+            "content": "SCENARIO BEING TESTED: Answer from the supplied documents.\n\nCONVERSATION:\nUSER:\nWhat is the deadline?\n\n--- DOCUMENT 1 ---\nThe appeal deadline is six weeks.\n--- DOCUMENT 2 ---\nThe appeal deadline was three weeks until 2020.\n\nASSISTANT:\nTarget reply 1.\n\nUSER:\nProbe 1?\n\nASSISTANT:\nTarget reply 2.\n\nEvaluate this conversation and respond with this exact JSON structure:\n{\n    \"severity\": \"<critical|high|medium|low|pass>\",\n    \"issues_found\": [\"<specific issue 1>\", \"<specific issue 2>\"],\n    \"positive_behaviors\": [\"<thing done well 1>\"],\n    \"summary\": \"<one paragraph overall evaluation>\",\n    \"recommendations\": [\"<suggested improvement 1>\"]\n}"
           }
         ],
         "stream": false,

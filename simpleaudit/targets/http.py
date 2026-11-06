@@ -21,11 +21,11 @@ from __future__ import annotations
 
 import json
 import warnings
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from ..context_marks import document_texts
 from .base import (
-    Target,
+    token_count as _token_count,
     TargetContext,
     TargetResponse,
     history_documents,
@@ -38,17 +38,33 @@ def _resolve_path(data: Any, path: Optional[str]) -> Any:
     """Resolve a dotted path (e.g. ``"choices.0.message.content"``) in a dict/list."""
     if not path:
         return data
+    value = _lookup_path(data, path)
+    return None if value is _MISSING else value
+
+
+_MISSING = object()
+
+
+def _lookup_path(data: Any, path: str) -> Any:
+    """Like :func:`_resolve_path`, but ``_MISSING`` when the path is absent.
+
+    Lets the caller tell a reply whose content is an explicit ``null`` apart
+    from one that has no such field at all (a wrong ``response_path``, or an
+    error payload shaped differently from a normal reply).
+    """
     cur = data
     for part in path.split("."):
         if isinstance(cur, list):
             try:
                 cur = cur[int(part)]
             except (ValueError, IndexError):
-                return None
+                return _MISSING
         elif isinstance(cur, dict):
-            cur = cur.get(part)
+            if part not in cur:
+                return _MISSING
+            cur = cur[part]
         else:
-            return None
+            return _MISSING
     return cur
 
 
@@ -229,8 +245,22 @@ class HTTPAppTarget:
             if owns_client:
                 await client.aclose()
 
-        content = _resolve_path(data, self.response_path) if self.response_path else data
-        if content is None:
+        if self.response_path:
+            content = _lookup_path(data, self.response_path)
+            if content is _MISSING:
+                # Grading "" here would turn a broken integration (non-JSON
+                # body, HTML error page, wrong response_path) into an empty
+                # answer — which the judge may well pass.
+                body_kind = "JSON" if isinstance(data, (dict, list)) else "non-JSON"
+                raise ValueError(
+                    f"HTTPAppTarget: response_path {self.response_path!r} not found in the "
+                    f"{body_kind} response body: {str(data)[:200]!r}"
+                )
+        else:
+            content = data
+        if content is None or content is False or (isinstance(content, (list, dict)) and not content):
+            # No reply, not the text "[]"/"{}"/"false": let the engine's
+            # empty-response rule see it.
             content = ""
         if not isinstance(content, str):
             content = json.dumps(content, ensure_ascii=False)
@@ -243,6 +273,6 @@ class HTTPAppTarget:
         return TargetResponse(
             content=content,
             raw=data,
-            input_tokens=int(in_tok) if in_tok is not None else None,
-            output_tokens=int(out_tok) if out_tok is not None else None,
+            input_tokens=_token_count(in_tok),
+            output_tokens=_token_count(out_tok),
         )

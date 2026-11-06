@@ -96,6 +96,12 @@ def _response_schema(spec: dict[str, Any]) -> ResponseSchema | None:
     return ResponseSchema(name=spec.get("name", "response"), json_schema=converted)
 
 
+#: Inspect stop reasons in the OpenAI finish_reason vocabulary that
+#: ``provider_errors.extract_completion`` reads.
+_FINISH_REASONS = {"max_tokens": "length", "tool_calls": "tool_calls", "stop": "stop",
+                   "content_filter": "content_filter", "unknown": None}
+
+
 class InspectModelClient:
     """Stands in for an AnyLLM client and calls an Inspect ``Model`` instead.
 
@@ -131,11 +137,38 @@ class InspectModelClient:
             if self.error is None:
                 self.error = exc
             raise
+        # Inspect turns some provider failures into an ordinary output rather
+        # than raising: a context overflow comes back as stop_reason
+        # "model_length" with the provider's error text as the completion,
+        # and output.error may be set. Grading that text as the model's reply
+        # (or sending it to the target as a probe) would hide an
+        # infrastructure failure, so it is raised like any other error.
+        stop_reason = getattr(output, "stop_reason", None)
+        failure = getattr(output, "error", None)
+        if failure or stop_reason == "model_length":
+            exc = RuntimeError(
+                f"Inspect model call failed (stop_reason={stop_reason!r}): "
+                f"{failure or output.completion}"[:1000]
+            )
+            if self.error is None:
+                self.error = exc
+            raise exc
         usage = output.usage
+        # Cached input is billed input: Inspect reports it separately.
+        prompt_tokens = 0
+        if usage:
+            prompt_tokens = (
+                (usage.input_tokens or 0)
+                + (getattr(usage, "input_tokens_cache_read", None) or 0)
+                + (getattr(usage, "input_tokens_cache_write", None) or 0)
+            )
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=output.completion))],
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content=output.completion),
+                finish_reason=_FINISH_REASONS.get(stop_reason, stop_reason),
+            )],
             usage=SimpleNamespace(
-                prompt_tokens=usage.input_tokens if usage else 0,
+                prompt_tokens=prompt_tokens,
                 completion_tokens=usage.output_tokens if usage else 0,
             ),
         )

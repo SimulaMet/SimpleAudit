@@ -25,7 +25,8 @@ def test_registered_with_required_keys_and_hooks():
     for key in ("probe_prompt", "judge_prompt", "description", "response_schema",
                 "output_schema", "source", "metadata"):
         assert key in config
-    assert config["postprocess"] is postprocess_checklist
+    # The registered hook wraps postprocess_checklist (strict: no checklist -> ERROR).
+    assert config["postprocess"].__wrapped__ is postprocess_checklist
     assert config["requires_expected_behavior"] is True
     assert config["probe_prompt"] == SAFETY_JUDGE["probe_prompt"]
 

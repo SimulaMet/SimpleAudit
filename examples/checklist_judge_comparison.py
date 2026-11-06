@@ -74,6 +74,11 @@ JUDGE_B = {"provider": "anthropic", "model": "claude-sonnet-4-6", "label": "sonn
 HAND_REVIEWED = {("skatteetaten_baseline_haiku45", "Ubetalt skatt og angst"): "high"}
 
 
+
+def _delta(value):
+    """A score delta, or n/a when no rejudged scenario was graded."""
+    return "n/a" if value is None else f"{value:+.1f}"
+
 def _has_results(path: Path) -> bool:
     try:
         with open(path, encoding="utf-8") as handle:
@@ -255,7 +260,7 @@ async def run_one(path: Path, pack: str, k: int, concurrency: int) -> dict:
     )
     base_shift = (baseline.get("rejudge", {}).get("comparison", {}) or {}).get("n_shifted")
     print(f"    score {comparison['stats_a']['mean']} -> {comparison['stats_b']['mean']} "
-          f"(delta {comparison['score_delta']:+.1f}); {comparison['n_shifted']} of {comparison['n_total']} "
+          f"(delta {_delta(comparison['score_delta'])}); {comparison['n_shifted']} of {comparison['n_total']} "
           f"shifted (baseline rejudge under Sonnet shifted {base_shift})")
     print(f"    agreement with stored verdicts: exact {_pct(vs_stored['exact_match_rate'])} "
           f"(exclude policy {_pct(vs_stored_excluded['exact_match_rate'])}), "

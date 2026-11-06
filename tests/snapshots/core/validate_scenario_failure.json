@@ -29,7 +29,8 @@
           "Re-run this scenario; check API credentials, rate limits, and connectivity."
         ],
         "error": "ValueError: scenario needs metadata.reference",
-        "traceback": "<traceback>"
+        "traceback": "<traceback>",
+        "error_phase": "conversation"
       },
       "auditor_input_tokens": 0,
       "auditor_output_tokens": 0,

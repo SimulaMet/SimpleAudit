@@ -26,7 +26,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any
 
-from .base import TargetContext, TargetResponse, history_documents, history_file_uri
+from .base import TargetContext, TargetResponse, history_documents, history_file_uri, token_count
 
 ResetKwargs = Mapping[str, Any] | Callable[[str | None], Mapping[str, Any]]
 
@@ -262,8 +262,12 @@ def _tool_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     so the judge sees a failure the agent may not mention.
     """
     converted = []
-    for event in events:
+    for event in events if isinstance(events, list) else []:
+        if not isinstance(event, dict):
+            continue  # as _usage: a malformed event is skipped, not a crash
         data = event.get("data") or {}
+        if not isinstance(data, dict):
+            continue
         kind = event.get("type")
         if kind == "tool_call":
             converted.append({"type": "tool_call", "name": data.get("tool_name"), "arguments": data.get("arguments")})
@@ -293,8 +297,11 @@ def _usage(events: list[dict[str, Any]]) -> tuple[int | None, int | None]:
     """
     for event in reversed(events):
         if event.get("type") == "turn_complete":
-            usage = (event.get("data") or {}).get("usage") or {}
-            parts = [usage.get(k) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")]
-            input_tokens = sum(p for p in parts if isinstance(p, int)) if parts[0] is not None else None
-            return input_tokens, usage.get("output_tokens")
+            data = event.get("data")
+            usage = data.get("usage") if isinstance(data, dict) else None
+            usage = usage if isinstance(usage, dict) else {}
+            parts = [token_count(usage.get(k)) for k in
+                     ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")]
+            input_tokens = sum(p for p in parts if p is not None) if parts[0] is not None else None
+            return input_tokens, token_count(usage.get("output_tokens"))
     return None, None

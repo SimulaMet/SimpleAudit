@@ -832,3 +832,52 @@ def test_shared_receiver_stats():
             shared.stop()
 
     asyncio.run(_run())
+
+
+from simpleaudit.tracing.store import normalize_span  # noqa: E402
+
+
+def test_parse_otlp_keeps_status_message_and_exception_events():
+    """Why a span failed lives in its status message and its exception event."""
+    payload = {"resourceSpans": [{"scopeSpans": [{"spans": [{
+        "traceId": "t" * 32, "spanId": "s" * 16, "name": "execute_tool acme_get_order",
+        "startTimeUnixNano": "1000000000", "endTimeUnixNano": "2000000000",
+        "status": {"code": 2, "message": "ValueError: No order found"},
+        "events": [{"name": "exception", "timeUnixNano": "1500000000", "attributes": [
+            {"key": "exception.type", "value": {"stringValue": "ValueError"}},
+            {"key": "exception.message", "value": {"stringValue": "No order found for 'ACME-9999'."}},
+        ]}],
+    }]}]}]}
+    (span,) = parse_otlp_json(payload)
+    assert span["status"] == "ERROR"
+    assert span["status_message"] == "ValueError: No order found"
+    assert span["events"] == [{"name": "exception", "time": 1.5, "attributes": {
+        "exception.type": "ValueError", "exception.message": "No order found for 'ACME-9999'."}}]
+    normalized = normalize_span(span)
+    assert normalized["status_message"] == span["status_message"] and normalized["events"] == span["events"]
+
+
+def test_parse_otlp_without_events_adds_no_keys():
+    (span,) = parse_otlp_json(_otlp_payload())[:1]
+    assert "events" not in span and "status_message" not in span
+
+
+def test_summarize_for_judge_shortens_values_and_keeps_every_attribute():
+    """A long input history no longer pushes the model's output out of the span."""
+    span = {"span_id": "a" * 16, "trace_id": "b" * 32, "name": "chat", "kind": "LLM", "status": "OK",
+            "attributes": {"gen_ai.input.messages": "x" * 5000, "gen_ai.output.messages": "the answer"}}
+    text = summarize_for_judge(select_spans([span]))
+    assert '"gen_ai.output.messages": "the answer"' in text
+    assert "…(truncated)" in text
+    assert len(text) < 2300
+
+
+def test_summarize_for_judge_shows_why_a_span_failed():
+    span = normalize_span({"span_id": "a" * 16, "trace_id": "b" * 32, "name": "execute_tool", "kind": "TOOL",
+                           "status": "ERROR", "status_message": "lookup failed",
+                           "events": [{"name": "exception", "attributes": {
+                               "exception.type": "ValueError", "exception.message": "No order found"}}],
+                           "attributes": {"gen_ai.tool.name": "acme_get_order"}})
+    text = summarize_for_judge(select_spans([span]))
+    assert "status: ERROR — lookup failed" in text
+    assert "exception: ValueError: No order found" in text

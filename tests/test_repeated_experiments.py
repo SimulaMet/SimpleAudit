@@ -86,6 +86,24 @@ class TestAuditExperimentRepetitions:
         assert isinstance(results, RepeatedExperimentResults)
         assert len(results._runs["test-model"]) == 3
 
+    def test_pack_name_is_recorded_in_each_runs_meta(self):
+        """A run started with a pack name records it, as ModelAuditor.run does."""
+
+        async def fake_run_async(self_a, scenarios, max_turns=None, language="English", **kwargs):
+            return AuditResults(
+                _make_results(["pass"]).results,
+                meta=self_a._run_meta(scenarios, max_turns, language),
+            )
+
+        exp = _make_experiment(n_repetitions=2)
+        with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()), \
+             patch.object(ModelAuditor, "run_async", new=fake_run_async):
+            from_pack = asyncio.run(exp.run_async(scenarios="safety"))
+            from_list = asyncio.run(exp.run_async(scenarios=SCENARIOS))
+
+        assert [run.meta.get("scenario_pack") for run in from_pack._runs["test-model"]] == ["safety", "safety"]
+        assert all("scenario_pack" not in run.meta for run in from_list._runs["test-model"])
+
     def test_n_repetitions_1_is_default_compatible(self):
         exp = _make_experiment(n_repetitions=1)
         r = _make_results(["low"])

@@ -30,6 +30,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import threading
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Protocol, Tuple
 
@@ -194,6 +195,14 @@ class OTLPAuth:
         # the token (salted per-credential) so we can find the record to
         # compare against without storing the raw token.
         self._bearer: Dict[str, _Credential] = {}
+        # verify() runs on the receiver's server thread while credentials may
+        # be added, rotated or revoked from another thread. Mutations hold
+        # this lock and readers iterate a snapshot, so a concurrent change
+        # can never raise "dictionary changed size during iteration".
+        self._lock = threading.RLock()
+        # Hashed once against an unknown username so that "no such user"
+        # costs the same as "wrong password" and timing reveals nothing.
+        self._dummy = _Credential(target_id="", salt=_new_salt(), secret_hash=b"")
 
     # ── Credential management ────────────────────────────────────────────
 
@@ -201,62 +210,85 @@ class OTLPAuth:
         """Register (or replace) a Basic-Auth credential for ``target_id``."""
         if not username:
             raise ValueError("username is required")
+        if not target_id:
+            raise ValueError("target_id is required")
         salt = _new_salt()
-        self._basic[username] = _Credential(
-            target_id=target_id, salt=salt, secret_hash=_hash_secret(password, salt)
-        )
+        cred = _Credential(target_id=target_id, salt=salt, secret_hash=_hash_secret(password, salt))
+        with self._lock:
+            self._basic[username] = cred
 
     def add_bearer(self, token: str, target_id: str) -> None:
         """Register (or replace) a Bearer credential for ``target_id``."""
         if not token:
             raise ValueError("token is required")
+        if not target_id:
+            raise ValueError("target_id is required")
         salt = _new_salt()
         cred = _Credential(target_id=target_id, salt=salt, secret_hash=_hash_secret(token, salt))
         # Index by the salted hash so lookup needs only the presented token.
-        self._bearer[_hash_secret(token, salt).hex()] = cred
+        with self._lock:
+            # "Replace": drop every existing record for this token first, so
+            # re-adding it (idempotent provisioning) cannot leave a second
+            # record that survives revoke/rotate or keeps the old target.
+            for key, existing in list(self._bearer.items()):
+                if hmac.compare_digest(existing.secret_hash, _hash_secret(token, existing.salt)):
+                    del self._bearer[key]
+            self._bearer[_hash_secret(token, salt).hex()] = cred
 
     def revoke(self, username_or_token: str) -> bool:
         """Revoke a credential by username (basic) or token (bearer).
 
         Returns True if a matching credential was found and revoked.
         """
-        if username_or_token in self._basic:
-            self._basic[username_or_token].revoked = True
-            return True
-        # For bearer we must find the record by hashing the token with each
-        # stored salt; the index key is that hash, so we can't reverse it.
-        # Instead we scan (credential sets are small — one per target).
-        for cred in self._bearer.values():
-            if cred.matches(username_or_token):
-                cred.revoked = True
+        with self._lock:
+            if username_or_token in self._basic:
+                self._basic[username_or_token].revoked = True
                 return True
-        return False
+            # For bearer we must find the record by hashing the token with each
+            # stored salt; the index key is that hash, so we can't reverse it.
+            # Instead we scan (credential sets are small — one per target).
+            found = False
+            for cred in list(self._bearer.values()):
+                if cred.matches(username_or_token):
+                    cred.revoked = True
+                    found = True
+            return found
 
     def rotate_basic(self, username: str, new_password: str) -> None:
         """Re-issue the password for an existing Basic credential (same target)."""
-        cred = self._basic.get(username)
-        if cred is None:
-            raise KeyError(f"No Basic credential for username {username!r}")
         salt = _new_salt()
-        cred.salt = salt
-        cred.secret_hash = _hash_secret(new_password, salt)
-        cred.revoked = False
+        secret_hash = _hash_secret(new_password, salt)
+        with self._lock:
+            old = self._basic.get(username)
+            if old is None:
+                raise KeyError(f"No Basic credential for username {username!r}")
+            if old.revoked:
+                # Same as rotate_bearer: a revoked credential is not re-issued
+                # by rotation; register it again with add_basic.
+                raise KeyError(f"Basic credential for username {username!r} is revoked")
+            # Swap in a new record rather than mutating salt and hash one
+            # after the other, which a concurrent verify() could observe
+            # half-updated.
+            self._basic[username] = _Credential(
+                target_id=old.target_id, salt=salt, secret_hash=secret_hash
+            )
 
     def rotate_bearer(self, old_token: str, new_token: str) -> None:
         """Replace a Bearer token, keeping the same target_id."""
-        old_cred = self._find_bearer(old_token)
-        if old_cred is None:
-            raise KeyError("No Bearer credential for the given token")
-        # Remove the old index entry and register the new token under the
-        # same target_id.
-        for key, cred in list(self._bearer.items()):
-            if cred is old_cred:
-                del self._bearer[key]
-                break
-        self.add_bearer(new_token, old_cred.target_id)
+        with self._lock:
+            old_cred = self._find_bearer(old_token)
+            if old_cred is None:
+                raise KeyError("No Bearer credential for the given token")
+            # Remove the old index entry and register the new token under the
+            # same target_id.
+            for key, cred in list(self._bearer.items()):
+                if cred is old_cred:
+                    del self._bearer[key]
+                    break
+            self.add_bearer(new_token, old_cred.target_id)
 
     def _find_bearer(self, token: str) -> Optional[_Credential]:
-        for cred in self._bearer.values():
+        for cred in list(self._bearer.values()):
             if cred.matches(token):
                 return cred
         return None
@@ -301,6 +333,7 @@ class OTLPAuth:
         username, password = decoded.split(":", 1)
         cred = self._basic.get(username)
         if cred is None:
+            self._dummy.matches(password)  # equalise timing with a real check
             return AuthResult(ok=False, reason="unknown_username")
         if not cred.matches(password):
             return AuthResult(ok=False, reason="invalid_credentials")
@@ -318,15 +351,25 @@ class OTLPAuth:
 def tag_spans(spans, target_id: Optional[str]) -> None:
     """Stamp ``simpleaudit.target_id`` onto each span's attributes in place.
 
-    No-op when ``target_id`` is falsy (e.g. ``none`` mode). Mutates the raw
+    When ``target_id`` is falsy (``none`` mode, an identity-less credential)
+    any client-supplied ``simpleaudit.target_id`` is removed instead: only the
+    receiver may attribute spans to a target. Mutates the raw
     span dicts before they are normalized/stored, so the tag flows through
     :func:`simpleaudit.tracing.otlp.parse_otlp_json` and is queryable via
     ``SpanStore.by_attribute``.
     """
-    if not target_id:
-        return
     for span in spans:
         attrs = span.get("attributes")
         if attrs is None:
+            if not target_id:
+                continue
             span["attributes"] = attrs = {}
-        attrs.setdefault(TARGET_ID_ATTR, target_id)
+        if not target_id:
+            # An identity-less credential (or a custom authenticator that
+            # returns none) must not let the client claim a target either.
+            attrs.pop(TARGET_ID_ATTR, None)
+            continue
+        # Overwrite, never setdefault: a client-supplied target id must not
+        # survive, or an authenticated target could attribute its spans to
+        # another target.
+        attrs[TARGET_ID_ATTR] = target_id

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
-from .base import Target, TargetContext, TargetResponse
+from .base import TargetContext, TargetResponse
 
 # A transport turns the logical send inputs into a normalized response.
 Transport = Callable[..., Awaitable[TargetResponse]]

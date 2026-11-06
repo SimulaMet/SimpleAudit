@@ -17,7 +17,6 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 from ..context_marks import document_texts
 from .base import (
-    Target,
     TargetContext,
     TargetResponse,
     history_documents,
@@ -73,4 +72,9 @@ class CallableTarget:
             result = await result
         if isinstance(result, TargetResponse):
             return result
+        # None (a swallowed exception, a missing return) and empty containers
+        # are "no reply": map them to "" so the engine's empty-response rule
+        # applies, instead of grading the literal text "None" or "[]".
+        if result is None or result is False or (isinstance(result, (list, dict, tuple)) and not result):
+            return TargetResponse(content="")
         return TargetResponse(content=str(result))

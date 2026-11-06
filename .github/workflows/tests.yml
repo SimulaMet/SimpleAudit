@@ -5,6 +5,9 @@ on:
     branches: [ main, dev, any-llm ]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -143,4 +146,14 @@ jobs:
       - name: Install built wheel and import it
         run: |
           pip install dist/*.whl
-          python -c "import simpleaudit; print('installed', simpleaudit.__version__)"
+          # Run from outside the checkout (and with -I) so the import resolves
+          # to the installed wheel, not ./simpleaudit; load a scenario pack so
+          # missing package data fails here too.
+          cd "$RUNNER_TEMP"
+          python -I -c "
+          import simpleaudit, simpleaudit.judges, simpleaudit.scenarios, simpleaudit.targets, simpleaudit.tracing
+          from simpleaudit.model_auditor import ModelAuditor
+          assert 'site-packages' in simpleaudit.__file__, simpleaudit.__file__
+          assert ModelAuditor.get_scenarios('safety')
+          print('installed', simpleaudit.__version__, simpleaudit.__file__)
+          "

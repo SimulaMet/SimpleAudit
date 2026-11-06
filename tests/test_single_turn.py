@@ -215,7 +215,12 @@ class TestSingleExchange:
     def test_stored_conversation_stays_plain_and_serialisable(self, wired):
         sta, _, _, _ = wired
         result = asyncio.run(sta._run_one_scenario(HELFO_SCENARIO))
-        assert all(set(m) == {"role", "content"} for m in result.conversation)
+        user, *rest = result.conversation
+        # The user turn carries the document TEXT the target was sent, so the
+        # correctness judge and re-grades can read it; never the marks.
+        assert set(user) == {"role", "content", "documents"}
+        assert user["documents"] and all(isinstance(d, str) for d in user["documents"])
+        assert all(set(m) == {"role", "content"} for m in rest)
         # Marks parse to date objects; if any rode along in the transcript,
         # AuditResults.save() would raise here instead of in production.
         json.dumps(result.to_dict())

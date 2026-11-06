@@ -36,11 +36,12 @@ from __future__ import annotations
 
 import json
 import os
+import warnings
 from collections.abc import Mapping
 from typing import Any
 
 from ..context_marks import parse_documents
-from .base import TargetContext, TargetResponse, history_documents
+from .base import TargetContext, TargetResponse, history_documents, history_file_uri, token_count
 
 #: Ollama's request-body cap for System One requests without images.
 OLLAMA_MAX_BODY_BYTES = 64 * 1024
@@ -54,6 +55,8 @@ class DecisionTarget:
 
     #: A decision model answers once; the auditor caps scenarios at this many turns.
     max_turns = 1
+
+    _warned_system = False  # warn once per target about the dropped system prompt
 
     def __init__(
         self,
@@ -152,6 +155,16 @@ class DecisionTarget:
         params: dict[str, Any] | None = None,
         context: TargetContext | None = None,
     ) -> TargetResponse:
+        # Like the HTTP and OpenEnv targets: an attachment the endpoint never
+        # receives must not be graded as if it had been sent.
+        if file_uri or history_file_uri(history):
+            raise ValueError("DecisionTarget cannot send attached files; this scenario attaches file_uri")
+        if system and not self._warned_system:
+            self._warned_system = True
+            warnings.warn(
+                "DecisionTarget does not send the system prompt to the decision endpoint.",
+                stacklevel=2,
+            )
         decision = (context.extra if context is not None else {}).get("decision")
         if decision is None:
             raise ValueError(
@@ -201,11 +214,12 @@ class DecisionTarget:
             )
 
         description = decision["criteria"][choice]
-        usage = data.get("usage") or {}
+        usage = data.get("usage")
+        usage = usage if isinstance(usage, dict) else {}
         return TargetResponse(
             content=f"{choice}: {description}" if description else choice,
             raw=data,
-            input_tokens=usage.get("input_tokens"),
-            output_tokens=usage.get("output_tokens"),
+            input_tokens=token_count(usage.get("input_tokens")),
+            output_tokens=token_count(usage.get("output_tokens")),
             decision=answer,
         )

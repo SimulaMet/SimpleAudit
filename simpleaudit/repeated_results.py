@@ -189,8 +189,9 @@ class ScenarioStats:
     agreement_rate: float                  # fraction of runs matching the mode
     normalised_entropy: float = 0.0        # 0.0 = unanimous; see _normalised_entropy
     ordinal_spread: Optional[float] = 0.0  # std on the 0-4 ladder; None if off-ladder
-    n_observations: int = 0                # graded runs (ERROR runs excluded)
+    n_observations: int = 0                # graded runs (ERROR and UNGRADED runs excluded)
     n_errors: int = 0                      # runs that ended in ERROR (no verdict)
+    n_ungraded: int = 0                    # runs the judge could not grade (no verdict)
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -215,6 +216,7 @@ class ModelStabilityReport:
     n_graded: int = 0                      # scenario-runs with a verdict
     n_errors: int = 0                      # scenario-runs that ended in ERROR (not scored)
     pooled_score: Optional[float] = None   # score over all graded scenario-runs together
+    n_ungraded: int = 0                    # scenario-runs the judge could not grade
 
     def summary(self) -> None:
         print()
@@ -230,7 +232,8 @@ class ModelStabilityReport:
             print(f"Range      :  {self.min_score:.1f} – {self.max_score:.1f}")
         if self.n_errors:
             print(
-                f"Errors     :  {self.n_errors} of {self.n_graded + self.n_errors} scenario-runs "
+                f"Errors     :  {self.n_errors} of "
+                f"{self.n_graded + self.n_errors + self.n_ungraded} scenario-runs "
                 f"ended in ERROR and are not scored"
                 + (f"; {self.n_runs - self.n_runs_scored} run(s) had nothing graded"
                    if self.n_runs_scored < self.n_runs else "")
@@ -255,9 +258,11 @@ class ModelStabilityReport:
                 # five runs sits in an n_runs=5 report having been seen once.
                 measured = stats.n_observations > 1
                 entropy = f"{stats.normalised_entropy:>7.2f}" if measured else f"{'—':>7}"
-                flag = "  (fragile)" if stats.agreement_rate < FRAGILE_THRESHOLD_DEFAULT else ""
+                graded = stats.n_observations > 0
+                flag = "  (fragile)" if graded and stats.agreement_rate < FRAGILE_THRESHOLD_DEFAULT else ""
+                rate = f"{stats.pass_rate * 100:>8.0f}%" if graded else f"{'n/a':>9}"
                 print(
-                    f"  {short:<35} {stats.pass_rate * 100:>8.0f}%"
+                    f"  {short:<35} {rate}"
                     f"   {stats.agreement_rate * 100:>8.0f}%"
                     f"   {entropy}"
                     f"   {stats.most_common_severity}{flag}"
@@ -332,7 +337,8 @@ class ModelStabilityReport:
         return {
             name: stats
             for name, stats in self.per_scenario.items()
-            if stats.agreement_rate < threshold
+            # A scenario with no verdict in any run has nothing to agree on.
+            if stats.n_observations > 0 and stats.agreement_rate < threshold
         }
 
     def to_dict(self) -> Dict:
@@ -348,6 +354,7 @@ class ModelStabilityReport:
             "n_runs_scored": self.n_runs_scored,
             "n_graded": self.n_graded,
             "n_errors": self.n_errors,
+            "n_ungraded": self.n_ungraded,
             "pooled_score": self.pooled_score,
             "per_scenario": {k: v.to_dict() for k, v in self.per_scenario.items()},
         }
@@ -389,7 +396,6 @@ def _build_model_aggregate(runs: List[AuditResults]) -> Dict:
         "errors": stats([r.errors for r in runs]),
         "passed": stats([r.passed for r in runs]),
         "failed": stats([r.failed for r in runs]),
-        "errors": stats([r.errors for r in runs]),
         "ungraded": stats([r.ungraded for r in runs]),
         "severity_distribution": {
             sev: stats([r.severity_distribution.get(sev, 0) for r in runs])
@@ -406,7 +412,15 @@ def _index_by_name(audit_results: AuditResults) -> Dict[str, AuditResult]:
     return {r.scenario_name: r for r in audit_results}
 
 
-def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabilityReport:
+def _build_stability_report(
+    model: str,
+    runs: List[AuditResults],
+    extra_runs: Optional[List[AuditResults]] = None,
+) -> ModelStabilityReport:
+    # ``extra_runs`` are adaptive reruns: partial runs that repeat only the
+    # fragile scenarios. They add verdicts to the per-scenario statistics but
+    # are left out of the whole-run score statistics, which would otherwise
+    # average full runs with subset runs.
     # Runs with nothing graded (score None) are left out of mean/SD rather
     # than counted as 0 — see _build_model_aggregate.
     scores = [r.score for r in runs if r.score is not None]
@@ -423,12 +437,13 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
     # run 0 would silently drop stats for any scenario that failed to appear
     # in that particular run.
     per_scenario: Dict[str, ScenarioStats] = {}
-    if runs:
+    verdict_runs = list(runs) + list(extra_runs or [])
+    if verdict_runs:
         scenario_names = list(dict.fromkeys(
-            r.scenario_name for run in runs for r in run
+            r.scenario_name for run in verdict_runs for r in run
         ))
         duplicated: Dict[str, int] = {}
-        for run in runs:
+        for run in verdict_runs:
             for n, c in Counter(r.scenario_name for r in run).items():
                 if c > 1:
                     duplicated[n] = max(duplicated.get(n, 0), c)
@@ -442,17 +457,18 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
             )
         for scenario_name in scenario_names:
             severities = []
-            for run in runs:
+            for run in verdict_runs:
                 indexed = _index_by_name(run)
                 if scenario_name in indexed:
                     severities.append(indexed[scenario_name].severity)
             if not severities:
                 continue
-            # ERROR runs carry no verdict: leave them out of the verdict
-            # statistics (pass rate, mode, agreement, spread) and report how
-            # many there were. A scenario that errored in every run keeps
-            # "ERROR" as its mode so it is still visible.
-            graded = [sev for sev in severities if sev != "ERROR"]
+            # ERROR and UNGRADED runs carry no verdict: leave them out of the
+            # verdict statistics (pass rate, mode, agreement, spread), as
+            # AuditResults.score does, and report how many there were. A
+            # scenario with no verdict in any run keeps "ERROR"/UNGRADED as its
+            # mode so it is still visible.
+            graded = [sev for sev in severities if sev not in ("ERROR", UNGRADED)]
             basis = graded if graded else severities
             agg = aggregate_severities(basis)
             spread = _ordinal_spread(basis)
@@ -464,7 +480,8 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
                 normalised_entropy=round(_normalised_entropy(basis), 4),
                 ordinal_spread=None if spread is None else round(spread, 4),
                 n_observations=len(graded),
-                n_errors=len(severities) - len(graded),
+                n_errors=severities.count("ERROR"),
+                n_ungraded=severities.count(UNGRADED),
             )
 
     return ModelStabilityReport(
@@ -481,6 +498,7 @@ def _build_stability_report(model: str, runs: List[AuditResults]) -> ModelStabil
         n_graded=n_graded,
         n_errors=n_errors,
         pooled_score=_pooled_score(runs),
+        n_ungraded=sum(r.ungraded for r in runs),
     )
 
 
@@ -520,10 +538,26 @@ class RepeatedExperimentResults:
     - .save() / .load() — JSON serialization
     """
 
-    def __init__(self, runs_by_model: Dict[str, List[AuditResults]], judge: Optional[Dict] = None, cancelled: bool = False) -> None:
+    def __init__(
+        self,
+        runs_by_model: Dict[str, List[AuditResults]],
+        judge: Optional[Dict] = None,
+        cancelled: bool = False,
+        adaptive_runs: Optional[Dict[str, List[AuditResults]]] = None,
+        n_repetitions: Optional[int] = None,
+    ) -> None:
         self._runs: Dict[str, List[AuditResults]] = runs_by_model
+        # The configured repetition count. Models can end with fewer runs
+        # (rep_is_done skips, cancellation), so it is not read off one model.
+        self.n_repetitions: Optional[int] = n_repetitions
         self._judge: Optional[Dict] = judge
         self.cancelled: bool = cancelled
+        # Adaptive reruns (partial runs over fragile scenarios only). Kept
+        # apart from the repetitions: they feed per-scenario stability but not
+        # the run count or the whole-run score aggregates.
+        self._adaptive: Dict[str, List[AuditResults]] = {
+            label: list(extra) for label, extra in (adaptive_runs or {}).items() if extra
+        }
 
     # ------------------------------------------------------------------
     # Backward-compatible dict interface
@@ -596,6 +630,16 @@ class RepeatedExperimentResults:
         """
         return {label: list(runs) for label, runs in self._runs.items()}
 
+    def adaptive_runs(self, model_name: str) -> List[AuditResults]:
+        """Return the adaptive reruns for a model (empty if none were made).
+
+        Each adaptive rerun repeats only the scenarios that were below the
+        agreement target, so it is not a full repetition.
+        """
+        if model_name not in self._runs:
+            raise KeyError(model_name)
+        return list(self._adaptive.get(model_name, []))
+
     # ------------------------------------------------------------------
     # Statistical methods
     # ------------------------------------------------------------------
@@ -605,7 +649,9 @@ class RepeatedExperimentResults:
         if model_name not in self._runs:
             available = list(self._runs.keys())
             raise KeyError(f"No model '{model_name}' in results. Available: {available}")
-        return _build_stability_report(model_name, self._runs[model_name])
+        return _build_stability_report(
+            model_name, self._runs[model_name], self._adaptive.get(model_name)
+        )
 
     def summary(self) -> None:
         """Print stability reports for all models."""
@@ -628,12 +674,15 @@ class RepeatedExperimentResults:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             return {
-                label: _build_stability_report(label, runs)
+                label: _build_stability_report(label, runs, self._adaptive.get(label))
                 for label, runs in self._runs.items()
             }
 
     def to_dict(self) -> Dict:
-        n_reps = len(next(iter(self._runs.values()))) if self._runs else 0
+        if self.n_repetitions is not None:
+            n_reps = self.n_repetitions
+        else:
+            n_reps = max((len(runs) for runs in self._runs.values()), default=0)
         return {
             "version": "1.0",
             "n_repetitions": n_reps,
@@ -655,6 +704,12 @@ class RepeatedExperimentResults:
                 label: [run.to_dict() for run in runs]
                 for label, runs in self._runs.items()
             },
+            **({
+                "adaptive_runs": {
+                    label: [run.to_dict() for run in extra]
+                    for label, extra in self._adaptive.items()
+                }
+            } if self._adaptive else {}),
         }
 
     def save(self, filepath: str) -> None:
@@ -670,18 +725,25 @@ class RepeatedExperimentResults:
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        runs_by_model: Dict[str, List[AuditResults]] = {}
-        for label, run_list in data["runs"].items():
-            reconstructed = []
-            for run_data in run_list:
-                results = [AuditResult(**r) for r in run_data["results"]]
-                instance = AuditResults(results)
-                instance.timestamp = run_data.get("timestamp", instance.timestamp)
-                reconstructed.append(instance)
-            runs_by_model[label] = reconstructed
+        def _reconstruct(run_data: Dict) -> AuditResults:
+            results = [AuditResult(**r) for r in run_data["results"]]
+            instance = AuditResults(results, meta=run_data.get("meta"))
+            instance.timestamp = run_data.get("timestamp", instance.timestamp)
+            return instance
+
+        runs_by_model: Dict[str, List[AuditResults]] = {
+            label: [_reconstruct(run_data) for run_data in run_list]
+            for label, run_list in data["runs"].items()
+        }
+        adaptive = {
+            label: [_reconstruct(run_data) for run_data in run_list]
+            for label, run_list in (data.get("adaptive_runs") or {}).items()
+        }
 
         return cls(
             runs_by_model,
             judge=data.get("judge"),
             cancelled=data.get("cancelled", False),
+            adaptive_runs=adaptive,
+            n_repetitions=data.get("n_repetitions"),
         )

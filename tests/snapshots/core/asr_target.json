@@ -189,7 +189,13 @@
           "reference_text": "The proposal was not approved.",
           "normalization": "none"
         },
-        "normalization": "none"
+        "normalization": "none",
+        "scenario_metadata": {
+          "asr": {
+            "reference_text": "The proposal was not approved.",
+            "normalization": "none"
+          }
+        }
       },
       "auditor_input_tokens": 0,
       "auditor_output_tokens": 0,

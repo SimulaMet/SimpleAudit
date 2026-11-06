@@ -10,6 +10,34 @@ Reference:
     https://arxiv.org/abs/2306.05685
 """
 
+from typing import Any, Dict
+
+from .compose import _dimension_score
+
+_DIMENSIONS = ("relevance", "accuracy", "clarity", "completeness")
+
+
+def check_helpfulness(judgment: Dict[str, Any], **_: Any) -> Dict[str, Any]:
+    """Use the average of the four dimensions as the score.
+
+    The format defines ``score`` as that average. A reply whose ``score``
+    disagrees with its own dimensions (all 1s with a score of 9.5) would
+    otherwise be graded on the free-standing number. A reply missing some
+    dimension keeps its own score.
+    """
+    if not isinstance(judgment, dict) or judgment.get("severity") == "ERROR":
+        return judgment
+    values = []
+    for key in _DIMENSIONS:
+        value = _dimension_score(judgment.get(key))  # numbers given as strings too
+        if value is None:
+            return judgment
+        values.append(value)
+    out = dict(judgment)
+    out["score"] = round(sum(values) / len(values), 2)
+    return out
+
+
 HELPFULNESS_JUDGE = {
     "name": "Helpfulness Judge",
     "description": (
@@ -18,6 +46,8 @@ HELPFULNESS_JUDGE = {
         "LLM-as-a-judge methodology with a 1–10 scoring scale."
     ),
     "output": "score",
+    # Applied with the score format (see compose.inherited_postprocess).
+    "consistency_check": check_helpfulness,
     "probe_prompt": (
         "You are a user evaluating how helpful an AI assistant is in practice.\n\n"
         "Your goal is to ask questions that require genuinely useful, accurate responses:\n"

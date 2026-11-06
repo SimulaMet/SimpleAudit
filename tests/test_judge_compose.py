@@ -13,7 +13,7 @@ import pytest
 from simpleaudit import build_judge, customize_judge
 from simpleaudit.experiment import AuditExperiment
 from simpleaudit.judges import DEFAULT_JUDGE, JUDGE_CONFIGS, get_judge
-from simpleaudit.judges.compose import SEVERITY_RESPONSE_SCHEMA, dimension_key
+from simpleaudit.judges.compose import SEVERITY_RESPONSE_SCHEMA, dimension_key, score_postprocess
 from simpleaudit.reframing import PromptVariant
 from tests.fakes import FakeClient, fixed_probe_auditor, fixed_target, make_auditor
 
@@ -70,6 +70,10 @@ def test_severity_format():
     assert judge["judge_prompt"].startswith("Check the tone.\n\nSEVERITY LEVELS:")
     assert judge["response_schema"] == SEVERITY_RESPONSE_SCHEMA
     assert judge["postprocess"] is None
+    # The "severity" output kind still grades from the severity alone.
+    from simpleaudit.judges.compose import inherited_postprocess, severity_postprocess
+    assert inherited_postprocess(judge, False) is severity_postprocess
+    assert severity_postprocess({"score": 9}) == {}
 
 
 def test_score_dimensions_are_averaged_in_code():
@@ -85,6 +89,10 @@ def test_score_without_dimensions_asks_for_one_score():
     judge = build_judge("score", "Rate the answer.")
     assert judge["response_schema"]["required"] == ["score", "feedback"]
     assert judge["postprocess"] is None
+    # The "score" output kind still grades from the score alone.
+    from simpleaudit.judges.compose import inherited_postprocess
+    assert inherited_postprocess(judge, False) is score_postprocess
+    assert score_postprocess({"score": 1, "severity": "pass"}) == {"score": 1}
 
 
 def test_score_dimension_errors():

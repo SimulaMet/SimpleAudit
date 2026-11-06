@@ -28,8 +28,9 @@ Architecture::
 
 Usage::
 
-    # Start once (e.g. at app boot)
-    shared = SharedOTLPReceiver(host="0.0.0.0", port=4317).start()
+    # Start once (e.g. at app boot). Binds loopback by default; to accept
+    # spans from other hosts, bind 0.0.0.0 *and* pass auth=OTLPAuth(...).
+    shared = SharedOTLPReceiver(port=4317).start()
 
     # Per audit
     session = shared.sessions.create(audit_id="audit_101", ttl=300)
@@ -43,10 +44,15 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from .auth import TARGET_ID_ATTR as _TARGET_ID_ATTR
+from .auth import OTLPAuth
 from .otlp import EphemeralOTLPReceiver
 from .store import SpanStore
+
+if TYPE_CHECKING:  # pragma: no cover - annotation only
+    from .auth import Authenticator
 
 
 @dataclass
@@ -54,8 +60,10 @@ class TraceSession:
     """Ephemeral trace buffer for one audit run.
 
     Spans are routed here by ``trace_id``. The session expires after
-    ``ttl`` seconds (checked lazily on access) or when :meth:`close` is
-    called explicitly.
+    ``ttl`` seconds without activity (checked lazily on access) or when
+    :meth:`close` is called explicitly. Registering a trace or receiving a
+    span counts as activity, so an audit that runs longer than ``ttl`` keeps
+    its evidence as long as it is still producing traces.
 
     ``max_spans`` caps the number of spans retained for this session to
     prevent a single audit from consuming unbounded memory under heavy
@@ -72,10 +80,17 @@ class TraceSession:
     _store: SpanStore = field(default_factory=SpanStore, repr=False)
     _closed: bool = field(default=False, repr=False)
     _dropped: int = field(default=0, repr=False)
+    _last_active: float = field(default=0.0, repr=False)
 
     @property
     def expired(self) -> bool:
-        return self._closed or (time.time() - self.created_at) > self.ttl
+        idle_since = max(self.created_at, self._last_active)
+        return self._closed or (time.time() - idle_since) > self.ttl
+
+    def touch(self) -> None:
+        """Record activity, pushing back the idle expiry."""
+        if not self.expired:
+            self._last_active = time.time()
 
     @property
     def store(self) -> SpanStore:
@@ -101,6 +116,8 @@ class TraceSession:
                 continue
             self._store.add(s)
             stored += 1
+        if stored:
+            self.touch()
         return stored
 
     def spans_for_trace(self, trace_id: str) -> List[Dict[str, Any]]:
@@ -181,7 +198,12 @@ class TraceSessionManager:
         ttl: float = 300.0,
         max_spans: int = 10_000,
     ) -> TraceSession:
-        """Create a new trace session for an audit run."""
+        """Create a new trace session for an audit run.
+
+        Raises ``ValueError`` when a live session already has this
+        ``audit_id``: replacing it would route its traces to the newcomer,
+        and closing either would discard the other's spans.
+        """
         session = TraceSession(
             audit_id=audit_id,
             execution_id=execution_id,
@@ -190,6 +212,15 @@ class TraceSessionManager:
             max_spans=max_spans,
         )
         with self._lock:
+            existing = self._sessions.get(audit_id)
+            if existing is not None and not existing.expired:
+                raise ValueError(f"A trace session for audit_id {audit_id!r} is already active")
+            if existing is not None:
+                # Its trace routes would deliver the old audit's late spans
+                # into the new one.
+                for tid in [t for t, a in self._trace_index.items() if a == audit_id]:
+                    del self._trace_index[tid]
+                existing.close()
             self._sessions[audit_id] = session
         return session
 
@@ -197,6 +228,9 @@ class TraceSessionManager:
         """Map a ``trace_id`` to an audit session (called by the correlation layer)."""
         with self._lock:
             self._trace_index[trace_id] = audit_id
+            session = self._sessions.get(audit_id)
+            if session is not None:
+                session.touch()
 
     def route_spans(self, spans: List[Dict[str, Any]]) -> None:
         """Route incoming spans to the session that owns their ``trace_id``.
@@ -231,6 +265,18 @@ class TraceSessionManager:
                 session = self._sessions.get(audit_id)
                 if session is None or session.expired:
                     continue
+                if session.target_id:
+                    # A session bound to a target accepts only spans the
+                    # receiver attributed to that target (or unattributed
+                    # spans, when the receiver runs without auth): another
+                    # authenticated target that learned the trace id must not
+                    # add evidence or fill the session's cap.
+                    trace_spans = [
+                        s for s in trace_spans
+                        if (s.get("attributes") or {}).get(_TARGET_ID_ATTR) in (None, session.target_id)
+                    ]
+                    if not trace_spans:
+                        continue
                 # Global cap check.
                 if current_total >= self._max_total_spans:
                     self._dropped_global_cap += len(trace_spans)
@@ -241,20 +287,30 @@ class TraceSessionManager:
     def get(self, audit_id: str) -> Optional[TraceSession]:
         with self._lock:
             session = self._sessions.get(audit_id)
-            if session and session.expired:
+            if session is not None and session.expired:
                 del self._sessions[audit_id]
+                for tid in [t for t, a in self._trace_index.items() if a == audit_id]:
+                    del self._trace_index[tid]
+                session.close()
                 return None
             return session
 
-    def close(self, audit_id: str) -> None:
-        """Close a session and discard its spans."""
+    def close(self, audit_id: str, session: Optional["TraceSession"] = None) -> None:
+        """Close a session and discard its spans.
+
+        With *session*, only that session is closed: a provider whose own
+        session expired must not close a newer one that reused the audit_id.
+        """
         with self._lock:
+            if session is not None and self._sessions.get(audit_id) is not session:
+                session.close()
+                return
             session = self._sessions.pop(audit_id, None)
             # Remove trace index entries for this session.
             stale_traces = [tid for tid, aid in self._trace_index.items() if aid == audit_id]
             for tid in stale_traces:
                 del self._trace_index[tid]
-        if session:
+        if session is not None:
             session.close()
 
     def sweep(self) -> int:
@@ -290,10 +346,22 @@ class SharedOTLPReceiver:
 
     The receiver handles both OTLP/HTTP JSON and OTLP/HTTP protobuf.
 
+    Binds ``127.0.0.1`` by default. A receiver reachable from other hosts
+    should require credentials: pass ``auth=OTLPAuth("bearer")`` (or an
+    ``authenticator``), as anyone who can post spans with a registered
+    ``trace_id`` can otherwise inject evidence into a live audit.
+
+    It speaks OTLP over **HTTP** (``POST /v1/traces``). The default port,
+    4317, is kept for compatibility but is the gRPC convention: an exporter
+    left on its defaults (gRPC to 4317, or HTTP to 4318) will not reach it.
+    Configure the target with ``OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf``
+    (or ``http/json``) and ``OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`` set to
+    ``http://<host>:<port>/v1/traces``, or pass ``port=4318``.
+
     Usage::
 
         # Boot (once)
-        shared = SharedOTLPReceiver(host="0.0.0.0", port=4317).start()
+        shared = SharedOTLPReceiver(port=4317).start()
 
         # Per audit
         session = shared.sessions.create(audit_id="audit_101", ttl=300)
@@ -309,16 +377,22 @@ class SharedOTLPReceiver:
 
     def __init__(
         self,
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         port: int = 4317,
         *,
         session_ttl: float = 300.0,
         sweep_interval: float = 60.0,
         max_total_spans: int = 200_000,
         max_spans_per_session: int = 10_000,
+        auth: Optional[OTLPAuth] = None,
+        authenticator: Optional["Authenticator"] = None,
+        max_body_bytes: Optional[int] = None,
     ) -> None:
         self.host = host
         self.port = port
+        self.max_body_bytes = max_body_bytes
+        self.auth = auth
+        self.authenticator = authenticator
         self.session_ttl = session_ttl
         self.sessions = TraceSessionManager(max_total_spans=max_total_spans)
         self.max_spans_per_session = max_spans_per_session
@@ -381,7 +455,11 @@ class SharedOTLPReceiver:
         """Start the shared receiver and the session sweep thread."""
         if self._receiver is not None:
             return self
-        self._receiver = EphemeralOTLPReceiver(host=self.host, port=self.port).start()
+        self._receiver = EphemeralOTLPReceiver(
+            host=self.host, port=self.port,
+            auth=self.auth, authenticator=self.authenticator,
+            max_body_bytes=self.max_body_bytes,
+        ).start()
         # Hook the receiver's store: instead of a single SpanStore, we route
         # spans through the session manager. We do this by wrapping the
         # receiver's internal store with a routing store.
@@ -407,9 +485,9 @@ class SharedOTLPReceiver:
         if self._receiver is not None:
             self._receiver.stop()
             self._receiver = None
-        # Close all remaining sessions.
+        # Close all remaining sessions, with their trace routes.
         for session in self.sessions.active_sessions:
-            session.close()
+            self.sessions.close(session.audit_id)
 
     def __enter__(self) -> "SharedOTLPReceiver":
         return self.start()
@@ -436,7 +514,19 @@ class SharedOTLP:
         results = await audit_with_tracing(auditor, "safety", provider=provider)
     """
 
-    def __init__(self, shared: "SharedOTLPReceiver", *, audit_id: str = "", ttl: float = 300.0) -> None:
+    def __init__(
+        self,
+        shared: "SharedOTLPReceiver",
+        *,
+        audit_id: str = "",
+        ttl: Optional[float] = None,
+        target_id: str = "",
+    ) -> None:
+        # target_id binds the session to one authenticated target: spans the
+        # receiver attributed to another target are dropped (see route_spans).
+        self._target_id = target_id
+        # ttl None: the receiver's session_ttl. Sessions are created through
+        # the receiver so its per-session span cap applies too.
         self._shared = shared
         self._audit_id = audit_id
         self._ttl = ttl
@@ -447,14 +537,14 @@ class SharedOTLP:
 
         if self._session is None:
             self._audit_id = self._audit_id or f"audit_{new_trace_id()[:12]}"
-            self._session = self._shared.sessions.create(
-                self._audit_id, ttl=self._ttl
+            self._session = self._shared.create_session(
+                self._audit_id, ttl=self._ttl, target_id=self._target_id
             )
         return self
 
     def stop(self) -> None:
         if self._session is not None:
-            self._shared.sessions.close(self._audit_id)
+            self._shared.sessions.close(self._audit_id, self._session)
             self._session = None
 
     @property
@@ -467,7 +557,10 @@ class SharedOTLP:
 
     def register_trace(self, trace_id: str) -> None:
         """Register a trace_id with this session (called by the correlation layer)."""
-        if self._session is not None:
+        # Only while this provider's own session is the live one for the id:
+        # otherwise its traces would be routed into another audit's session.
+        if self._session is not None and not self._session.expired and \
+                self._shared.sessions._sessions.get(self._audit_id) is self._session:
             self._shared.sessions.register_trace(self._audit_id, trace_id)
 
     def fetch(self, trace_id: str) -> List[Dict[str, Any]]:

@@ -5,7 +5,7 @@ import unicodedata
 from copy import deepcopy
 
 from simpleaudit.checklist import derive_severity, flatten, postprocess_checklist
-from simpleaudit.utils import UNGRADED
+from simpleaudit.utils import UNGRADED, is_upstream_error
 
 from .checklist import CHECKLIST_JUDGE, CHECKLIST_RESPONSE_SCHEMA
 
@@ -67,7 +67,7 @@ def prepare_conversation(conversation, scenario_meta):
 def postprocess_asr(judgment, *, conversation, expected_behavior=None, scenario_meta=None):
     reference, mode = _settings(scenario_meta)
     validate_scenario(expected_behavior, scenario_meta)
-    if not isinstance(judgment, dict) or judgment.get("severity") == "ERROR":
+    if not isinstance(judgment, dict) or is_upstream_error(judgment):
         return judgment
     sanitized = {
         **judgment,

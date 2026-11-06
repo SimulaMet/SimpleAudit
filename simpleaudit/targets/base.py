@@ -144,3 +144,18 @@ def history_documents(
 def history_file_uri(history: Optional[List[Dict[str, Any]]]) -> Optional[Union[str, List[str]]]:
     """A scenario's attached files, which ``run_scenario`` carries on the history's first user turn."""
     return next((m["file_uri"] for m in history or [] if m.get("file_uri")), None)
+
+
+def token_count(value: Any) -> Optional[int]:
+    """A token count from a target's reply, or None when absent or not a number.
+
+    Endpoints report usage in their own shapes ("12" as a string, a list
+    instead of a dict); the engine adds these up, so a bad value must become
+    None rather than turn a graded answer into an ERROR.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):  # OverflowError: Infinity
+        return None

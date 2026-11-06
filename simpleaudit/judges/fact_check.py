@@ -175,6 +175,8 @@ import re
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from simpleaudit.checklist import coerce_designed_severity
+
 UNGRADED = "UNGRADED"
 SENT_SPLIT = re.compile(r"(?<=[.!?\n])\s+")
 _DEFAULT_PATHS = (
@@ -237,9 +239,15 @@ def units_for(fact: Dict[str, Any]) -> List[str]:
     days or hours: "per month" in such a claim says how often, not what.
     """
     declared = (fact.get("unit") or "").strip().lower()
-    for key in _UNIT_PATTERNS:
-        if declared and declared in key.lower():
-            return [key]
+    if declared:
+        # The declared unit must *be* one of the units (by key, by a spelling
+        # the unit pattern accepts, or by a hint word) — not merely a substring
+        # of a key: "a" is inside "maneder" and "%" is inside no key at all.
+        for key, pattern in _UNIT_PATTERNS.items():
+            hints = {w.strip() for w in _UNIT_HINTS.get(key, ()) if w.strip()}
+            if (declared == key.lower() or declared in hints
+                    or re.fullmatch(pattern, declared, re.I)):
+                return [key]
     claim = f"{fact.get('claim', '')}"
     explicit = [key for key, pat in _EXPLICIT_UNITS if pat.search(claim)]
     if explicit:
@@ -987,14 +995,29 @@ def postprocess_fact_check(
     answer = _answer_of(conversation)
     results = []
     for f in facts:
-        r = classify_fact(answer, f, conversation=conversation,
-                          model_path=model_path, scorer=scorer, tau=tau,
-                          use_head=use_head)
+        try:
+            float(f["value"])
+        except (TypeError, ValueError):
+            # An authoring error in the pack, not a wrong answer: report it
+            # for this fact instead of failing the whole scenario.
+            r = {"outcome": UNGRADED, "values": [], "hedged": False,
+                 "reason": f"declared value {f['value']!r} is not a number"}
+        else:
+            r = classify_fact(answer, f, conversation=conversation,
+                              model_path=model_path, scorer=scorer, tau=tau,
+                              use_head=use_head)
+        valid_from = f.get("valid_from")
         results.append({"claim": f.get("claim"), "declared": f.get("value"),
-                        "valid_from": f.get("valid_from"), **r})
+                        # Stored as text: the pack contract says YYYY-MM-DD,
+                        # but a date object would make the run unsavable.
+                        "valid_from": valid_from if valid_from is None or isinstance(valid_from, str)
+                        else str(valid_from), **r})
 
     outcomes = {r["outcome"] for r in results}
-    scen_sev = (scenario_meta or {}).get("severity") or "medium"
+    # Normalised onto the designed ladder like the checklist and choice_match
+    # judges: "High" must still be capped, and a designed "pass" (or anything
+    # off the ladder) must never grade a wrong fact as passing.
+    scen_sev = coerce_designed_severity((scenario_meta or {}).get("severity")) or "medium"
     if "wrong" in outcomes:
         sev, why = scen_sev, "at least one declared fact is stated wrongly"
         if (all(r.get("capped") for r in results if r["outcome"] == "wrong")
@@ -1016,6 +1039,13 @@ def postprocess_fact_check(
         sev, why = "pass", "every declared fact is stated correctly"
 
     out["fact_check"] = {"facts": results, "outcome": sev, "reason": why}
+    # Recorded like the checklist and binary judges, so a re-grade uses the
+    # scenario's own severity instead of the default (and warns when it is).
+    known = coerce_designed_severity((scenario_meta or {}).get("severity"))
+    out["designed_severity"] = known or "medium"
+    out["designed_severity_source"] = (
+        (scenario_meta or {}).get("severity_source") or "scenario" if known else "default"
+    )
     out["severity"] = sev
     return out
 

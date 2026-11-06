@@ -118,9 +118,9 @@ def main():
         accepted = ",".join(scenario["decision"]["accepted"])
         confidence = d.judgment.get("confidence")
         decided = (
-            f"{d.judgment['choice']} ({confidence:.2f}) {d.severity}" if confidence else d.severity
+            f"{d.judgment.get('choice')} ({confidence:.2f}) {d.severity}" if confidence else d.severity
         )
-        chatted = f"{c.judgment['choice']} {c.severity}"
+        chatted = f"{c.judgment.get('choice')} {c.severity}"
         print(f"{scenario['name']:<22} {accepted:<10} {decided:<24} {chatted:<20}")
 
     print(f"\n{DECISION_MODEL}: {decision_results.passed}/{len(decision_results)} accepted answers")

@@ -61,7 +61,9 @@ CONTEXT_GROUNDING_SCENARIOS = [
                 # Sann som skrevet, i sitt eget vindu. Det er nettopp derfor den er
                 # farlig: en dommer uten `as_of` kan ikke skille den fra fasit.
                 "true": True,
-                "valid_until": "2026-07-31",
+                # Exclusive bound (context_derivations.current): in force up to,
+                # not including, the day the new rule starts.
+                "valid_until": "2026-08-01",
                 "authority": "guidance",
                 "source": "HF-01 — rundskriv til folketrygdloven § 5-3 (Helsedirektoratet)",
             },

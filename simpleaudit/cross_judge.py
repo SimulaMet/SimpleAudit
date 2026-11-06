@@ -42,6 +42,12 @@ _severity_direction = severity_direction
 # CrossJudgeResults
 # ---------------------------------------------------------------------------
 
+#: Model-entry keys that would replace the panel's judge model or endpoint.
+#: (A rubric — judge, judge_prompt — applies the same way under every panel
+#: judge and is allowed.)
+_JUDGE_KEYS = ("judge_model", "judge_provider", "judge_api_key", "judge_base_url", "judge_client")
+
+
 class CrossJudgeResults:
     """Results from CrossJudgeExperiment — one RepeatedExperimentResults per judge.
 
@@ -120,17 +126,26 @@ class CrossJudgeResults:
         """
         judges = self.judges
         per_judge: Dict[str, Dict[str, str]] = {}
+        graded: Dict[str, Dict[str, bool]] = {}
+        # Union over every judge (first-seen order): a scenario only a later
+        # judge rated must still be reported.
         scenario_names: Optional[List[str]] = None
 
         for judge_label in judges:
             rep_results = self._results[judge_label]
+            if subject_label not in rep_results:
+                continue  # e.g. this judge's experiment was cancelled first
             report = rep_results.stability(subject_label)
             per_judge[judge_label] = {
                 name: stats.most_common_severity
                 for name, stats in report.per_scenario.items()
             }
-            if scenario_names is None:
-                scenario_names = list(report.per_scenario.keys())
+            graded[judge_label] = {
+                name: stats.n_observations > 0 for name, stats in report.per_scenario.items()
+            }
+            scenario_names = list(dict.fromkeys(
+                (scenario_names or []) + list(report.per_scenario.keys())
+            ))
 
         if scenario_names is None:
             return []
@@ -140,7 +155,12 @@ class CrossJudgeResults:
             # Only judges that actually rated this scenario participate —
             # inventing a "pass" for a missing judge would fabricate both
             # agreements and disagreements.
-            modals = {j: per_judge[j][name] for j in judges if name in per_judge[j]}
+            # A judge that never graded the scenario (every run ERROR or
+            # ungraded) has no verdict to compare: an outage is not a shift.
+            modals = {
+                j: per_judge[j][name] for j in judges
+                if name in per_judge.get(j, {}) and graded.get(j, {}).get(name, False)
+            }
             shifted = len(set(modals.values())) > 1
             entry: Dict[str, Any] = {"scenario": name, "modals": modals, "shifted": shifted}
             if shifted and len(modals) == 2 and len(judges) == 2:
@@ -233,6 +253,15 @@ class CrossJudgeExperiment:
     ) -> None:
         if not models or any("model" not in m for m in models):
             raise ValueError("models must be a non-empty list of dicts each containing a 'model' key.")
+        # A judge pinned on a model entry would override every judge in the
+        # panel (AuditExperiment lets the entry win), so the comparison would
+        # silently run one judge throughout.
+        pinned = sorted({k for m in models for k in _JUDGE_KEYS if m.get(k) is not None})
+        if pinned:
+            raise ValueError(
+                f"models entries must not set judge settings {pinned}; the judges are "
+                "given by judge_models."
+            )
         if len(judge_models) < 2:
             raise ValueError("judge_models must contain at least two entries.")
         if auditor_models is not None and len(auditor_models) != len(judge_models):
@@ -247,10 +276,27 @@ class CrossJudgeExperiment:
         self.auditor_models = auditor_models
         self.n_repetitions = n_repetitions
         self.save_dir = Path(save_dir) if save_dir else None
+        # Judge settings belong in judge_models; a fixed auditor may be given
+        # once here and is used for every judge (unless auditor_models is set).
+        # The judge model/endpoint belong in judge_models (a rubric such as
+        # judge_prompt applies to every panel judge and is forwarded).
+        misplaced = sorted(k for k in experiment_kwargs if k in _JUDGE_KEYS)
+        if misplaced:
+            raise ValueError(f"{misplaced} must be given per judge in judge_models")
+        shared_auditor = {
+            key[len("auditor_"):]: experiment_kwargs.pop(key)
+            for key in ("auditor_model", "auditor_provider", "auditor_api_key", "auditor_base_url")
+            if key in experiment_kwargs
+        }
+        if shared_auditor and auditor_models is None:
+            auditor_models = [dict(shared_auditor) for _ in judge_models]
+        elif shared_auditor:
+            raise ValueError("Give the auditor either as auditor_models or as auditor_* keywords, not both")
         self._experiment_kwargs = experiment_kwargs
 
         # Build one AuditExperiment per judge, namespacing save_dir by label.
         self._experiments: Dict[str, AuditExperiment] = {}
+        used_dirs: Dict[str, str] = {}
         for i, judge_info in enumerate(judge_models):
             label = self._safe_judge_label(judge_info)
             if label in self._experiments:
@@ -258,7 +304,18 @@ class CrossJudgeExperiment:
                     f"Duplicate judge label {label!r}. Add a 'label' key to distinguish "
                     "judge models that share the same derived label."
                 )
-            judge_save_dir: Optional[str] = str(self.save_dir / label) if self.save_dir else None
+            judge_save_dir: Optional[str] = None
+            if self.save_dir:
+                directory = self._path_safe(label)
+                # casefold: case-insensitive filesystems (macOS, Windows
+                # defaults) would put 'GPT' and 'gpt' in one directory.
+                if directory.casefold() in used_dirs:
+                    raise ValueError(
+                        f"Judge labels {used_dirs[directory.casefold()]!r} and {label!r} map to "
+                        f"the same directory {directory!r} under save_dir; rename one."
+                    )
+                used_dirs[directory.casefold()] = label
+                judge_save_dir = str(self.save_dir / directory)
             auditor_info: Optional[Dict[str, Any]] = (
                 auditor_models[i] if auditor_models is not None else None
             )
@@ -281,6 +338,11 @@ class CrossJudgeExperiment:
     def judge_labels(self) -> List[str]:
         """Labels of all configured judges, in order."""
         return list(self._experiments.keys())
+
+    @staticmethod
+    def _path_safe(label: str) -> str:
+        """A judge label as one directory name under ``save_dir`` (``..`` refused)."""
+        return AuditExperiment._sanitize_label(label)
 
     @staticmethod
     def _safe_judge_label(judge_info: Dict[str, Any]) -> str:
@@ -442,6 +504,8 @@ def compare_judges(
     for name, stats_a in report_a.per_scenario.items():
         if name not in report_b.per_scenario:
             continue
+        if stats_a.n_observations == 0 or report_b.per_scenario[name].n_observations == 0:
+            continue  # one judge never graded it: nothing to compare
         n_compared += 1
         modal_a = stats_a.most_common_severity
         modal_b = report_b.per_scenario[name].most_common_severity

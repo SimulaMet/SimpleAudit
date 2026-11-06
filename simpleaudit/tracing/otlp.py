@@ -11,9 +11,10 @@ Two entry points:
     - :class:`OTLPTraceReceiver` — a minimal async receiver that accepts a
       POSTed OTLP JSON body, stores the spans, and returns the OTLP ack.
 
-The protobuf wire format is also standard OTLP; if you need it, run an OTel
-Collector in front and have it forward JSON, or extend :func:`parse_otlp_json`
-with a protobuf decoder. The normalization target is the same either way.
+The HTTP receivers also accept ``http/protobuf`` bodies (by Content-Type,
+decoded with the ``opentelemetry-proto`` package from the ``tracing`` extra);
+:class:`EphemeralOTLPGRPCReceiver` takes gRPC. The normalization target is
+the same for every transport.
 """
 
 from __future__ import annotations
@@ -21,11 +22,39 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from .auth import OTLPAuth, tag_spans
-from .store import SpanStore, normalize_span
+from .auth import AuthResult, OTLPAuth, tag_spans
+from .store import SpanStore
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from .auth import Authenticator
+
+
+def _run_authenticator(authenticator: Any, authorization: Optional[str]) -> AuthResult:
+    """Call a custom authenticator, failing closed.
+
+    ``None`` from ``_authenticate`` means "no gate configured", so an
+    authenticator that returns ``None`` (or a bool, or raises) on a bad
+    credential must not be read as success: anything other than an
+    authenticated ``AuthResult`` is a 401.
+    """
+    try:
+        result = authenticator(authorization)
+    except Exception:
+        return AuthResult(ok=False, reason="authenticator_error")
+    if getattr(result, "authenticated", False) is True:
+        return result
+    return AuthResult(ok=False, reason="invalid_credentials")
+
+
+def _check_auth_args(auth: Any, authenticator: Any) -> None:
+    """Refuse both auth gates at once.
+
+    ``auth`` takes precedence when set, so passing a mode-``none``
+    ``OTLPAuth()`` alongside a custom ``authenticator`` would silently open
+    the receiver: every request would pass.
+    """
+    if auth is not None and authenticator is not None:
+        raise ValueError("Pass either auth= or authenticator=, not both")
 
 
 def _proto_ts_to_unix(ns: Any) -> Optional[float]:
@@ -33,6 +62,11 @@ def _proto_ts_to_unix(ns: Any) -> Optional[float]:
         return None
     # ``MessageToDict`` renders int64 nanosecond timestamps as strings.
     return int(ns) / 1e9
+
+
+def _lower_id(value: Any) -> Any:
+    """A hex id in lowercase; anything else unchanged, for the caller to reject."""
+    return value.lower() if isinstance(value, str) else value
 
 
 def parse_otlp_json(payload: Any) -> List[Dict[str, Any]]:
@@ -68,9 +102,11 @@ def parse_otlp_json(payload: Any) -> List[Dict[str, Any]]:
                 attrs.update(_decode_attrs(span.get("attributes")))
                 spans.append(
                     {
-                        "trace_id": span.get("traceId") or "",
-                        "span_id": span.get("spanId") or "",
-                        "parent_span_id": span.get("parentSpanId") or None,
+                        # OTLP/JSON ids are case-insensitive hex; SimpleAudit
+                        # generates and looks them up in lowercase.
+                        "trace_id": _lower_id(span.get("traceId")) or "",
+                        "span_id": _lower_id(span.get("spanId")) or "",
+                        "parent_span_id": _lower_id(span.get("parentSpanId")) or None,
                         "name": span.get("name") or "span",
                         "kind": span.get("kind"),
                         "start_time": _proto_ts_to_unix(span.get("startTimeUnixNano")),
@@ -141,6 +177,9 @@ def _status_code(status: Optional[Dict[str, Any]]) -> str:
     if not status:
         return "OK"
     code = status.get("code", 0)
+    # The proto3 JSON mapping also allows the enum name ("STATUS_CODE_ERROR").
+    if isinstance(code, str):
+        code = {"STATUS_CODE_ERROR": 2, "ERROR": 2, "2": 2}.get(code.strip().upper(), 0)
     return {0: "OK", 1: "OK", 2: "ERROR"}.get(code, "OK")
 
 
@@ -166,11 +205,13 @@ class OTLPTraceReceiver:
         auth: Optional[OTLPAuth] = None,
     ) -> None:
         self._default_store = store is None
-        self.store = store or SpanStore()
+        # `is None`, not `or`: an empty SpanStore is falsy (len 0).
+        self.store = store if store is not None else SpanStore()
         # Optional auth gate. When set, handle() calls it with the request's
         # Authorization header and rejects the export (401) on failure. When
         # None the receiver is open — the historical, backward-compatible
         # behaviour for the local, single-audit ephemeral case.
+        _check_auth_args(auth, authenticator)
         self.authenticator = authenticator
         self.auth = auth
 
@@ -183,16 +224,26 @@ class OTLPTraceReceiver:
         """
         result = self._authenticate(authorization)
         if result is not None and not result.authenticated:
+            # "unknown username" is reported as "invalid credentials": telling
+            # the two apart would let a caller enumerate usernames. The exact
+            # reason stays on the AuthResult for server-side logging.
+            reason = getattr(result, "reason", None)
             return {
                 "status": 401,
                 "authenticated": False,
-                "reason": getattr(result, "reason", None),
+                "reason": "invalid_credentials" if reason == "unknown_username" else reason,
                 "error": {"code": "unauthorized", "message": "Invalid or missing OTLP credentials."},
             }
-        raw_spans = parse_otlp_json(body)
-        if result is not None:
-            tag_spans(raw_spans, result.identity)
-        self.store.add_many(raw_spans)
+        try:
+            raw_spans = parse_otlp_json(body)
+            if result is not None:
+                tag_spans(raw_spans, result.identity)
+            self.store.add_many(raw_spans)
+        except (ValueError, TypeError, AttributeError, RecursionError, ArithmeticError):
+            return {
+                "status": 400,
+                "error": {"code": "bad_request", "message": "Malformed OTLP JSON export."},
+            }
         # OTLP ack: partialSuccess with the number of rejected spans (0 here).
         ack = {"partialSuccess": {"rejectedSpans": 0}}
         if self.auth is not None or self._default_store:
@@ -203,7 +254,7 @@ class OTLPTraceReceiver:
         if self.auth is not None:
             return self.auth.verify(authorization)
         if self.authenticator is not None:
-            return self.authenticator(authorization)
+            return _run_authenticator(self.authenticator, authorization)
         return None
 
     def trace_ids(self) -> List[str]:
@@ -214,11 +265,19 @@ class OTLPTraceReceiver:
         return seen
 
 
+#: Largest OTLP/HTTP request body accepted (the OTel Collector's order of
+#: magnitude). Credentials are checked before the body is read.
+DEFAULT_MAX_BODY_BYTES = 16 * 1024 * 1024
+
+
 class EphemeralOTLPReceiver:
     """A self-contained OTLP/HTTP trace receiver that lives for one audit.
 
     Promptfoo-style: the auditor opens this receiver when an audit starts,
-    points the (controlled) target's ``OTEL_EXPORTER_OTLP_ENDPOINT`` at it,
+    points the (controlled) target's ``OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`` at
+    :attr:`endpoint` (or ``OTEL_EXPORTER_OTLP_ENDPOINT`` at :attr:`base_url`:
+    exporters append ``/v1/traces`` to that one, so pointing it at
+    :attr:`endpoint` makes them POST to ``/v1/traces/v1/traces`` and get 404),
     collects the spans the target emits during the run, and closes it when the
     audit ends. No external collector, no persistent store — the spans are
     held in an in-memory :class:`SpanStore` and discarded on :meth:`close`.
@@ -232,7 +291,8 @@ class EphemeralOTLPReceiver:
 
         async with EphemeralOTLPReceiver() as rx:
             # rx.endpoint == "http://127.0.0.1:<port>/v1/traces"
-            # set the target's OTEL_EXPORTER_OTLP_ENDPOINT to rx.endpoint
+            # set the target's OTEL_EXPORTER_OTLP_TRACES_ENDPOINT to rx.endpoint
+            # (or OTEL_EXPORTER_OTLP_ENDPOINT to rx.base_url)
             results = await auditor.run_async("safety", trace_correlation=corr)
             spans = rx.store.by_trace(trace_id)   # inspect / feed the judge
 
@@ -247,13 +307,20 @@ class EphemeralOTLPReceiver:
         store: Optional[SpanStore] = None,
         authenticator: Optional["Authenticator"] = None,
         auth: Optional[OTLPAuth] = None,
+        max_body_bytes: Optional[int] = None,
     ) -> None:
         self.host = host
         self.port = port
-        self.store = store or SpanStore()
+        # aiohttp's own default (1 MiB) answers 413 to an ordinary batch of
+        # LLM spans carrying prompts or RAG context; exporters do not split a
+        # rejected batch, so the audit would run with no evidence and no error.
+        self.max_body_bytes = max_body_bytes or DEFAULT_MAX_BODY_BYTES
+        # `is None`, not `or`: an empty SpanStore is falsy (len 0).
+        self.store = store if store is not None else SpanStore()
         # Optional auth gate (see OTLPTraceReceiver). When set, each POST is
         # checked against the request's Authorization header and rejected with
         # 401 on failure. None = open receiver (default).
+        _check_auth_args(auth, authenticator)
         self.authenticator = authenticator
         self.auth = auth
         self._runner: Optional[Any] = None
@@ -267,8 +334,14 @@ class EphemeralOTLPReceiver:
 
     @property
     def endpoint(self) -> str:
-        """The OTLP/HTTP traces URL to configure the target's exporter to."""
+        """The OTLP/HTTP traces URL: the value for ``OTEL_EXPORTER_OTLP_TRACES_ENDPOINT``."""
         return f"http://{self.host}:{self._actual_port}/v1/traces"
+
+    @property
+    def base_url(self) -> str:
+        """The receiver's base URL: the value for ``OTEL_EXPORTER_OTLP_ENDPOINT``,
+        to which OTLP/HTTP exporters append ``/v1/traces`` themselves."""
+        return f"http://{self.host}:{self._actual_port}"
 
     @property
     def actual_port(self) -> int:
@@ -304,16 +377,15 @@ class EphemeralOTLPReceiver:
         if self.auth is not None:
             return self.auth.verify(authorization)
         if self.authenticator is not None:
-            return self.authenticator(authorization)
+            return _run_authenticator(self.authenticator, authorization)
         return None
 
     def _serve(self, loop: Any) -> None:
-        import asyncio
 
         try:
             from aiohttp import web
 
-            app = web.Application()
+            app = web.Application(client_max_size=self.max_body_bytes)
             app.router.add_post("/v1/traces", self._handle_traces)
             runner = web.AppRunner(app)
             loop.run_until_complete(runner.setup())
@@ -347,6 +419,7 @@ class EphemeralOTLPReceiver:
             return self
         last_error: Optional[BaseException] = None
         for _ in range(3):
+            self._closed = False
             self._loop = asyncio.new_event_loop()
             self._ready = threading.Event()
             self._start_error = None
@@ -354,18 +427,20 @@ class EphemeralOTLPReceiver:
             self._thread.start()
             if not self._ready.wait(timeout=10):
                 # Thread is stuck; tear it down and retry.
-                self._closed = True
-                if self._loop is not None:
-                    self._loop.call_soon_threadsafe(self._loop.stop)
+                self._loop.call_soon_threadsafe(self._loop.stop)
                 self._thread.join(timeout=2)
+                self._discard_loop(self._thread)
                 self._thread = None
                 last_error = RuntimeError("EphemeralOTLPReceiver failed to start within 10s")
                 continue
             if self._start_error is not None:
+                self._thread.join(timeout=2)
+                self._discard_loop(self._thread)
                 self._thread = None
                 last_error = self._start_error
                 continue
             return self
+        self._loop = None
         raise RuntimeError(
             "EphemeralOTLPReceiver failed to start"
         ) from last_error
@@ -376,13 +451,24 @@ class EphemeralOTLPReceiver:
             return
         self._closed = True
         self._loop.call_soon_threadsafe(self._loop.stop)
-        if self._thread is not None:
-            self._thread.join(timeout=5)
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=5)
             self._thread = None
-        self._loop.close()
-        self._loop = None
+        self._discard_loop(thread)
         # Discard spans: this receiver is ephemeral by design.
         self.store = SpanStore()
+
+    def _discard_loop(self, thread: Any) -> None:
+        """Close the serve loop once its thread has exited.
+
+        ``loop.close()`` raises on a loop that is still running, so a thread
+        that outlived its join timeout keeps its loop (it is a daemon thread
+        and the loop is dropped with it).
+        """
+        loop, self._loop = self._loop, None
+        if loop is not None and (thread is None or not thread.is_alive()):
+            loop.close()
 
     def __enter__(self) -> "EphemeralOTLPReceiver":
         return self.start()
@@ -416,10 +502,27 @@ class EphemeralOTLPGRPCReceiver:
     port. Spans are discarded on :meth:`stop` (ephemeral by design).
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 0, store: Optional[SpanStore] = None) -> None:
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 0,
+        store: Optional[SpanStore] = None,
+        authenticator: Optional["Authenticator"] = None,
+        auth: Optional[OTLPAuth] = None,
+        max_body_bytes: Optional[int] = None,
+    ) -> None:
         self.host = host
         self.port = port
-        self.store = store or SpanStore()
+        # gRPC's own 4 MiB message limit drops ordinary LLM span batches
+        # (RESOURCE_EXHAUSTED); same default as the HTTP receiver.
+        self.max_body_bytes = max_body_bytes or DEFAULT_MAX_BODY_BYTES
+        # `is None`, not `or`: an empty SpanStore is falsy (len 0).
+        self.store = store if store is not None else SpanStore()
+        # Same optional auth gate as the HTTP receiver, read from the
+        # ``authorization`` gRPC metadata. None = open receiver (default).
+        _check_auth_args(auth, authenticator)
+        self.authenticator = authenticator
+        self.auth = auth
         self._server: Optional[Any] = None
         self._thread: Optional[Any] = None
         self._ready: Optional[Any] = None
@@ -438,27 +541,61 @@ class EphemeralOTLPGRPCReceiver:
     def _make_servicer(self) -> Any:
         from opentelemetry.proto.collector.trace.v1 import trace_service_pb2, trace_service_pb2_grpc
 
-        store = self.store
+        receiver = self
 
         class _TraceServicer(trace_service_pb2_grpc.TraceServiceServicer):
-            def Export(self, request, context):
+            def Export(self, request, context):  # noqa: N802 - gRPC method name
+                import grpc
+
+                metadata = dict(context.invocation_metadata() or ())
+                result = receiver._authenticate(metadata.get("authorization"))
+                if result is not None and not result.authenticated:
+                    context.abort(
+                        grpc.StatusCode.UNAUTHENTICATED,
+                        "Invalid or missing OTLP credentials.",
+                    )
                 raw_spans = _parse_otlp_grpc(request)
-                store.add_many(raw_spans)
+                if result is not None:
+                    tag_spans(raw_spans, result.identity)
+                receiver.store.add_many(raw_spans)
                 return trace_service_pb2.ExportTraceServiceResponse(
                     partial_success=trace_service_pb2.ExportTracePartialSuccess(rejected_spans=0)
                 )
 
         return _TraceServicer()
 
+    def _authenticate(self, authorization: Optional[str]) -> Any:
+        if self.auth is not None:
+            return self.auth.verify(authorization)
+        if self.authenticator is not None:
+            return _run_authenticator(self.authenticator, authorization)
+        return None
+
     def _serve(self) -> None:
         import grpc
         from concurrent import futures
         from opentelemetry.proto.collector.trace.v1 import trace_service_pb2_grpc
 
-        server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-        trace_service_pb2_grpc.add_TraceServiceServicer_to_server(self._make_servicer(), server)
-        self._actual_port = server.add_insecure_port(f"{self.host}:{self.port}")
-        server.start()
+        try:
+            # so_reuseport off: with gRPC's default a second receiver on a busy
+            # port starts and steals the first audit's spans (the HTTP receiver
+            # refuses the bind; this one now does too).
+            server = grpc.server(
+                futures.ThreadPoolExecutor(max_workers=4),
+                options=[
+                    ("grpc.so_reuseport", 0),
+                    ("grpc.max_receive_message_length", self.max_body_bytes),
+                ],
+            )
+            trace_service_pb2_grpc.add_TraceServiceServicer_to_server(self._make_servicer(), server)
+            self._actual_port = server.add_insecure_port(f"{self.host}:{self.port}")
+            if not self._actual_port:
+                raise OSError(f"could not bind {self.host}:{self.port}")
+            server.start()
+        except Exception as exc:  # surface the real cause (port in use, ...) to start()
+            self._start_error = exc
+            self._ready.set()
+            return
         self._server = server
         self._ready.set()
         try:
@@ -472,11 +609,17 @@ class EphemeralOTLPGRPCReceiver:
 
         if self._thread is not None:
             return self
+        self._closed = False
+        self._start_error: Optional[BaseException] = None
         self._ready = threading.Event()
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
-        if not self._ready.wait(timeout=10):
-            raise RuntimeError("EphemeralOTLPGRPCReceiver failed to start within 10s")
+        if not self._ready.wait(timeout=10) or self._start_error is not None:
+            # Not running: forget the thread so a later start() really retries
+            # instead of reporting a receiver with no port as started.
+            error, self._start_error = self._start_error, None
+            self._thread = None
+            raise RuntimeError("EphemeralOTLPGRPCReceiver failed to start") from error
         return self
 
     def stop(self) -> None:

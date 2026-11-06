@@ -16,7 +16,7 @@ persistence backend can be added later without changing the query API.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # OTLP SpanKind proto enum values -> names (opentelemetry.proto.trace.v1).
 # Used to render an int kind (as sent over gRPC/proto) as its name.
@@ -54,6 +54,10 @@ def normalize_span(raw: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(kind, int):
         kind = _OTLP_SPAN_KIND_NAMES.get(kind, str(kind))
     kind = str(kind) if kind is not None and kind != "" else "CHAIN"
+    # Protobuf/gRPC ingest yields enum names ("SPAN_KIND_INTERNAL"); JSON
+    # yields the mapped short name ("INTERNAL"). Store one form.
+    if kind.startswith("SPAN_KIND_"):
+        kind = kind[len("SPAN_KIND_"):]
 
     return {
         "span_id": raw.get("span_id") or _attr("span_id") or "",
@@ -70,12 +74,27 @@ def normalize_span(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# Mirrors simpleaudit.tracing.auth.TARGET_ID_ATTR (not imported, to keep this
+# module free of the auth layer).
+_TARGET_ID_ATTR = "simpleaudit.target_id"
+
+
+def _owner(span: Dict[str, Any]) -> Any:
+    return (span.get("attributes") or {}).get(_TARGET_ID_ATTR)
+
+
 @dataclass
 class SpanStore:
-    """In-memory span store with kind/trace/attribute queries."""
+    """In-memory span store with kind/trace/attribute queries.
 
-    _spans: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # span_id -> span
-    _by_trace: Dict[str, List[str]] = field(default_factory=dict)  # trace_id -> [span_id]
+    Spans are keyed by ``(trace_id, span_id)``: span ids are only unique
+    within a trace, and a target with deterministic ids (or a replayed
+    export) must not overwrite another trace's span.
+    """
+
+    _spans: Dict[Tuple[str, str], Dict[str, Any]] = field(default_factory=dict)
+    _by_trace: Dict[str, List[Tuple[str, str]]] = field(default_factory=dict)
+    _by_span_id: Dict[str, Tuple[str, str]] = field(default_factory=dict)  # latest key per span_id
 
     def add(self, raw: Dict[str, Any]) -> Dict[str, Any]:
         span = normalize_span(raw)
@@ -83,28 +102,39 @@ class SpanStore:
             import uuid
 
             span["span_id"] = uuid.uuid4().hex
-        self._spans[span["span_id"]] = span
+        key = (span["trace_id"] or "", span["span_id"])
+        existing = self._spans.get(key)
+        if existing is not None and _owner(existing) != _owner(span):
+            # A span already stored for another authenticated target: keep
+            # the original. Replacing it would let one target overwrite
+            # another target's evidence.
+            return existing
+        self._spans[key] = span
+        self._by_span_id[span["span_id"]] = key
         if span["trace_id"]:
-            self._by_trace.setdefault(span["trace_id"], [])
-            if span["span_id"] not in self._by_trace[span["trace_id"]]:
-                self._by_trace[span["trace_id"]].append(span["span_id"])
+            keys = self._by_trace.setdefault(span["trace_id"], [])
+            if key not in keys:
+                keys.append(key)
         return span
 
     def add_many(self, raws: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return [self.add(r) for r in raws]
 
     def get(self, span_id: str) -> Optional[Dict[str, Any]]:
-        return self._spans.get(span_id)
+        key = self._by_span_id.get(span_id)
+        return self._spans.get(key) if key is not None else None
 
     def by_trace(self, trace_id: str) -> List[Dict[str, Any]]:
-        return [self._spans[sid] for sid in self._by_trace.get(trace_id, []) if sid in self._spans]
+        spans = self._spans
+        return [spans[k] for k in list(self._by_trace.get(trace_id, [])) if k in spans]
 
     def by_kind(self, kind: str) -> List[Dict[str, Any]]:
         k = kind.upper()
-        return [s for s in self._spans.values() if (s.get("kind") or "").upper() == k]
+        # Snapshot first: the receiver thread may add spans meanwhile.
+        return [s for s in list(self._spans.values()) if (s.get("kind") or "").upper() == k]
 
     def by_attribute(self, key: str, value: Any) -> List[Dict[str, Any]]:
-        return [s for s in self._spans.values() if (s.get("attributes") or {}).get(key) == value]
+        return [s for s in list(self._spans.values()) if (s.get("attributes") or {}).get(key) == value]
 
     def all(self) -> List[Dict[str, Any]]:
         return list(self._spans.values())

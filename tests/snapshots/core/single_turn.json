@@ -98,7 +98,11 @@
       "conversation": [
         {
           "role": "user",
-          "content": "Må en 17-åring betale egenandel hos fastlegen?"
+          "content": "Må en 17-åring betale egenandel hos fastlegen?",
+          "documents": [
+            "Barn under 16 år betaler ikke egenandel.",
+            "Aldersfritaket for egenandel er hevet fra under 16 år til under 18 år med virkning 1.8.2026."
+          ]
         },
         {
           "role": "assistant",

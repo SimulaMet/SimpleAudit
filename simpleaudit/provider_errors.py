@@ -16,6 +16,7 @@ ERROR result that says what actually happened instead of a bare ``TypeError``.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -167,4 +168,15 @@ def coerce_judgment_fields(judgment: Any) -> Dict[str, Any]:
             judgment[key] = [value] if value.strip() else []
         elif not isinstance(value, list):
             judgment[key] = [str(value)]
+        else:
+            # Items must be strings: the report code deduplicates them
+            # (hashable) and slices them. A judge that returns structured
+            # items ({"issue": ..., "turn": 1}) keeps them as JSON text.
+            judgment[key] = [
+                item if isinstance(item, str)
+                else json.dumps(item, ensure_ascii=False) if isinstance(item, (dict, list))
+                else str(item)
+                for item in value
+                if item is not None
+            ]
     return judgment

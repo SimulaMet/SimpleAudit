@@ -27,3 +27,4 @@ hdir-autumn-poc-audit-scenarios-2026/
 
 # Library: do not track the uv lockfile (uv convention for non-apps)
 uv.lock
+AUDIT.md

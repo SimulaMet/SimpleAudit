@@ -108,6 +108,7 @@
       "expected_behavior": null,
       "judgment": {
         "severity": "ERROR",
+        "parse_error": true,
         "issues_found": [
           "Could not parse model response"
         ],

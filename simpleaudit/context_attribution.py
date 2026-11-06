@@ -42,6 +42,7 @@ import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .context_marks import DocumentMark
+from .utils import coerce_bool
 
 #: Share of a claim's words that must be traceable in a document for the claim
 #: to count as coming from it.
@@ -171,8 +172,12 @@ def word_order_overlap(span: str, document_text: str) -> float:
 
 
 def _found_in(span: str, response: str) -> bool:
-    """Is this span actually in the response, ignoring whitespace differences?"""
-    return bool(normalise(span)) and normalise(span) in normalise(response)
+    """Is this span actually in the response, ignoring whitespace differences?
+
+    Whole words only: "safe to take" is not in "unsafe to take".
+    """
+    needle = normalise(span)
+    return bool(needle) and f" {needle} " in f" {normalise(response)} "
 
 
 def verify_spans(
@@ -185,6 +190,10 @@ def verify_spans(
     not read. With no response to check against nothing is invalid — the caller
     withheld the evidence, so the judge is not at fault.
     """
+    if isinstance(asserted_spans, str):
+        # One span given as a bare string, not a list: iterating it would
+        # split it into characters, none of which attributes to anything.
+        asserted_spans = [asserted_spans]
     spans = [s for s in (asserted_spans or []) if isinstance(s, str)]
     if response is None:
         return list(spans), []
@@ -280,10 +289,11 @@ def _rejected_entry(
         entry = rejected.get(index)
     if entry is None:
         return False, None
-    if isinstance(entry, bool):
-        return entry, None
     if isinstance(entry, dict):
-        return bool(entry.get("rejected")), entry.get("evidence")
+        evidence = entry.get("evidence")
+        return coerce_bool(entry.get("rejected")) is True, evidence if isinstance(evidence, str) else None
+    if isinstance(entry, (bool, str)):
+        return coerce_bool(entry) is True, None
     return False, None
 
 

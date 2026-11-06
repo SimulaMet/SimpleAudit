@@ -4,8 +4,8 @@ SimpleAudit - Lightweight AI Safety Auditing Framework
 A simple, effective tool for red-teaming AI systems using LLMs as auditor and judge.
 
 Supports multiple providers:
-- Anthropic (Claude) - default
-- OpenAI (GPT-4, GPT-5, etc.)
+- OpenAI (GPT-4, GPT-5, etc.) - default
+- Anthropic (Claude)
 - Grok (xAI)
 - Ollama (local models)
 - vLLM (local model serving)
@@ -35,6 +35,7 @@ except PackageNotFoundError:
 __author__ = "SimpleAudit Contributors"
 
 from .auditor import Auditor
+from .calibration import calibrate, label, load_labels
 from .checklist import postprocess_checklist, severity_by_name
 from .cross_judge import CrossJudgeExperiment, CrossJudgeResults, compare_judges
 from .experiment import AuditExperiment, ExperimentEvent
@@ -88,6 +89,9 @@ from .targets import (
 )
 
 __all__ = [
+    "calibrate",
+    "label",
+    "load_labels",
     "ModelAuditor",
     "ScenarioExecution",
     "Auditor",

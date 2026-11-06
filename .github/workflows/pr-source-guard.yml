@@ -1,0 +1,32 @@
+# main only takes pull requests from dev. Feature work goes to dev first.
+# This check is required by the "main" ruleset, so a pull request into main
+# from any other branch (or from a fork) cannot be merged.
+name: PR source guard
+
+on:
+  pull_request:
+    branches: [main]
+    # "edited" fires when the base branch is changed, so retargeting a PR
+    # to main re-runs the check.
+    types: [opened, reopened, synchronize, edited]
+
+jobs:
+  source-is-dev:
+    name: PR targets main from dev
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that the pull request comes from dev in this repository
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [ "$HEAD_REPO" != "$THIS_REPO" ]; then
+            echo "::error::Pull requests into main must come from this repository's dev branch, not from a fork ($HEAD_REPO)."
+            exit 1
+          fi
+          if [ "$HEAD_REF" != "dev" ]; then
+            echo "::error::Pull requests into main must come from dev, not from '$HEAD_REF'. Open the PR against dev instead."
+            exit 1
+          fi
+          echo "OK: $HEAD_REPO:$HEAD_REF -> main"

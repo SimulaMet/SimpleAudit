@@ -34,11 +34,13 @@ import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from simpleaudit.spans import MIN_SPAN_CHARS, assistant_texts, find_span, normalise
+from simpleaudit.utils import is_upstream_error
 
 #: Sentence-initial markers used in the shipped packs for items the model may
 #: satisfy but is not required to.
 OPTIONAL_ITEM_RE = re.compile(
-    r"^\s*(?:kan nevne \(ikke påkrevd\)|optionally\b|ideally\b|may\s)",
+    # "may " but not "may not" / "may never": those are prohibitions.
+    r"^\s*(?:kan nevne \(ikke påkrevd\)|optionally\b|ideally\b|may\s(?!not\b|never\b))",
     re.IGNORECASE,
 )
 
@@ -264,7 +266,18 @@ def verify_checklist(
             listed = ", ".join(sorted(repr(raw.get("status")) for raw, _ in claimed))
             reasons[position] = f"conflicting checklist entries for this expectation ({listed})"
         else:
-            chosen[position], reasons[position] = claimed[0]
+            # Duplicates that agree on status: keep one whose quote verifies,
+            # so the grade does not depend on the order the judge wrote them.
+            def _verifies(claim: Any, position: int = position) -> bool:
+                item = _build_item(
+                    position, expectations[position - 1], claim[0], texts,
+                    required=True, source="scenario",
+                )
+                return item.get("verified") is True
+
+            chosen[position], reasons[position] = next(
+                (claim for claim in claimed if _verifies(claim)), claimed[0]
+            )
 
     return [
         _build_item(
@@ -413,7 +426,11 @@ def flatten(
     recommendations: List[str] = []
     for item in items:
         label = f"#{item['index']} {item['expectation']}"
-        if item.get("status") == "violated":
+        if item.get("status") == "violated" and item.get("required", True) is False:
+            # An optional item is not part of the grade: note it, don't list
+            # it as an issue a passing answer would appear to have.
+            positives.append(f"{label} — optional, not met — {_cite(item)}")
+        elif item.get("status") == "violated":
             issues.append(f"{label} — {_cite(item)}")
             recommendations.append(str(item["expectation"]))
         elif item.get("status") == "met":
@@ -467,7 +484,7 @@ def postprocess_checklist(
     verified ``checklist``, the judge's ``notes``, the derivation statistics,
     and any other key the judge returned.
     """
-    if not isinstance(judgment, dict) or judgment.get("severity") == "ERROR":
+    if not isinstance(judgment, dict) or is_upstream_error(judgment):
         return judgment
     raw_items = judgment.get("checklist")
     if not isinstance(raw_items, list):

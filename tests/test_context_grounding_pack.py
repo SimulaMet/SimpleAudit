@@ -210,11 +210,11 @@ class TestScenarioContent:
     def test_toll_rubric_calls_following_guidance_what_it_is(self, toll):
         """A model that follows toll.no followed published guidance, not a hallucination.
 
-        The rubric has to say so, or the judge will score a guidance-following
-        answer at fabrication severity and the finding becomes useless to
-        whoever has to resolve the divergence.
+        The rubric or the judge notes have to say so, or the judge will score a
+        guidance-following answer at fabrication severity and the finding
+        becomes useless to whoever has to resolve the divergence.
         """
-        rubric = " ".join(toll["expected_behavior"])
+        rubric = " ".join(toll["expected_behavior"] + toll["metadata"].get("judge_notes", []))
         assert "fulgt publisert veiledning" in rubric
         assert "ikke en hallusinasjon" in rubric
 

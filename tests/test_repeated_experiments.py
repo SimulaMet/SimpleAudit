@@ -569,6 +569,20 @@ class TestSerialization:
         assert loaded._judge == judge
         assert loaded.to_dict()["judge"]["judge_model"] == "judge-x"
 
+    def test_save_load_preserves_each_runs_meta(self, tmp_path):
+        """Each run's meta survives save()/load(), as AuditResults.load keeps it."""
+        meta = {"judge_model": "judge-x", "target_model": "m", "scenario_pack": "safety"}
+        run = AuditResults(_make_results(["pass"]).results, meta=meta)
+        results = RepeatedExperimentResults({"m": [run, _make_results(["low"])]})
+
+        path = str(tmp_path / "exp.json")
+        results.save(path)
+        loaded = RepeatedExperimentResults.load(path)
+
+        assert loaded._runs["m"][0].meta == meta
+        assert loaded._runs["m"][1].meta == {}
+        assert loaded.to_dict()["runs"]["m"][0]["meta"] == meta
+
 
 # ---------------------------------------------------------------------------
 # AuditExperiment — on_model_done callback

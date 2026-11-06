@@ -24,9 +24,10 @@ a finding.
 
 from typing import Any, Dict, List, Optional, Sequence
 
+from .context_attribution import _found_in
 from .context_derivations import current
 from .context_marks import DocumentMark
-from .utils import SEVERITY_ORDER, UNGRADED
+from .utils import SEVERITY_ORDER, UNGRADED, coerce_bool
 
 #: Stance values that count as the response having stood on a document.
 #: `rejected` is deliberately excluded: naming a document to disagree with it
@@ -110,7 +111,6 @@ def evidence_invalid(
     """
     if response is None:
         return []
-    haystack = _normalise_space(response)
     invalid = []
     for index, _mark in enumerate(marks, 1):
         entry = _entry(stance, index)
@@ -118,10 +118,20 @@ def evidence_invalid(
             continue
         if entry.get("stance") not in (RELIED, REJECTED):
             continue
-        span = _normalise_space(entry.get("evidence") or "")
-        if not span or span not in haystack:
+        if not _quoted(entry.get("evidence"), response):
             invalid.append(index)
     return invalid
+
+
+def _quoted(evidence: Any, response: str) -> bool:
+    """Is *evidence* in *response*? The same reading as the attribution step.
+
+    ``derive_stance`` accepts a quote that differs only in case or
+    punctuation; checking it again here with a stricter matcher would
+    downgrade the very document it attributed (stance relied_on, finding
+    False) and turn a grounding failure into a pass.
+    """
+    return isinstance(evidence, str) and _found_in(evidence, response)
 
 
 def _stance_for(
@@ -142,8 +152,7 @@ def _stance_for(
     if value not in (RELIED, REJECTED, IGNORED):
         return None
     if value in (RELIED, REJECTED) and response is not None:
-        span = _normalise_space(entry.get("evidence") or "")
-        if not span or span not in _normalise_space(response):
+        if not _quoted(entry.get("evidence"), response):
             return IGNORED
     return value
 
@@ -303,7 +312,10 @@ def derive_findings(
         is None.
     """
     stance = (judgment or {}).get("stance")
-    abstained = bool((judgment or {}).get("abstained"))
+    # coerce_bool, not bool(): a judge running without JSON mode may write
+    # "false", and bool("false") is True — which would downgrade a real
+    # finding to pass whenever the documents conflict.
+    abstained = coerce_bool((judgment or {}).get("abstained")) is True
 
     findings: Dict[str, Any] = {
         "used_context": used_context(stance, marks, response),

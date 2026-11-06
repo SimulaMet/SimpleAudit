@@ -88,9 +88,22 @@ def prompt_diff(a, b):
     return sm.ratio(), " ".join(da), " ".join(db)
 
 
+def _key(value):
+    """A Counter / membership key for a field that may be malformed (a list
+    severity, a dict category): reported as a mismatch, never a TypeError."""
+    return value if value is None or isinstance(value, (str, int, float, bool)) else repr(value)
+
+
 def check_scenarios(pack, scenarios, rep):
-    names = Counter(s.get("name") for s in scenarios)
-    prompts = Counter(s.get("test_prompt") for s in scenarios)
+    # A malformed pack is reported, never crashes the checker: non-dict
+    # entries are flagged and skipped, and str() keeps a list prompt or a
+    # None name from raising "unhashable type".
+    for i, s in enumerate(scenarios):
+        if not isinstance(s, dict):
+            rep.error(f"#{i}", f"scenario entry is {type(s).__name__}, not an object")
+    scenarios = [s for s in scenarios if isinstance(s, dict)]
+    names = Counter(str(s.get("name")) for s in scenarios)
+    prompts = Counter(str(s.get("test_prompt")) for s in scenarios if s.get("test_prompt") is not None)
     pairs = defaultdict(list)
     sev, cat, lang = Counter(), Counter(), Counter()
     eb_len = []
@@ -103,10 +116,10 @@ def check_scenarios(pack, scenarios, rep):
         if s.get("schema_version") not in ("2.0", 2, "2"):
             rep.error(w, f"schema_version is {s.get('schema_version')!r}, expected '2.0'")
 
-        n = s.get("name", "")
+        n = s.get("name") if isinstance(s.get("name"), str) else ""
         if not (3 <= len(n) <= 200):
             rep.error(w, f"name length {len(n)} outside [3, 200]")
-        if names[n] > 1:
+        if names[str(s.get("name"))] > 1:
             rep.error(w, "duplicate scenario name within pack")
         if " — " in n or " – " in n:
             rep.warn(w, "name uses a dash; the convention is ' - ' (Topic - Specific Concern)")
@@ -122,24 +135,28 @@ def check_scenarios(pack, scenarios, rep):
             rep.error(w, "description empty or not a string")
 
         lg = s.get("language")
-        lang[lg] += 1
+        lang[_key(lg)] += 1
         if not (isinstance(lg, str) and re.fullmatch(r"[a-z]{2}", lg)):
             rep.warn(w, f"language {lg!r} is not an ISO 639-1 code")
 
         c, sc = s.get("category"), s.get("subcategory")
+        c, sc = _key(c), _key(sc)
         cat[c] += 1
         if c not in TAXONOMY:
             rep.error(w, f"category {c!r} not in the guideline taxonomy")
         elif sc not in TAXONOMY[c]:
             rep.error(w, f"subcategory {sc!r} not listed under {c!r}")
 
-        sv = s.get("severity")
+        sv = _key(s.get("severity"))
         sev[sv] += 1
         if sv not in SEVERITIES:
             rep.error(w, f"severity {sv!r} not in {sorted(SEVERITIES)}")
 
         src = s.get("source") or {}
-        st = src.get("type")
+        if not isinstance(src, dict):
+            rep.error(w, f"source must be an object, got {type(src).__name__}")
+            src = {}
+        st = _key(src.get("type"))
         if st not in SOURCE_TYPES:
             rep.error(w, f"source.type {st!r} not in {sorted(SOURCE_TYPES)}")
         if st in ("real_case", "adapted"):
@@ -148,6 +165,9 @@ def check_scenarios(pack, scenarios, rep):
                     rep.error(w, f"source.{k} is required for source.type={st}")
 
         md = s.get("metadata") or {}
+        if not isinstance(md, dict):
+            rep.error(w, f"metadata must be an object, got {type(md).__name__}")
+            md = {}
         if st == "synthetic" and not md.get("rationale"):
             rep.error(w, "synthetic scenario without metadata.rationale")
         author = str(md.get("author", ""))
@@ -206,8 +226,8 @@ def check_scenarios(pack, scenarios, rep):
             rep.warn(w, f"email address outside metadata.author: {e}")
 
         if "pair_id" in md or "branch" in md or "pair_type" in md:
-            pid, br = md.get("pair_id"), md.get("branch")
-            pt = md.get("pair_type", "matched")
+            pid, br = md.get("pair_id"), _key(md.get("branch"))
+            pt = _key(md.get("pair_type", "matched"))
             if not pid:
                 rep.error(w, "branch or pair_type set without pair_id")
             if pt not in PAIR_TYPES:
@@ -216,14 +236,15 @@ def check_scenarios(pack, scenarios, rep):
                 rep.error(w, f"branch {br!r} not in {sorted(BRANCHES)} for a matched pair")
             if pt == "branch_set" and (not br or br in ("majority", "outlier")):
                 rep.error(w, f"a branch_set member needs a descriptive branch label, not {br!r}")
-            pairs[pid].append(s)
+            pairs[str(pid)].append((s, md))
 
     for pid, members in pairs.items():
         w = f"pair {pid}"
         if len(members) < 2:
             rep.error(w, "pair has a single member")
-        br = Counter(m["metadata"].get("branch") for m in members)
-        pts = {m["metadata"].get("pair_type", "matched") for m in members}
+        br = Counter(str(md.get("branch")) if md.get("branch") is not None else None for _, md in members)
+        pts = {str(md.get("pair_type", "matched")) for _, md in members}
+        members = [m for m, _ in members]
         if len(pts) > 1:
             rep.error(w, f"members disagree on pair_type: {sorted(pts)}")
         if pts == {"matched"}:
@@ -233,14 +254,18 @@ def check_scenarios(pack, scenarios, rep):
                 rep.error(w, "matched pair without a 'majority' branch; use pair_type='branch_set' when there is no dominant rule")
             if br.get("outlier", 0) == 0:
                 rep.error(w, "matched pair without an 'outlier' branch")
-        base = members[0]["test_prompt"]
-        for m in members[1:]:
+        # Members without a string prompt are already reported above.
+        prompted = [m for m in members if isinstance(m.get("test_prompt"), str)]
+        if not prompted:
+            continue
+        base = prompted[0]["test_prompt"]
+        for m in prompted[1:]:
             ratio, da, db = prompt_diff(base, m["test_prompt"])
             msg = f"prompt similarity to first member {ratio:.3f}; differs: «{da}» vs «{db}»"
             if pts == {"matched"} and ratio < PAIR_SIMILARITY_FLOOR:
-                rep.warn(f"{w} / {m['name']}", "matched pair below the similarity floor: " + msg)
+                rep.warn(f"{w} / {m.get('name')}", "matched pair below the similarity floor: " + msg)
             else:
-                rep.info(f"{w} / {m['name']}", msg)
+                rep.info(f"{w} / {m.get('name')}", msg)
 
     rep.info(pack, f"{len(scenarios)} scenarios; severity {dict(sev)}; category {dict(cat)}; language {dict(lang)}")
     if eb_len:
@@ -304,7 +329,12 @@ def run_checks(pack, repo):
     from simpleaudit.scenarios import get_scenarios
 
     rep = Report()
-    check_scenarios(pack, get_scenarios(pack), rep)
+    try:
+        scenarios = get_scenarios(pack)
+    except ValueError as exc:
+        rep.error(pack, f"cannot load pack: {exc}")
+        return rep
+    check_scenarios(pack, scenarios, rep)
     check_registration(pack, repo, rep)
     return rep
 

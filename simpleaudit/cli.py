@@ -11,8 +11,19 @@ or, for a full Studio instance, ``uvx simpleaudit-studio``.
 import sys
 
 
-def main():
-    """Main entry point for simpleaudit CLI."""
+def main(argv=None):
+    """Main entry point for simpleaudit CLI.
+
+    ``--version`` and ``--help`` succeed (exit 0) so scripts and health checks
+    can probe the install; anything else prints the Studio pointer and exits 1,
+    because the command the user tried no longer exists.
+    """
+    args = sys.argv[1:] if argv is None else list(argv)
+    if args and args[0] in ("--version", "-V"):
+        from simpleaudit import __version__
+
+        print(f"simpleaudit {__version__}")
+        sys.exit(0)
     print(
         "The `simpleaudit` CLI no longer includes the web visualizer.\n"
         "\n"
@@ -25,7 +36,7 @@ def main():
         "\n"
         "See: https://github.com/SimulaMet/SimpleAuditStudio"
     )
-    sys.exit(1)
+    sys.exit(0 if args and args[0] in ("--help", "-h") else 1)
 
 
 if __name__ == "__main__":

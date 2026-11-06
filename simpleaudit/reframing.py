@@ -77,14 +77,17 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Union
 
 from simpleaudit._event_loop import run_sync
 from simpleaudit.judges import get_judge
-from simpleaudit.model_auditor import ModelAuditor
+from simpleaudit.judges.compose import inherited_postprocess
+from simpleaudit.provider_errors import coerce_judgment_fields
+from simpleaudit.model_auditor import ModelAuditor, _keep_grading_metadata
+from simpleaudit.repeated_results import aggregate_severities
 from simpleaudit.repeated_results import (
     FRAGILE_THRESHOLD_DEFAULT,
     _normalised_entropy,
     _ordinal_spread,
 )
 from simpleaudit.results import AuditResult, AuditResults
-from simpleaudit.utils import SEVERITY_ORDER, severity_direction
+from simpleaudit.utils import SEVERITY_ORDER, as_str_list, describe_exception, severity_direction, ungradable_issues
 
 
 def _refuse_code_graded(config: Dict[str, Any], name: Any) -> None:
@@ -154,7 +157,10 @@ class PromptVariant:
             "label": label or (config.get("name") or "custom judge" if isinstance(name, dict) else name),
             "judge_prompt": config["judge_prompt"],
             "response_schema": config.get("response_schema"),
-            "postprocess": config.get("postprocess"),
+            "postprocess": (
+                overrides["postprocess"] if "postprocess" in overrides
+                else inherited_postprocess(config, "judge_prompt" in overrides)
+            ),
             "requires_expected_behavior": bool(config.get("requires_expected_behavior")),
         }
         fields.update(overrides)
@@ -187,11 +193,22 @@ class StoredRecord:
 
 
 def _stored_asr_metadata(judgment: Mapping[str, Any]) -> Dict[str, Any]:
-    """Restore only the reference settings explicitly saved by the ASR judge."""
-    reference = judgment.get("asr_reference") if isinstance(judgment, Mapping) else None
+    """Restore the grading metadata a run saved with its judgment.
+
+    ``scenario_metadata`` holds the keys a judge's code grades against
+    (``expected_outcome``, ``facts``, ``asr``; see
+    ``model_auditor.GRADING_METADATA_KEYS``). Without them a re-grade with
+    binary_abstention or fact_check would come back ungraded. The ASR judge's
+    own ``asr_reference`` record wins for ``asr``.
+    """
+    if not isinstance(judgment, Mapping):
+        return {}
+    stored = judgment.get("scenario_metadata")
+    out: Dict[str, Any] = dict(stored) if isinstance(stored, dict) else {}
+    reference = judgment.get("asr_reference")
     if isinstance(reference, dict) and isinstance(reference.get("reference_text"), str):
-        return {"asr": dict(reference)}
-    return {}
+        out["asr"] = dict(reference)
+    return out
 
 
 def _stored_designed_severity(entry: Mapping[str, Any]) -> Optional[str]:
@@ -253,7 +270,7 @@ def load_stored_records(
     records = []
     for entry in entries:
         conversation = entry.get("conversation")
-        if not conversation:
+        if not conversation or _truncated_by_error(entry.get("judgment"), conversation):
             continue
         name = entry.get("scenario_name", "")
         severity = _stored_designed_severity(entry)
@@ -265,7 +282,7 @@ def load_stored_records(
                 scenario_name=name,
                 scenario_description=entry.get("scenario_description", ""),
                 conversation=conversation,
-                expected_behavior=entry.get("expected_behavior"),
+                expected_behavior=as_str_list(entry.get("expected_behavior")),
                 scenario_severity=severity,
                 scenario_severity_source=source_label,
                 scenario_metadata=_stored_asr_metadata(entry.get("judgment") or {}),
@@ -293,9 +310,10 @@ def make_judge_client(
 # ---------------------------------------------------------------------------
 
 def _modal(severities: Sequence[str]) -> str:
-    """Most common verdict; ties resolve to the first encountered, as in
-    ``repeated_results._build_stability_report``."""
-    return Counter(severities).most_common(1)[0][0]
+    """Most common verdict; ties resolve towards the more severe one, exactly
+    as ``repeated_results.aggregate_severities`` (the stability report) and
+    the Inspect ``modal_severity`` reducer do."""
+    return aggregate_severities(list(severities))["most_common_severity"]
 
 
 def _expected_index(severities: Sequence[str]) -> Optional[float]:
@@ -458,7 +476,12 @@ def _panel_verdict(verdicts: Dict[str, str]) -> PanelVerdict:
         majority=majority,
         majority_share=counts[majority] / len(values),
         mean_index=None if mean_index is None else round(mean_index, 4),
-        mean_index_severity=None if mean_index is None else SEVERITY_ORDER[round(mean_index)],
+        # Halves round up, towards the stricter verdict. round() rounds them to
+        # even, so 0.5 read as pass but 1.5 as medium.
+        mean_index_severity=(
+            None if mean_index is None
+            else SEVERITY_ORDER[min(int(mean_index + 0.5), len(SEVERITY_ORDER) - 1)]
+        ),
         worst=worst,
         n_distinct=len(set(values)),
         normalised_entropy=round(_normalised_entropy(values), 4),
@@ -799,9 +822,11 @@ def _check_transform_output(
 ) -> None:
     """A transform may change wording, never structure.
 
-    Same number of turns, same role sequence, and ``file_uri`` and
-    ``tool_events`` preserved per position; otherwise the perturbed grade is
-    not comparable to the baseline.
+    Same number of turns, same role sequence, and ``file_uri``,
+    ``tool_events`` and ``documents`` preserved per position; otherwise the
+    perturbed grade is not comparable to the baseline. (The judge reads a
+    turn's documents, so a transform that rebuilds messages as
+    ``{role, content}`` would silently grade without them.)
     """
     prefix = f"transform for variant {label!r}"
     if not isinstance(transformed, list):
@@ -822,6 +847,29 @@ def _check_transform_output(
             raise ValueError(f"{prefix} changed file_uri at turn {index}.")
         if before.get("tool_events") != after.get("tool_events"):
             raise ValueError(f"{prefix} changed tool_events at turn {index}.")
+        if before.get("documents") != after.get("documents"):
+            raise ValueError(
+                f"{prefix} changed documents at turn {index}; copy the message's "
+                "other keys ({**m, 'content': ...}) rather than rebuilding it."
+            )
+
+
+def _truncated_by_error(judgment: Any, conversation: Any) -> bool:
+    """True when a stored result failed before its conversation finished.
+
+    Such a transcript is cut short (often ending on an unanswered probe);
+    re-grading it would turn the failure into a real-looking verdict. A result
+    whose *judge* failed has a complete transcript and may be re-graded.
+    Results saved before ``error_phase`` existed are read from their shape:
+    a failure whose transcript does not end with an assistant turn.
+    """
+    if not isinstance(judgment, dict) or not judgment.get("error"):
+        return False
+    phase = judgment.get("error_phase")
+    if phase is not None:
+        return phase == "conversation"
+    last = conversation[-1] if conversation else None
+    return not (isinstance(last, dict) and last.get("role") == "assistant")
 
 
 def _error_judgment(message: str) -> Dict[str, Any]:
@@ -882,9 +930,14 @@ async def _grade(
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            return _error_judgment(f"Judge call failed: {type(exc).__name__}: {exc}"), 0, 0
+            failed = _error_judgment(f"Judge call failed: {describe_exception(exc)}")
+            failed.update(error=describe_exception(exc), error_phase="judge")
+            _keep_grading_metadata(failed, scenario_meta)
+            return failed, 0, 0
     if fell_back and isinstance(judgment, dict):
         judgment["judge_fallback"] = "default"
+    # Re-attached so a re-graded file can itself be re-graded.
+    _keep_grading_metadata(judgment, scenario_meta)
     return judgment, tokens_in, tokens_out
 
 
@@ -1132,11 +1185,14 @@ async def rejudge_async(
     if judge is not None:
         config = get_judge(judge)
         _refuse_code_graded(config, judge)
+        postprocess = (
+            postprocess if postprocess is not None
+            else inherited_postprocess(config, judge_prompt is not None)
+        )
         judge_prompt = judge_prompt if judge_prompt is not None else config["judge_prompt"]
         response_schema = (
             response_schema if response_schema is not None else config.get("response_schema")
         )
-        postprocess = postprocess if postprocess is not None else config.get("postprocess")
         requires_expected_behavior = bool(config.get("requires_expected_behavior"))
 
     lookup = dict(scenario_severities or {})
@@ -1155,12 +1211,15 @@ async def rejudge_async(
     async def grade(result: AuditResult):
         if not result.conversation:
             return _error_judgment("No transcript to re-grade"), 0, 0
+        if _truncated_by_error(result.judgment, result.conversation):
+            # Carried through: the original failure, not a new grade.
+            return dict(result.judgment), 0, 0
         return await _grade(
             judge_client,
             judge_model,
             result.scenario_description or result.scenario_name,
             result.conversation,
-            result.expected_behavior,
+            as_str_list(result.expected_behavior),
             judge_prompt,
             response_schema,
             json_format,
@@ -1181,27 +1240,31 @@ async def rejudge_async(
             stacklevel=2,
         )
     defaulted = [
-        result.scenario_name
+        f"{result.scenario_name} ({judgment.get('designed_severity') or 'default'})"
         for result, (judgment, _, _) in zip(source.results, outcomes, strict=True)
         if isinstance(judgment, dict) and judgment.get("designed_severity_source") == "default"
     ]
     if defaulted:
         warnings.warn(
-            f"{len(defaulted)} result(s) were derived against the default designed severity "
-            f"(medium) because none was stored or supplied: {defaulted}. Pass "
+            f"{len(defaulted)} result(s) were derived against the judge's default designed "
+            f"severity (shown per result) because none was stored or supplied: {defaulted}. Pass "
             "scenario_severities=severity_by_name(get_scenarios(pack)) to use the pack's values.",
             stacklevel=2,
         )
 
     rejudged = []
     for result, (judgment, tokens_in, tokens_out) in zip(source.results, outcomes, strict=True):
+        # Same field clean-up as a live audit: a string issues_found is one
+        # issue (not one per character), a null summary is "".
+        judgment = coerce_judgment_fields(judgment)
+        severity = ModelAuditor._severity_from_judgment(judgment)
         rejudged.append(
             AuditResult(
                 scenario_name=result.scenario_name,
                 scenario_description=result.scenario_description,
                 conversation=result.conversation,
-                severity=ModelAuditor._severity_from_judgment(judgment),
-                issues_found=judgment.get("issues_found", []),
+                severity=severity,
+                issues_found=ungradable_issues(judgment, severity),
                 positive_behaviors=judgment.get("positive_behaviors", []),
                 summary=judgment.get("summary", ""),
                 recommendations=judgment.get("recommendations", []),
@@ -1215,7 +1278,24 @@ async def rejudge_async(
                 target_output_tokens=result.target_output_tokens,
             )
         )
-    return AuditResults(rejudged, meta=source.meta)
+    # The run meta names the judge; after a re-grade that is the new judge.
+    meta = dict(source.meta or {})
+    if meta:
+        rejudged_from = {
+            k: source.meta[k] for k in ("judge_model", "judge_provider", "judge_name")
+            if source.meta.get(k) is not None
+        }
+        for key in ("judge_provider", "judge_name"):
+            meta.pop(key, None)  # unknown for the new judge unless set below
+        meta["judge_model"] = judge_model
+        if isinstance(judge, str):
+            meta["judge_name"] = judge
+        elif isinstance(judge, dict) and judge.get("name"):
+            meta["judge_name"] = judge["name"]
+        elif judge_prompt is not None:
+            meta["judge_name"] = "custom judge"
+        meta["rejudged_from"] = rejudged_from
+    return AuditResults(rejudged, meta=meta)
 
 
 def rejudge(

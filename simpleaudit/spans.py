@@ -69,13 +69,15 @@ def find_span(
     Both sides are normalised. A span shorter than *min_chars* after
     normalisation is never matched: it is too short to be evidence. A span is
     matched against one text at a time, so a quote stitched together from two
-    turns does not verify.
+    turns does not verify. Matching is on whole words: "safe to take" does not
+    verify against "unsafe to take".
     """
     needle = normalise(span)
     if len(needle) < min_chars:
         return None
+    padded = f" {needle} "
     for index, text in enumerate(texts):
-        if needle in normalise(text):
+        if padded in f" {normalise(text)} ":
             return index
     return None
 

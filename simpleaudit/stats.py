@@ -15,10 +15,17 @@ domain logic and stays out of here.
 """
 
 import math
+import numbers
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 #: z-value for a two-sided 95% interval / test (the common default).
 DEFAULT_Z = 1.96
+
+
+def _check_counts(k: int, n: int) -> None:
+    # Successes must lie within the trials (an empty group: k == 0).
+    if n < 0 or not 0 <= k <= n:
+        raise ValueError(f"need 0 <= successes <= trials, got k={k}, n={n}")
 
 
 def wilson_interval(k: int, n: int, z: float = DEFAULT_Z) -> Tuple[float, float]:
@@ -39,6 +46,17 @@ def wilson_interval(k: int, n: int, z: float = DEFAULT_Z) -> Tuple[float, float]
         evidence, so the full range ``(0.0, 1.0)`` is returned rather than a
         degenerate point.
     """
+    _check_counts(k, n)
+    # A non-positive z would invert the interval (lower > upper) or collapse it.
+    # Any real number type (numpy, Decimal) is taken as float; bools and
+    # strings are not z values.
+    try:
+        z_value = float(z) if isinstance(z, numbers.Number) and not isinstance(z, (bool, complex)) else None
+    except (TypeError, ValueError):
+        z_value = None
+    if z_value is None or not math.isfinite(z_value) or z_value <= 0:
+        raise ValueError(f"z must be a finite number > 0, got {z!r}")
+    z = z_value
     if n == 0:
         return 0.0, 1.0
     p = k / n
@@ -66,7 +84,9 @@ def two_proportion_z(k1: int, n1: int, k2: int, n2: int) -> Optional[float]:
         perfectly, so there is no variance to test against).
     """
     if n1 == 0 or n2 == 0:
-        return None
+        return None  # an empty group: undefined (pinned contract)
+    _check_counts(k1, n1)
+    _check_counts(k2, n2)
     pooled = (k1 + k2) / (n1 + n2)
     se = math.sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n2))
     if se == 0:

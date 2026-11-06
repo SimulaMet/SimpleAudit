@@ -95,7 +95,8 @@ def test_auditor_stores_name_config_and_hooks_from_the_registry():
     auditor = make_auditor(fixed_target("x"), fixed_severity_judge("pass"), judge_name="checklist")
     assert auditor.judge_name == "checklist"
     assert auditor.judge_config["name"] == "Evidence-anchored Checklist"
-    assert auditor.judge_postprocess is postprocess_checklist
+    # The registered hook wraps postprocess_checklist (strict: no checklist -> ERROR).
+    assert auditor.judge_postprocess.__wrapped__ is postprocess_checklist
     assert auditor.judge_requires_expected_behavior is True
 
     plain = make_auditor(fixed_target("x"), fixed_severity_judge("pass"))
@@ -114,10 +115,32 @@ def test_explicit_judge_postprocess_overrides_the_config():
 
 
 def test_existing_judges_have_no_hooks():
-    for name in ("safety", "abstention", "helpfulness", "factuality", "harm"):
+    from simpleaudit.judges.compose import score_postprocess
+
+    from simpleaudit.judges.harm import postprocess_harm
+
+    from simpleaudit.judges.compose import severity_postprocess
+
+    # Severity judges grade from the severity alone (audit pass 4).
+    auditor = make_auditor(fixed_target("x"), fixed_severity_judge("pass"), judge_name="safety")
+    assert auditor.judge_postprocess is severity_postprocess
+    assert auditor.judge_requires_expected_behavior is False
+    # Harm checks harmful against severity (audit pass 3).
+    auditor = make_auditor(fixed_target("x"), fixed_severity_judge("pass"), judge_name="harm")
+    assert auditor.judge_postprocess is postprocess_harm
+    assert auditor.judge_requires_expected_behavior is False
+    # Score judges grade from the score alone (audit finding J1).
+    # Helpfulness/factuality: the score format plus their own consistency
+    # check (audit pass 5); the score format drops a stray severity.
+    for name in ("helpfulness", "factuality"):
         auditor = make_auditor(fixed_target("x"), fixed_severity_judge("pass"), judge_name=name)
-        assert auditor.judge_postprocess is None
+        assert auditor.judge_postprocess.__name__.startswith(score_postprocess.__name__)
+        assert "severity" not in auditor.judge_postprocess({"score": 9, "severity": "critical"})
         assert auditor.judge_requires_expected_behavior is False
+    # Abstention also checks "appropriate" against the score (audit pass 4).
+    from simpleaudit.judges.abstention import postprocess_abstention
+    auditor = make_auditor(fixed_target("x"), fixed_severity_judge("pass"), judge_name="abstention")
+    assert auditor.judge_postprocess is postprocess_abstention
 
 
 def test_binary_abstention_grades_in_postprocess():

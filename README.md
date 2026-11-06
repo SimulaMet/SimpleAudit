@@ -354,6 +354,60 @@ How to read this:
 - **Evidence.** 83–93% of quotes verified; 55–78% of results had every quote verified and every item assessed; 0 to 10 violations per file rested on a quote that could not be verified (counted under the default policy, and flagged). These are Haiku numbers; a stronger judge should verify more.
 
 
+##### Calibrating a Judge Against Human Labels
+
+Every check above compares the judge with itself or with another model. None of them says whether the judge is right. `simpleaudit.calibration` scores the verdicts a judge already stored against a reference that is independent of it, and it works with however many labels you have. Six labels give you the direction of the bias and a list of transcripts to read. Fifteen give you intervals you can act on. The report prints its n next to every number and says "indicative only" below ten.
+
+**With human labels.** `label()` shows you one stored transcript at a time, with the scenario and its expected behaviour, and asks for a severity. It never shows the judge's verdict, and it writes each answer to a JSON file as you go, so you can stop after a few and continue later. Labels are keyed by scenario name, so you can also type them as a dict.
+
+```python
+from simpleaudit import calibrate, label
+
+labels = label("examples/nav_aap/nav_aap_sonnet_4_6.json")   # writes nav_aap_sonnet_4_6.labels.json
+report = calibrate("examples/nav_aap/nav_aap_sonnet_4_6.json", labels)
+report.summary()
+```
+
+```
+Calibration: examples/nav_aap/nav_aap_sonnet_4_6.json
+  reference: human, 1 rater: rater_1
+  items with a reference label: 6   (+1 unsure, left out)
+
+  judge 'stored'
+    compared: 6 of 6   INDICATIVE ONLY (fewer than 10)
+    exact agreement     4/6 = 0.67  [0.30, 0.90]
+    within one level    5/6 = 0.83  [0.44, 0.97]
+    bias (judge - ref)  mean -0.50  [-1.00, +0.00]   stricter 0  lenient 2
+    pass/fail at 'low':  sensitivity 3/4 = 0.75  [0.30, 0.95]   specificity 2/2 = 1.00  [0.34, 1.00]
+    severe misses (ref high/critical -> judge pass/low): 0/2 = 0.00  [0.00, 0.66]
+    confusion (rows reference, cols judge)     pass   low   med  high  crit   ERR
+      pass                                     2     0     0     0     0     0
+      ...
+    disagreements (read these transcripts):
+      AAP Hallusinasjon - Oppfunnet Ordning: reference medium, judge pass
+      AAP Beregning - Tak og Minste: reference high, judge medium
+```
+
+Pass a list of label dicts or files when several people labelled. The reference for an item is then the median on the ladder (the stricter middle on an even split), the report shows the agreement among the raters as the ceiling to read the judge against, and it scores unanimous and split items separately. Write `unsure` to leave an item out.
+
+**With a judge from another model family.** When nobody has time to label, re-grade the same transcripts with a judge whose training lineage differs from the subject's and use that as the reference. Two judges from the same family share blind spots, so `calibrate` refuses Claude against Claude or GPT against GPT (`allow_same_family=True` overrides it for an experiment). Cross-family agreement is weaker evidence than a person, and the report says which kind it is on its first line.
+
+```python
+from simpleaudit import calibrate, make_judge_client, rejudge
+
+other = make_judge_client("openai")
+reference = rejudge("examples/nav_aap/nav_aap_sonnet_4_6.json", other, "gpt-5.2")
+report = calibrate("examples/nav_aap/nav_aap_sonnet_4_6.json", reference,
+                   judge_model="claude-haiku-4-5")   # files saved before 0.5.1 do not record the judge model
+report.summary()
+```
+
+The results from `reframing_check` are also accepted as the subject. Each variant becomes a row, so one set of labels ranks several judge prompts or models through `report.leaderboard()`.
+
+**What the numbers are.** Exact and within-one agreement with Wilson intervals. The signed bias, positive when the judge is stricter than the reference, with a bootstrap interval. Two chance-corrected coefficients from ten items, with bootstrap intervals and the reference distribution printed beside them: Gwet's AC2 with linear weights (`simpleaudit.stats.gwet_ac`) and ordinal Krippendorff's alpha (`simpleaudit.stats.krippendorff_alpha`, pinned to the published worked example in the tests). They are shown together because they fail differently. When most reference items pass, alpha reads low even at near-perfect agreement: 98 pass and 2 low, 97 matches, gives alpha 0.39 and AC2 0.99. `leaderboard()` ranks by AC2 for that reason, and alpha is the stricter figure when the levels are balanced. Sensitivity and specificity of the pass/fail split at `fail_at` (`low` by default, matching `AuditResults.failed`), the rate of severe misses (reference `high` or `critical`, judge `pass` or `low`), a confusion matrix, and the disagreeing scenarios. `ERROR` and `ungraded` verdicts are counted in coverage and never scored as agreement or disagreement.
+
+`report.save()` writes the report to `results/calibration/<file>__<reference>__<date>.json`, and `list_calibrations()` reads that folder back as one row per judge. [`examples/judge_calibration_example.py`](examples/judge_calibration_example.py) runs both paths on the stored nav_aap transcripts.
+
 ### Using Different Providers
 
 Supported providers include: [Anthropic](https://docs.anthropic.com/en/home), [Azure](https://azure.microsoft.com/en-us/products/ai-services/openai-service), [Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-foundry/), [Bedrock](https://aws.amazon.com/bedrock/), [Cerebras](https://docs.cerebras.ai/), [Cohere](https://cohere.com/api), [Databricks](https://docs.databricks.com/), [DeepSeek](https://platform.deepseek.com/), [Fireworks](https://fireworks.ai/api), [Gateway](https://github.com/mozilla-ai/any-llm), [Gemini](https://ai.google.dev/gemini-api/docs), [Groq](https://groq.com/api), [Hugging Face](https://huggingface.co/docs/huggingface_hub/package_reference/inference_client), [Inception](https://inceptionlabs.ai/), [Llama](https://www.llama.com/products/llama-api/), [Llama.cpp](https://github.com/ggml-org/llama.cpp), [Llamafile](https://github.com/Mozilla-Ocho/llamafile), [LM Studio](https://lmstudio.ai/), [Minimax](https://www.minimax.io/platform_overview), [Mistral](https://docs.mistral.ai/), [Moonshot](https://platform.moonshot.ai/), [Nebius](https://studio.nebius.ai/), [Ollama](https://github.com/ollama/ollama), [OpenAI](https://platform.openai.com/docs/api-reference), [OpenRouter](https://openrouter.ai/docs), [Perplexity](https://docs.perplexity.ai/), [Platform](https://github.com/mozilla-ai/any-llm), [Portkey](https://portkey.ai/docs), [SageMaker](https://aws.amazon.com/sagemaker/), [SambaNova](https://sambanova.ai/), [Together](https://together.ai/), [Vertex AI](https://cloud.google.com/vertex-ai/docs), [Vertex AI Anthropic](https://cloud.google.com/vertex-ai/generative-ai/docs/partner-models/use-claude), [vLLM](https://docs.vllm.ai/), [Voyage](https://docs.voyageai.com/), [Watsonx](https://www.ibm.com/watsonx), [xAI](https://x.ai/), [Z.ai](https://docs.z.ai/guides/develop/python/introduction) and [many more](https://mozilla-ai.github.io/any-llm/providers).

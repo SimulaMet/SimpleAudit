@@ -93,7 +93,15 @@
         ],
         "error": "RuntimeError: target down",
         "traceback": "<traceback>",
-        "error_phase": "conversation"
+        "error_phase": "conversation",
+        "failure": {
+          "role": "target",
+          "kind": "unknown",
+          "message": "RuntimeError: target down",
+          "exception": "RuntimeError",
+          "model": "fake-model",
+          "turn": 2
+        }
       },
       "auditor_input_tokens": 0,
       "auditor_output_tokens": 0,

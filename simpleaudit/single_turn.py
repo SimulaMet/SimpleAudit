@@ -61,6 +61,7 @@ from .model_auditor import (
     _stored_file_uri,
     _stored_tool_events,
 )
+from .failures import build_failure
 from .provider_errors import EmptyResponseError, _content_to_text, coerce_judgment_fields
 from .results import AuditResult, AuditResults
 from .targets.base import TargetContext, token_count
@@ -450,6 +451,8 @@ class SingleTurnAuditor(ModelAuditor):
         # result rather than an exception that discards the whole batch.
         error: Optional[str] = None
         error_phase: Optional[str] = None
+        failure: Optional[Dict[str, Any]] = None
+        current_role = "system"
         # What every judge hook gets, as on ModelAuditor (not the raw scenario).
         scenario_meta: Dict[str, Any] = {
             "severity": scenario.get("severity"),
@@ -471,6 +474,7 @@ class SingleTurnAuditor(ModelAuditor):
             # Through self.target, not target_client: an explicit Target (an
             # HTTP app, a callable) replaces the model client, and the context
             # carries the traceparent an instrumented target propagates.
+            current_role = "target"
             target_resp = await self.target.send(
                 system=self.system_prompt,
                 user=test_prompt,
@@ -519,6 +523,7 @@ class SingleTurnAuditor(ModelAuditor):
         except Exception as exc:
             error = describe_exception(exc)
             error_phase = "conversation"
+            failure = self._failure_for(current_role, exc, turn=1)
             self._log(f"--- Scenario FAILED on the target call: {name} [{error}] ---")
 
         if error is None:
@@ -706,6 +711,7 @@ class SingleTurnAuditor(ModelAuditor):
             except Exception as exc:
                 error = describe_exception(exc)
                 error_phase = "judge"
+                failure = self._failure_for("judge", exc)
                 self._log(f"--- Judging FAILED: {name} [{error}] ---")
 
         if error is not None:
@@ -718,6 +724,7 @@ class SingleTurnAuditor(ModelAuditor):
                 ],
                 "error": error,
                 "error_phase": error_phase,
+                "failure": failure,
             }
         else:
             judgment = coerce_judgment_fields(judgment)
@@ -847,7 +854,11 @@ class SingleTurnAuditor(ModelAuditor):
                         summary=f"Scenario did not complete due to an error: {describe_exception(exc)}"[:500],
                         recommendations=["Re-run this scenario; check API credentials, rate limits, and connectivity."],
                         expected_behavior=scenario.get("expected_behavior"),
-                        judgment={"severity": "ERROR", "error": describe_exception(exc)},
+                        judgment={
+                            "severity": "ERROR",
+                            "error": describe_exception(exc),
+                            "failure": build_failure("system", exc),
+                        },
                     )
                 # Ticked here rather than at the two call sites so the ERROR
                 # path advances the bars too and they never finish short.

@@ -30,7 +30,13 @@
         ],
         "error": "ValueError: scenario needs metadata.reference",
         "traceback": "<traceback>",
-        "error_phase": "conversation"
+        "error_phase": "conversation",
+        "failure": {
+          "role": "system",
+          "kind": "unknown",
+          "message": "ValueError: scenario needs metadata.reference",
+          "exception": "ValueError"
+        }
       },
       "auditor_input_tokens": 0,
       "auditor_output_tokens": 0,

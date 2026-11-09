@@ -161,7 +161,14 @@
         ],
         "error": "RuntimeError: judge down",
         "traceback": "<traceback>",
-        "error_phase": "judge"
+        "error_phase": "judge",
+        "failure": {
+          "role": "judge",
+          "kind": "unknown",
+          "message": "RuntimeError: judge down",
+          "exception": "RuntimeError",
+          "model": "fake-judge"
+        }
       },
       "auditor_input_tokens": 0,
       "auditor_output_tokens": 0,

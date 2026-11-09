@@ -78,6 +78,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Union
 from simpleaudit._event_loop import run_sync
 from simpleaudit.judges import get_judge
 from simpleaudit.judges.compose import inherited_postprocess
+from simpleaudit.failures import build_failure
 from simpleaudit.provider_errors import coerce_judgment_fields
 from simpleaudit.model_auditor import ModelAuditor, _keep_grading_metadata
 from simpleaudit.repeated_results import aggregate_severities
@@ -931,7 +932,11 @@ async def _grade(
             raise
         except Exception as exc:
             failed = _error_judgment(f"Judge call failed: {describe_exception(exc)}")
-            failed.update(error=describe_exception(exc), error_phase="judge")
+            failed.update(
+                error=describe_exception(exc),
+                error_phase="judge",
+                failure=build_failure("judge", exc),
+            )
             _keep_grading_metadata(failed, scenario_meta)
             return failed, 0, 0
     if fell_back and isinstance(judgment, dict):

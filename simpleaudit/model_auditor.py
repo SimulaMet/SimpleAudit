@@ -37,6 +37,7 @@ from .judges import get_judge
 from .judges.compose import inherited_postprocess
 from .judges.compose import SEVERITY_RESPONSE_SCHEMA
 from .judges.default import DEFAULT_JUDGE_CRITERIA, DEFAULT_JUDGE_SEVERITY_LEVELS, DEFAULT_PROBE_PROMPT
+from .failures import build_failure
 from .provider_errors import (
     EmptyResponseError,
     _content_to_text,
@@ -130,7 +131,7 @@ GRADING_METADATA_KEYS = ("expected_outcome", "facts", "asr")
 #: failures, or carry the ground truth and designed severity a later
 #: re-grade (reframing.rejudge) trusts.
 _FRAMEWORK_KEYS = (
-    "parse_error", "error", "error_phase", "scenario_metadata",
+    "parse_error", "error", "error_phase", "failure", "scenario_metadata",
     "designed_severity", "designed_severity_source", "judge_fallback", "asr_reference",
 )
 
@@ -1106,6 +1107,42 @@ class ModelAuditor:
                     message = f"[{name}] {message}"
                 tqdm.write(message)
 
+    def _failure_for(
+        self,
+        role: str,
+        exc: BaseException,
+        *,
+        turn: Optional[int] = None,
+        target: Any = None,
+    ) -> Dict[str, Any]:
+        """Structured ``judgment.failure`` for ``exc`` raised by ``role``.
+
+        Endpoint and model are hints from the configuration and are only used
+        when known; a custom target contributes its own ``url``/``model`` if it
+        has them.
+        """
+        endpoint = model = None
+        try:
+            if role == "auditor":
+                endpoint = self._auditor_client_config.get("base_url")
+                model = self.auditor_model
+            elif role == "judge":
+                endpoint = self._judge_client_config.get("base_url")
+                model = None if self.judge_grade is not None else self.judge_model
+            elif role == "target":
+                tgt = target if target is not None else self.target
+                endpoint = getattr(tgt, "url", None) or getattr(tgt, "base_url", None)
+                model = getattr(tgt, "model", None)
+                if endpoint is None and type(tgt).__name__ == "ModelTarget":
+                    endpoint = self._target_client_config.get("base_url")
+                if not isinstance(endpoint, str):
+                    endpoint = None
+                if not isinstance(model, str):
+                    model = None
+        except Exception:  # hints are best effort and must never mask the error
+            endpoint = model = None
+        return build_failure(role, exc, turn=turn, endpoint=endpoint, model=model)
+
     def _fire_on_turn(
         self,
         turn_index: int,
@@ -1614,6 +1651,11 @@ Evaluate this conversation and respond with this exact JSON structure:
         error: Optional[str] = None
         error_traceback: Optional[str] = None
         error_phase: Optional[str] = None
+        failure: Optional[Dict[str, Any]] = None
+        # Which role the call in flight belongs to, set right before each call
+        # so an exception is attributed where it is raised.
+        current_role = "system"
+        current_turn: Optional[int] = None
         try:
             validate = getattr(self.judge_postprocess, "validate_scenario", None)
             if validate is not None:
@@ -1629,16 +1671,20 @@ Evaluate this conversation and respond with this exact JSON structure:
                 if trace_correlation is not None:
                     _link_scenario(trace_correlation, scenario_run_id, name)
                     trace_correlation.record(f"{scenario_run_id}_t0", scenario_trace_id)
+                # The hook opens the target's session.
+                current_role = "target"
                 await start_hook(hook_context)
             started = True
             for turn in range(turns):
                 self._log(f"--- Turn {turn + 1}/{turns} ---", name=name)
+                current_turn = turn + 1
 
                 # First turn: if the scenario defines a test_prompt, send it verbatim.
                 # Subsequent turns use the auditor model for probe generation.
                 if turn == 0 and (test_prompt or getattr(target, "default_prompt", None)):
                     probe = test_prompt or target.default_prompt
                 else:
+                    current_role = "auditor"
                     # require_content checks the raw text; a reasoning auditor
                     # cut off inside <think> (or a bare "User:") is empty only
                     # after stripping. That is a model hiccup like an empty
@@ -1703,6 +1749,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                 if trace_correlation is not None:
                     _link_scenario(trace_correlation, scenario_run_id, name)
                     trace_correlation.record(turn_id, scenario_trace_id)
+                current_role = "target"
                 target_resp = await target.send(
                     system=self.system_prompt,
                     user=probe,
@@ -1808,6 +1855,7 @@ Evaluate this conversation and respond with this exact JSON structure:
             error = describe_exception(exc)
             error_traceback = _short_traceback()
             error_phase = "conversation"
+            failure = self._failure_for(current_role, exc, turn=current_turn, target=target)
             self._log(f"--- Scenario FAILED mid-conversation: {name} [{error}] ---")
         finally:
             # Runs on failure and cancellation too, so a target can release its
@@ -1875,6 +1923,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                 error = describe_exception(exc)
                 error_traceback = _short_traceback()
                 error_phase = "judge"
+                failure = self._failure_for("judge", exc)
                 self._log(f"--- Judging FAILED: {name} [{error}] ---")
 
         if error is not None:
@@ -1894,6 +1943,8 @@ Evaluate this conversation and respond with this exact JSON structure:
                 # complete (see reframing.rejudge); a "judge" failure leaves a
                 # complete one.
                 "error_phase": error_phase,
+                # Which role failed and how, structured (see failures.py).
+                "failure": failure,
             }
         else:
             judgment = coerce_judgment_fields(judgment)
@@ -2065,6 +2116,8 @@ Evaluate this conversation and respond with this exact JSON structure:
                             "severity": "ERROR",
                             "error": describe_exception(exc),
                             "traceback": _short_traceback(),
+                            # Raised outside the three calls: not attributable.
+                            "failure": build_failure("system", exc),
                         },
                     )
         with tqdm(total=total_audit_steps, desc=audit_desc, disable=not self.show_progress, position=0) as pbar_audit:

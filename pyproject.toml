@@ -51,7 +51,10 @@ tracing = [
 plot = ["matplotlib>=3.5.0"]
 # Run scenario packs as Inspect AI tasks and read Inspect logs back
 # (simpleaudit.integrations.inspect).
-inspect = ["inspect-ai>=0.3.283"]
+# agent-client-protocol 1.0.0 (2026-11-09) removed acp.helpers, which inspect-ai
+# 0.3.288 still imports (it only requires >=0.12.0). Drop the cap once inspect-ai
+# supports 1.x.
+inspect = ["inspect-ai>=0.3.283", "agent-client-protocol<1"]
 dev = [
     # pytest is pinned <9 because pytest-testmon 2.x is not yet compatible with
     # pytest 9 (same pin as Studio).

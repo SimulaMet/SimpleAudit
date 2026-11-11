@@ -22,6 +22,7 @@ def test_list_scenario_packs():
     assert "nav_sosialhjelp" in packs
     assert "digdir_digital_forvaltning" in packs
     assert "brreg_registre" in packs
+    assert "udi" in packs
     assert "all" in packs
     assert "skatteetaten" in packs
     assert "helfo" in packs
@@ -45,6 +46,7 @@ def test_list_scenario_packs():
     assert packs["nav_sosialhjelp"] > 0
     assert packs["digdir_digital_forvaltning"] > 0
     assert packs["brreg_registre"] > 0
+    assert packs["udi"] > 0
     assert packs["skatteetaten"] >= 0
     assert packs["helfo"] > 0
     assert packs["lanekassen"] > 0
@@ -56,7 +58,7 @@ def test_list_scenario_packs():
     assert packs["human_rights_education"] > 0
     assert packs["human_rights_fair_trial"] > 0
     assert packs["healthbench_behaviours"] > 0
-    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"] + packs["nb_kryss_ordning"] + packs["skatteetaten_legitimasjon"] + packs["toll_reisegodskvote"] + packs["arbeidstilsynet_arbeidstid"] + packs["human_rights_water"] + packs["human_rights_education"] + packs["human_rights_fair_trial"] + packs["healthbench_behaviours"] + packs["nav_sosialhjelp"] + packs["digdir_digital_forvaltning"] + packs["brreg_registre"]
+    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"] + packs["nb_kryss_ordning"] + packs["skatteetaten_legitimasjon"] + packs["toll_reisegodskvote"] + packs["arbeidstilsynet_arbeidstid"] + packs["human_rights_water"] + packs["human_rights_education"] + packs["human_rights_fair_trial"] + packs["healthbench_behaviours"] + packs["nav_sosialhjelp"] + packs["digdir_digital_forvaltning"] + packs["brreg_registre"] + packs["udi"]
 
 
 def test_get_scenarios():

@@ -573,6 +573,7 @@ SimpleAudit includes pre-built scenario packs:
 | `nav_sosialhjelp` | 7 | NAV økonomisk sosialhjelp (sosialtjenesteloven chapter 4): the state guideline rate and what it leaves out, emergency help, what counts as an application, the activity condition under 30, reduction after a broken condition, hallucination resistance |
 | `digdir_digital_forvaltning` | 7 | Digital public administration (eForvaltningsforskriften, forskrift om universell utforming av IKT-løsninger, digitaliseringsrundskrivet): reservation against digital decisions, notice for digital decisions, when the complaint deadline starts, accessibility standard and statement for public websites, the circular's scope, hallucination resistance on the new forvaltningsloven |
 | `brreg_registre` | 7 | Brønnøysund registers (aksjeloven, regnskapsloven, enhetsregisterloven, foretaksregisterloven): minimum share capital, annual-accounts deadline and late-filing fee, who must be in Enhetsregisteret, sole proprietorships and Foretaksregisteret, reporting deadlines, opting out of audit, hallucination resistance on compulsory dissolution |
+| `udi` | 12 | UDI (Utlendingsdirektoratet): the income requirement in family immigration (future income, last year's income, pension and military-service exceptions), the family immigration fee for adults, children and renewals, and permanent residence (self-sufficiency, oral Norwegian and social studies tests, the 18-67 age limit). Six pairs |
 | `skatteetaten` | 8 | Norwegian Tax Administration: filing deadlines, VAT, deductions, appeals |
 | `helfo` | 8 | Helfo health economics: egenandel/frikort, blå resept, EHIC, vulnerable-user routing |
 | `lanekassen` | 8 | Lånekassen student finance: appeal deadline, loan-to-grant conversion, interest, debt cancellation, vulnerable-user routing |
@@ -586,7 +587,7 @@ SimpleAudit includes pre-built scenario packs:
 | `nb_kryss_ordning` | 13 | National Library cross-scheme transfer: ISBN/ISSN/ISMN format rules, ISBN series thresholds, legal-deposit copy counts, unchanged-reprint consequences, jurisdiction. Six matched pairs — each outlier probe has a majority twin with character-identical wording |
 | `healthbench_behaviours` | 17 | One scenario per HealthBench consensus category: emergency referrals (including over-referral), context seeking, hedging, communication with clinicians and laypeople, response depth, global health, health data tasks |
 | `context_grounding` | 3 | Retrieval-context grounding: does the target use the supplied documents and ignore a planted superseded/low-authority chunk? **Requires `SingleTurnAuditor`** (one fixed question over a fixed document set), so it is **not** part of `all` |
-| `all` | 1424 | All scenarios combined |
+| `all` | 1436 | All scenarios combined |
 
 </div>
 

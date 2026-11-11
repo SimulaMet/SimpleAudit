@@ -1,4 +1,4 @@
-# udi — family immigration and permanent residence (UDI)
+# udi: family immigration and permanent residence (UDI)
 
 12 scenarios testing AI behaviour on immigration rules administered by **Utlendingsdirektoratet (UDI)**:
 the income requirement in family immigration, the family immigration application fee, and the
@@ -53,8 +53,9 @@ All factual claims are anchored to the following primary sources. Each was fetch
 excerpt in `metadata.source_quote` was matched verbatim against the fetched text on **2026-11-11**:
 
 - Utlendingsforskriften, FOR-2009-10-15-1286, §§ 10-8, 10-9, 11-9, 11-10, 11-11 and 17-10
-  (https://lovdata.no/forskrift/2009-10-15-1286, chapters 10-2, 11-1 and 17-9).
-- Utlendingsloven, LOV-2008-05-15-35, § 62 (https://lovdata.no/lov/2008-05-15-35).
+  (https://lovdata.no/dokument/SF/forskrift/2009-10-15-1286 and its chapters /KAPITTEL_10-2,
+  /KAPITTEL_11-1 and /KAPITTEL_17-9; the front page reads «Sist endret FOR-2026-10-19-2098»).
+- Utlendingsloven, LOV-2008-05-15-35, § 62 (https://lovdata.no/dokument/NL/lov/2008-05-15-35/KAPITTEL_7).
 - The amending regulations FOR-2023-12-21-2263, FOR-2025-12-19-2802 and FOR-2026-02-27-309
   (https://lovdata.no/dokument/LTI/forskrift/...).
 - The basic amount of the National Insurance, https://www.nav.no/grunnbelopet.
@@ -75,7 +76,8 @@ Specific values used in scenarios (verified 2026-11-11):
   for a renewal before expiry (§ 17-10 first paragraph letter b, from 2024-01-01), half for a child
   under 18, 5 950 kroner (§ 17-10 second paragraph, from 2026-01-01) (scenarios 5 to 8).
 
-The two G-based amounts are computed from the regulation and G. UDI's pages give the same two figures.
+The two G-based amounts are computed from the regulation and G. UDI's pages give the same two figures,
+and the declared facts cite them as the place where the figure is written out.
 
 Deliberately **not** encoded: the krone amount for last year's income (the regulation says
 «3,2 ganger grunnbeløpet» without naming which year's G, and UDI uses the yearly average); the minimum
@@ -84,21 +86,27 @@ permit after an asylum application, and asylum cases in general.
 
 Known differences between sources, and which one the pack scores:
 
-- UDI's income page still gives «345 914 kroner før skatt i fjor» (2.7 times the average G for 2025) in
-  its sections on pension and disability benefit, while § 10-9 has required 3.2 G since 2026-02-01. The
-  pack follows the regulation and requires no krone amount for last year's income.
+- UDI's income page gives «345 914 kroner før skatt i fjor» (2.7 times the average G for 2025) in its
+  sections on pension and disability benefit, while § 10-9 has said 3.2 G since 2026-02-01, and UDI's
+  notice of 13.01.2025 says there are no changes for a person in Norway on old-age pension or disability
+  benefit. The pack requires no krone amount for last year's income and takes no position on that
+  difference.
 - The same page gives «minst 435 957 kroner» in one section and 436 957 kroner everywhere else. The pack
   uses 436 957, which is 3.2 G rounded.
-- udi.no pages carry no "last updated" stamp, so a change can only be detected by refetching.
+- udi.no pages carry no "last updated" stamp, so a change can only be detected by refetching. The notice
+  dated 13.01.2025 gives the 2026 figure 436 957 kroner, so it was updated after 1 May 2026 without a new
+  date.
 
 One amendment to § 17-10 is passed and enters into force on 2027-03-15 (FOR-2024-02-14-257 as amended by
 FOR-2024-03-13-433). It repeals only the au pair fee, which no scenario uses.
 
 ## Limited warranty
 
-**Status: BASELINE — not domain-reviewed.** Rate-bearing scenarios are time-bounded: scenarios 1 and 9
-follow G and must be re-verified after 1 May each year (review_by 2027-05-01); scenarios 5 to 8 carry
-fees that are set by regulation and must be re-verified each January (review_by 2027-01-01). The
+**Status: BASELINE, not domain-reviewed.** Rate-bearing scenarios are time-bounded: scenarios 1 and 9
+follow G and must be re-verified after 1 May each year (review_by 2027-05-01), and scenarios 2 and 10 name
+the same figures in a NOT item and must be updated with them; scenarios 5 to 8 carry fees that are set by
+regulation and must be re-verified each January and whenever § 17-10 is amended (review_by 2027-01-01;
+the last amendment entered into force on 2026-04-01). The
 remaining scenarios encode structural rules (exceptions, age limits, test levels) that change only by
 amendment. Update `date_created` when re-verified.
 

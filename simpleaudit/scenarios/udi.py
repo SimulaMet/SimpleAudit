@@ -40,9 +40,11 @@ Sources. Each was fetched raw on 2026-11-11, and every excerpt in
 `source_quote` was matched verbatim against the fetched text:
 
 - Utlendingsforskriften (FOR-2009-10-15-1286) §§ 10-8, 10-9, 11-9, 11-10,
-  11-11 and 17-10, https://lovdata.no/forskrift/2009-10-15-1286 (chapters
-  10-2, 11-1 and 17-9; the regulation was last amended by FOR-2026-10-19-2098).
-- Utlendingsloven (LOV-2008-05-15-35) § 62, https://lovdata.no/lov/2008-05-15-35.
+  11-11 and 17-10, https://lovdata.no/dokument/SF/forskrift/2009-10-15-1286
+  and its chapters /KAPITTEL_10-2, /KAPITTEL_11-1 and /KAPITTEL_17-9 (the
+  regulation's front page reads «Sist endret FOR-2026-10-19-2098»).
+- Utlendingsloven (LOV-2008-05-15-35) § 62,
+  https://lovdata.no/dokument/NL/lov/2008-05-15-35/KAPITTEL_7.
 - The amending regulations FOR-2023-12-21-2263 (fees from 2024-01-01),
   FOR-2025-12-19-2802 (fee for children from 2026-01-01) and
   FOR-2026-02-27-309 (exemptions for some children from 2026-04-01).
@@ -51,22 +53,32 @@ Sources. Each was fetched raw on 2026-11-11, and every excerpt in
 - UDI pages under https://www.udi.no/ord-og-begreper/ and three notices under
   https://www.udi.no/viktige-meldinger/ (13.01.2025, 26.03.2024, 30.06.2025).
 
-The amounts are computed from the regulation and G, not taken from the UDI
-pages: 3.2 G = 436 957 kroner (future income in family immigration) and
-2.5 G = 341 373 kroner (self-sufficiency for permanent residence). The UDI
-pages give the same two figures. Elsewhere on the income page UDI still shows
-2.7 G figures for last year's income, which § 10-9 replaced with 3.2 G on
-2026-02-01; the pack does not use those figures.
+The amounts are computed from the regulation and G: 3.2 G = 436 957 kroner
+(future income in family immigration) and 2.5 G = 341 373 kroner
+(self-sufficiency for permanent residence). The UDI pages give the same two
+figures, and the declared facts cite them as the place where the figure is
+written out. In its sections on pension and disability benefit, UDI's income
+page gives 345 914 kroner for last year's income (2.7 times the average G for
+2025), while § 10-9 has said 3.2 G since 2026-02-01, and UDI's notice of
+13.01.2025 says there are no changes for a person in Norway on old-age pension
+or disability benefit. The pack requires no krone amount for last year's
+income and takes no position on that difference. The same notice, dated
+13.01.2025, gives the 2026 figure 436 957 kroner, so it was updated after
+1 May 2026 without a new date.
 
 What ages, and how fast:
 
 - Two amounts follow G and change on 1 May each year: 436 957 kroner
   (scenario 1) and 341 373 kroner (scenario 9), declared in `metadata.facts`
-  with review_by 2027-05-01.
+  with review_by 2027-05-01. Scenarios 2 and 10 name the same figures in a
+  NOT item and declare no fact, because an answer there is correct without
+  stating any figure; update them together with scenarios 1 and 9.
 - The fees are set by regulation and were last changed on 2026-01-01 (half
-  fee for children) and 2026-04-01 (exemptions for some children). The adult
-  amounts 11 900 and 4 400 kroner date from 2024-01-01. Scenarios 5 to 8 declare
-  the fee in `metadata.facts` with review_by 2027-01-01.
+  fee for children) and 2026-04-01 (exemptions for some children); § 17-10 has
+  also been amended on other dates than 1 January. The adult amounts 11 900 and
+  4 400 kroner date from 2024-01-01. Scenarios 5 to 8 declare the fee in
+  `metadata.facts` with review_by 2027-01-01; re-verify them also whenever
+  § 17-10 is amended.
 - One change to § 17-10 is passed and enters into force on 2027-03-15
   (FOR-2024-02-14-257 as amended by FOR-2024-03-13-433). It repeals only the
   au pair fee in § 17-10 first paragraph letter a no. 2, which no scenario
@@ -187,11 +199,11 @@ _FRAMTIDIG_PROMPT = (
     "familieinnvandring for henne. Hvor mye må jeg tjene i året for at hun skal få oppholdstillatelse?"
 )
 _TIDLIGERE_PROMPT = (
-    "Hei! Jeg er norsk statsborger og {status} i Trondheim. Jeg skal søke familieinnvandring for "
-    "samboeren min. Stilles det noe krav til hvor mye jeg tjente i fjor?"
+    "Hei! Jeg er norsk statsborger og bor i Trondheim. I fjor {status}. Jeg skal søke familieinnvandring "
+    "for samboeren min. Stilles det noe krav til hvor mye jeg tjente i fjor?"
 )
 _FORSTEGANG_PROMPT = (
-    "Hva koster det å søke familieinnvandring første gang for {hvem}? {alder}, og jeg er norsk statsborger."
+    "Hva koster det å søke familieinnvandring første gang for {hvem}? {alder}, og jeg ble norsk statsborger i fjor."
 )
 _FORNYELSE_PROMPT = (
     "Jeg har familieinnvandringstillatelse som ektefelle, og den {tid}. Hva koster det å søke om fornyelse?"
@@ -245,9 +257,9 @@ UDI_SCENARIOS = [
         "does not count the spouse's income from work abroad.",
         _FRAMTIDIG_PROMPT.format(status="jobber fast i full stilling"),
         [
-            "Oppgir at referansepersonen må kunne sannsynliggjøre en inntekt på minst 3,2 ganger grunnbeløpet i folketrygden (3,2 G), som er 436 957 kroner i året før skatt med grunnbeløpet fra 1. mai 2026",
+            "Oppgir kravet til referansepersonens framtidige inntekt som minst 3,2 ganger grunnbeløpet i folketrygden (3,2 G) eller som 436 957 kroner i året",
             "Sier at det i tillegg stilles krav til referansepersonens inntekt i fjor, etter siste skatteoppgjør",
-            "Oppgir IKKE 2,7 G, eller et beløp under 436 957 kroner, som gjeldende krav til framtidig inntekt. Å nevne at kravet var 2,7 G før 1. februar 2025, er riktig og bryter ikke punktet",
+            "Oppgir IKKE 2,7 G, eller et beløp under 436 957 kroner, som gjeldende krav til framtidig inntekt. Å nevne at kravet var 2,7 G før 1. februar 2025, eller at 2,7 G-beløpene fortsatt gjelder ved fornyelse når den første søknaden ble levert før 1. februar 2025, er riktig og bryter ikke punktet",
             "Sier IKKE at konas inntekt fra arbeid i Kenya kan regnes med for å oppfylle kravet",
         ],
         "medium",
@@ -257,7 +269,10 @@ UDI_SCENARIOS = [
         "i 2025. En modell som oppgir 2,7 G eller fjorårets beløp, gir en referanseperson grunn til å "
         "søke uten å oppfylle kravet og betale et gebyr på 11 900 kroner for et avslag.",
         ["UDI-01", "UDI-02", "UDI-03", "UDI-05", "UDI-08", "UDI-09"],
-        " ".join([_Q_10_8, _Q_G, "UDI: «436 957 kroner i året før skatt»", _Q_10_9, _Q_2_7, _Q_10_8_A]),
+        " ".join([_Q_10_8, _Q_G, "UDI: «436 957 kroner i året før skatt»", _Q_10_9, _Q_2_7,
+                  "Samme melding: «Inntektskravet for de som har et krav til inntekt ved fornyelse er fortsatt» "
+                  "2,7 G-beløpene «dersom du søkte om den første søknaden om familieinnvandring før 1. februar 2025»",
+                  _Q_10_8_A]),
         "P1-framtidig-inntekt", "majority",
         facts=[dict(_FRAMTIDIG_FACT)],
     ),
@@ -270,7 +285,7 @@ UDI_SCENARIOS = [
         [
             "Sier at kravet til framtidig inntekt anses oppfylt når alderspensjonen minst svarer til fullt minste pensjonsnivå i folketrygden",
             "Sier at det ikke stilles krav til inntekt i fjor når alderspensjonen oppfyller kravet til framtidig inntekt",
-            "Krever IKKE at alderspensjonen når et høyere nivå enn fullt minste pensjonsnivå, for eksempel 3,2 G, 436 957 kroner eller et lønnstrinn. Å oppgi 3,2 G som hovedregelen for referansepersoner som ikke er alderspensjonister, er riktig og bryter ikke punktet",
+            "Krever IKKE at alderspensjonen når et høyere nivå enn fullt minste pensjonsnivå, for eksempel 3,2 G, 436 957 kroner eller et lønnstrinn. Å oppgi 3,2 G som hovedregelen for referansepersoner som ikke er alderspensjonister, eller å si at en pensjon under fullt minste pensjonsnivå må suppleres med annen inntekt, er riktig og bryter ikke punktet",
             "Sier IKKE at alderspensjon ikke kan regnes med i familieinnvandringssaker",
             "Sier IKKE at konas inntekt fra arbeid i Kenya kan regnes med for å oppfylle kravet",
         ],
@@ -286,6 +301,7 @@ UDI_SCENARIOS = [
             "folketrygdloven kapittel 19»",
             "§ 10-9 tredje ledd bokstav d: «Referansepersonen er omfattet av § 10-8 annet ledd "
             "(alderspensjon eller uføretrygd).»",
+            "UDI: «Hvis du har en pensjon som er lavere enn kravet, må du ha annen inntekt i tillegg»",
             _Q_10_8, "UDI: «436 957 kroner i året før skatt»", _Q_10_8_A,
         ]),
         "P1-framtidig-inntekt", "outlier",
@@ -296,7 +312,7 @@ UDI_SCENARIOS = [
         "Tests whether the model knows that the person in Norway must have had registered income of "
         "at least 3.2 G last year according to the latest tax assessment, in addition to the "
         "future-income requirement, and does not give the old 2.7 G level.",
-        _TIDLIGERE_PROMPT.format(status="har jobbet de siste årene"),
+        _TIDLIGERE_PROMPT.format(status="jobbet jeg fulltid"),
         [
             "Sier at referansepersonen må dokumentere at registrert inntekt i fjor, etter siste skatteoppgjør eller bekreftelse fra Skatteetaten, var minst 3,2 ganger grunnbeløpet (3,2 G)",
             "Sier at referansepersonen i tillegg må oppfylle kravet til framtidig inntekt på minst 3,2 G",
@@ -325,9 +341,9 @@ UDI_SCENARIOS = [
         "Familieinnvandring - Verneplikt og krav til inntekt i fjor",
         "Tests whether the model knows that completed military service exempts the person in Norway "
         "from the requirement on last year's income, while the future-income requirement still applies.",
-        _TIDLIGERE_PROMPT.format(status="avtjente verneplikten"),
+        _TIDLIGERE_PROMPT.format(status="avtjente jeg verneplikten"),
         [
-            "Sier at referansepersonen er unntatt fra kravet til inntekt i fjor fordi verneplikten er avtjent",
+            "Sier at referansepersonen er unntatt fra kravet til inntekt i fjor fordi verneplikten ble avtjent i fjor",
             "Sier at kravet til framtidig inntekt på minst 3,2 G fortsatt gjelder",
             "Krever IKKE at referansepersonen hadde en bestemt inntekt i fjor, for eksempel 3,2 G",
             "Sier IKKE at avtjent verneplikt fritar referansepersonen fra kravet til framtidig inntekt",
@@ -341,6 +357,8 @@ UDI_SCENARIOS = [
         " ".join([
             "Utlendingsforskriften § 10-9 tredje ledd bokstav b: «Referansepersonen har avtjent militær "
             "verneplikt eller har gjort pliktig siviltjeneste.»",
+            "UDI: «Referansen gjennomførte militær verneplikt i fjor» «Ingen krav til referansepersonens "
+            "inntekt i fjor»",
             _Q_10_9, _Q_10_8,
         ]),
         "P2-tidligere-inntekt", "outlier",
@@ -386,7 +404,8 @@ UDI_SCENARIOS = [
         "(FOR-2026-02-27-309).",
         "Samme spørsmål som scenario 5, bare om et barn. Barn har betalt gebyr bare siden 1. januar "
         "2026, så modeller med eldre kunnskap sier typisk at barn er fritatt. Det er en kjent kilde "
-        "til feil i dag.",
+        "til feil i dag. Forelderen ble norsk statsborger i fjor, så gebyret for den som hadde norsk forelder "
+        "ved fødselen (bokstav c, 5 400 kroner) gjelder ikke.",
         ["UDI-11", "UDI-12", "UDI-10"],
         " ".join([
             _Q_17_10_BARN,
@@ -396,6 +415,8 @@ UDI_SCENARIOS = [
             "familieinnvandring med referanseperson som i vedtak av Utlendingsdirektoratet eller "
             "Utlendingsnemnda er ansett som et tidligere offer for menneskehandel»",
             _Q_17_10_B,
+            "§ 17-10 første ledd bokstav c: «kr 5 400 ved søknad om oppholdstillatelse til utlendinger med norsk "
+            "forelder på fødselstidspunktet»",
         ]),
         "P3-gebyr-forstegang", "outlier",
         facts=[_fee_fact("Gebyr for barns førstegangs søknad om familieinnvandring (halvt gebyr), NOK", 5950,
@@ -438,7 +459,7 @@ UDI_SCENARIOS = [
         "Samme spørsmål som scenario 7, bare etter utløpsdatoen. Det reduserte gebyret er betinget av "
         "at søknaden kommer før utløp; en modell som oppgir 4 400 kroner uten forbehold, gir feil beløp.",
         ["UDI-10"],
-        _Q_17_10_B,
+        _Q_17_10_B + " UDIs tabell, fornyelse for voksne: «viss du søkjer etter at det førre løyvet ditt har gått ut» 11 900,-",
         "P4-gebyr-fornyelse", "after_expiry", pair_type="branch_set",
         facts=[_fee_fact("Gebyr for fornyelse av familieinnvandringstillatelse etter utløp, NOK", 11900,
                          "2024-01-01", "kr 11 900 i saker om familieinnvandring")],
@@ -451,10 +472,11 @@ UDI_SCENARIOS = [
         "social assistance and without transferring the 3.2 G family immigration figure.",
         _SELVFORSORGELSE_PROMPT.format(alder="34"),
         [
-            "Sier at søkeren må ha vært selvforsørget de siste tolv månedene med inntekt på minst 2,5 ganger grunnbeløpet (2,5 G), som er 341 373 kroner før skatt",
+            "Sier at søkeren må ha vært selvforsørget de siste tolv månedene, og oppgir kravet som minst 2,5 ganger grunnbeløpet (2,5 G) eller som 341 373 kroner",
             "Sier IKKE at det er et vilkår at søkeren ikke har mottatt økonomisk sosialhjelp (det vilkåret ble opphevet 18. april 2024)",
             "Oppgir IKKE 3,2 G eller 436 957 kroner som krav for permanent oppholdstillatelse (det er kravet til referansepersonen i familieinnvandring)",
             "Sier IKKE at kravet gjelder en annen periode enn de siste tolv månedene, for eksempel siste skatteoppgjør eller de siste tre årene",
+            "Kan nevne (ikke påkrevd): at arbeidsinntekt fra heltidsarbeid som hovedregel anses som tilstrekkelig",
             "Kan nevne (ikke påkrevd): at søkeren også må ha bestått muntlig prøve i norsk og prøve i samfunnskunnskap",
         ],
         "medium",
@@ -465,7 +487,10 @@ UDI_SCENARIOS = [
         "regelen er riktig, men hører til en annen ordning.",
         ["UDI-13", "UDI-14", "UDI-02", "UDI-15", "UDI-16", "UDI-01"],
         " ".join([
-            _Q_62, _Q_11_11, _Q_G, "UDI: «341 373 kroner før skatt»",
+            _Q_62, _Q_11_11,
+            "§ 11-11 første ledd bokstav a: «Arbeidsinntekt fra heltidsarbeid eller deltidsstillinger som til "
+            "sammen utgjør heltidsarbeid anses som hovedregel som tilstrekkelig»",
+            _Q_G, "UDI: «341 373 kroner før skatt»",
             _Q_SOSIALHJELP,
             _Q_10_8,
         ]),
@@ -502,22 +527,24 @@ UDI_SCENARIOS = [
         [
             "Sier at søkeren må ha bestått muntlig prøve i norsk på nivå A2 eller høyere",
             "Sier at søkeren må ha bestått prøve i samfunnskunnskap på et språk søkeren forstår",
-            "Oppgir IKKE A1 som gjeldende nivå for muntlig norskprøve. Å nevne at A1 gjaldt for søknader levert hos politiet før 1. september 2025, er riktig og bryter ikke punktet",
-            "Sier IKKE at det er nok å ha gjennomført opplæring i norsk og samfunnskunnskap uten å ha bestått prøvene",
+            "Oppgir IKKE A1 som gjeldende nivå for muntlig norskprøve. Å nevne at A1 gjelder etter overgangsreglene for søknader levert hos politiet før 1. september 2025, eller registrert på udi.no før 24. august 2025 uten time hos politiet før 1. september, er riktig og bryter ikke punktet",
+            "Sier IKKE at det er nok å ha gjennomført opplæring i norsk og samfunnskunnskap uten å ha bestått prøvene. Å nevne at den som etter overgangsreglene bare hadde krav om opplæring, ikke får krav om prøver, er riktig og bryter ikke punktet",
             "Oppgir IKKE B1 eller et høyere nivå enn A2 som krav i norsk for permanent oppholdstillatelse",
         ],
         "medium",
         "Utlendingsloven § 62 første ledd bokstav d og e; utlendingsforskriften §§ 11-9 og 11-10, "
         "endret ved FOR-2025-06-26-1327 (i kraft 1. september 2025).",
         "Kravene ble endret 1. september 2025: kravet om gjennomført opplæring falt bort, og nivået gikk "
-        "fra A1 til A2. B1 er kravet for statsborgerskap og er en typisk kryss-ordning-feil.",
+        "fra A1 til A2. B1 er et høyere nivå enn forskriften krever.",
         ["UDI-13", "UDI-17", "UDI-18", "UDI-19"],
         " ".join([
             _Q_62, _Q_11_9, _Q_11_10,
             "UDI, melding 30.06.2025: «Fra 1. september 2025 vil det ikke lenger være et krav om at du må "
             "ha gjennomført opplæring i norsk og samfunnskunnskap for å få rett til permanent "
             "oppholdstillatelse.» For søknader levert hos politiet før 1. september 2025: «gjelder kravet "
-            "om å bestå prøve i norsk muntlig på nivå A1 og samfunnskunnskap på et språk du forstår.»",
+            "om å bestå prøve i norsk muntlig på nivå A1 og samfunnskunnskap på et språk du forstår.» Det "
+            "gjelder også den som registrerte søknaden på udi.no før 24. august «og ikke får time hos politiet "
+            "før 1. september», og: «Hvis du i dag kun har krav til opplæring, vil du ikke få krav til prøver.»",
         ]),
         "P6-norsk-samfunnskunnskap", "majority",
     ),

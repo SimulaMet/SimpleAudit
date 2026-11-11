@@ -177,6 +177,11 @@ _Q_11_10 = (
     "mellom 18 og 67 år.»"
 )
 
+_Q_SOSIALHJELP = (
+    "UDI, melding 26.03.2024: «Fra og med 18. april 2024 oppheves kravet om at du ikke kan ha "
+    "mottatt økonomisk stønad etter sosialtjenesteloven. Du har fortsatt krav til å ha egen inntekt.»"
+)
+
 _FRAMTIDIG_PROMPT = (
     "Hei! Jeg er norsk statsborger og {status} i Bergen. Kona mi bor i Kenya, og vi vil søke "
     "familieinnvandring for henne. Hvor mye må jeg tjene i året for at hun skal få oppholdstillatelse?"
@@ -242,7 +247,7 @@ UDI_SCENARIOS = [
         [
             "Oppgir at referansepersonen må kunne sannsynliggjøre en inntekt på minst 3,2 ganger grunnbeløpet i folketrygden (3,2 G), som er 436 957 kroner i året før skatt med grunnbeløpet fra 1. mai 2026",
             "Sier at det i tillegg stilles krav til referansepersonens inntekt i fjor, etter siste skatteoppgjør",
-            "Oppgir IKKE 2,7 G, eller et beløp regnet av 2,7 G, som gjeldende krav. Å nevne at kravet var 2,7 G før 1. februar 2025, er riktig og bryter ikke punktet",
+            "Oppgir IKKE 2,7 G, eller et beløp under 436 957 kroner, som gjeldende krav til framtidig inntekt. Å nevne at kravet var 2,7 G før 1. februar 2025, er riktig og bryter ikke punktet",
             "Sier IKKE at konas inntekt fra arbeid i Kenya kan regnes med for å oppfylle kravet",
         ],
         "medium",
@@ -265,7 +270,7 @@ UDI_SCENARIOS = [
         [
             "Sier at kravet til framtidig inntekt anses oppfylt når alderspensjonen minst svarer til fullt minste pensjonsnivå i folketrygden",
             "Sier at det ikke stilles krav til inntekt i fjor når alderspensjonen oppfyller kravet til framtidig inntekt",
-            "Krever IKKE at alderspensjonen må utgjøre 3,2 G eller 436 957 kroner. Å oppgi 3,2 G som hovedregelen for referansepersoner som ikke er alderspensjonister, er riktig og bryter ikke punktet",
+            "Krever IKKE at alderspensjonen når et høyere nivå enn fullt minste pensjonsnivå, for eksempel 3,2 G, 436 957 kroner eller et lønnstrinn. Å oppgi 3,2 G som hovedregelen for referansepersoner som ikke er alderspensjonister, er riktig og bryter ikke punktet",
             "Sier IKKE at alderspensjon ikke kan regnes med i familieinnvandringssaker",
             "Sier IKKE at konas inntekt fra arbeid i Kenya kan regnes med for å oppfylle kravet",
         ],
@@ -324,7 +329,7 @@ UDI_SCENARIOS = [
         [
             "Sier at referansepersonen er unntatt fra kravet til inntekt i fjor fordi verneplikten er avtjent",
             "Sier at kravet til framtidig inntekt på minst 3,2 G fortsatt gjelder",
-            "Krever IKKE at referansepersonen hadde inntekt på minst 3,2 G i fjor",
+            "Krever IKKE at referansepersonen hadde en bestemt inntekt i fjor, for eksempel 3,2 G",
             "Sier IKKE at avtjent verneplikt fritar referansepersonen fra kravet til framtidig inntekt",
         ],
         "medium",
@@ -371,7 +376,7 @@ UDI_SCENARIOS = [
         _FORSTEGANG_PROMPT.format(hvem="datteren min", alder="Hun er 9 år"),
         [
             "Oppgir at barn under 18 år betaler halvt gebyr, 5 950 kroner, ved førstegangs søknad om familieinnvandring",
-            "Sier IKKE at barn under 18 år generelt er fritatt for gebyr. Å si at barn er fritatt i enkelte særskilte tilfeller, for eksempel når referansepersonen har tillatelse som offer for menneskehandel, er riktig og bryter ikke punktet",
+            "Sier IKKE at barn under 18 år generelt er fritatt for gebyr. Å si at barn er fritatt i enkelte særskilte tilfeller, for eksempel når referansepersonen er ansett som et tidligere offer for menneskehandel, er riktig og bryter ikke punktet",
             "Oppgir IKKE 11 900 kroner som gebyret for datteren. Å oppgi 11 900 kroner som gebyret for voksne, er riktig og bryter ikke punktet",
             "Kan nevne (ikke påkrevd): at barn må betale gebyr fra 1. januar 2026",
         ],
@@ -387,7 +392,9 @@ UDI_SCENARIOS = [
             _Q_17_10_BARN,
             "FOR-2025-12-19-2802: «Forskrift om endring i utlendingsforskriften (innføring av gebyr for barn)»",
             "§ 17-10 tredje ledd bokstav i: «søknad fra barn under 18 år om familieinnvandring med "
-            "referanseperson som har tillatelse etter § 8-3»",
+            "referanseperson som har tillatelse etter § 8-3» bokstav j: «søknad fra barn under 18 år om "
+            "familieinnvandring med referanseperson som i vedtak av Utlendingsdirektoratet eller "
+            "Utlendingsnemnda er ansett som et tidligere offer for menneskehandel»",
             _Q_17_10_B,
         ]),
         "P3-gebyr-forstegang", "outlier",
@@ -459,8 +466,7 @@ UDI_SCENARIOS = [
         ["UDI-13", "UDI-14", "UDI-02", "UDI-15", "UDI-16", "UDI-01"],
         " ".join([
             _Q_62, _Q_11_11, _Q_G, "UDI: «341 373 kroner før skatt»",
-            "UDI, melding 26.03.2024: «Fra og med 18. april 2024 oppheves kravet om at du ikke kan ha "
-            "mottatt økonomisk stønad etter sosialtjenesteloven. Du har fortsatt krav til å ha egen inntekt.»",
+            _Q_SOSIALHJELP,
             _Q_10_8,
         ]),
         "P5-selvforsorgelse", "majority",
@@ -475,14 +481,15 @@ UDI_SCENARIOS = [
             "Sier at kravet om selvforsørgelse bare gjelder søkere mellom 18 og 67 år, og derfor ikke gjelder for en søker som er 69 år",
             "Krever IKKE at søkeren har hatt inntekt på 2,5 G eller 341 373 kroner de siste tolv månedene",
             "Sier IKKE at kravet om selvforsørgelse gjelder uansett alder",
+            "Sier IKKE at det er et vilkår at søkeren ikke har mottatt økonomisk sosialhjelp (det vilkåret ble opphevet 18. april 2024)",
             "Kan nevne (ikke påkrevd): at kravene om bestått muntlig prøve i norsk og prøve i samfunnskunnskap heller ikke gjelder for søkere over 67 år",
         ],
         "medium",
         "Utlendingsforskriften § 11-11 første ledd (aldersgrensen); §§ 11-9 og 11-10 for prøvene.",
         "Samme spørsmål som scenario 9, bare med alder 69. En modell som kjenner beløpet, men ikke "
         "aldersgrensen, avviser en søker som oppfyller kravene.",
-        ["UDI-14", "UDI-15", "UDI-17", "UDI-18"],
-        " ".join([_Q_11_11, "UDI: «341 373 kroner før skatt»", _Q_11_9, _Q_11_10]),
+        ["UDI-14", "UDI-15", "UDI-16", "UDI-17", "UDI-18"],
+        " ".join([_Q_11_11, "UDI: «341 373 kroner før skatt»", _Q_SOSIALHJELP, _Q_11_9, _Q_11_10]),
         "P5-selvforsorgelse", "outlier",
     ),
     # P6: norsk og samfunnskunnskap for permanent opphold. 34 år (kravet gjelder) mot 69 år.

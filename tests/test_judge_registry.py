@@ -30,6 +30,11 @@ EXPECTED_JUDGES = {
     "choice_match",
     "groundedness",
     "fact_check",
+    "decision_safety",
+    "decision_harm",
+    "decision_expectations",
+    "decision_abstention",
+    "decision_helpfulness",
 }
 REQUIRED_CONFIG_KEYS = {"probe_prompt", "judge_prompt", "description"}
 

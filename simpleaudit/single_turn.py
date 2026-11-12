@@ -244,7 +244,7 @@ class SingleTurnAuditor(ModelAuditor):
             # code-graded judge (choice_match) would send its placeholder
             # prompt to the model, and a grounding judge needs marks it is
             # never given here.
-            if config.get("grade") is not None or config.get("output") == "grounding":
+            if config.get("grade") is not None or config.get("output") in ("grounding", "decision"):
                 raise ValueError(
                     f"correctness_judge={correctness_judge!r} cannot grade correctness: "
                     "use a model judge such as 'checklist'"

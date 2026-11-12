@@ -50,6 +50,50 @@ OLLAMA_MAX_BODY_BYTES = 64 * 1024
 OPENROUTER_SYSTEMONE_URL = "https://openrouter.ai/api/v1/systemone"
 
 
+async def post_systemone(
+    url: str,
+    body: Mapping[str, Any],
+    *,
+    headers: Mapping[str, str] | None = None,
+    client: Any | None = None,
+    timeout: float = 300.0,
+    max_body_bytes: int | None = None,
+    too_large_hint: str = "the request is not shortened",
+) -> Any:
+    """POST one System One request and return the decoded JSON body.
+
+    Shared by :class:`DecisionTarget` and
+    :class:`simpleaudit.decision_judge.DecisionJudgeClient`. A body over
+    ``max_body_bytes`` raises ``ValueError`` before anything is sent; an HTTP
+    error status raises ``RuntimeError`` with the start of the response text.
+    ``client`` is an ``httpx.AsyncClient`` to reuse; without one, a client is
+    created and closed for this request.
+    """
+    payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if max_body_bytes is not None and len(payload) > max_body_bytes:
+        raise ValueError(
+            f"request is {len(payload)} bytes, over this endpoint's {max_body_bytes}-byte "
+            f"limit; {too_large_hint}"
+        )
+    send_headers = {**(headers or {}), "Content-Type": "application/json"}
+
+    owns_client = client is None
+    if owns_client:
+        import httpx
+
+        client = httpx.AsyncClient(timeout=timeout)
+    try:
+        resp = await client.post(url, content=payload, headers=send_headers)
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"decision endpoint returned HTTP {resp.status_code}: {resp.text[:300]}"
+            )
+        return resp.json()
+    finally:
+        if owns_client:
+            await client.aclose()
+
+
 class DecisionTarget:
     """Send a scenario's decision question to a System One endpoint."""
 
@@ -175,34 +219,15 @@ class DecisionTarget:
         if documents is None:
             documents = history_documents(history)
         body = self.build_request(decision, user, documents)
-        payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        if self.max_body_bytes is not None and len(payload) > self.max_body_bytes:
-            raise ValueError(
-                f"request is {len(payload)} bytes, over this endpoint's {self.max_body_bytes}-byte "
-                "limit; the documents are not shortened"
-            )
-
-        headers = {**self.headers, "Content-Type": "application/json"}
-        if context is not None:
-            headers.update(context.trace_headers)
-
-        owns_client = self._client is None
-        if client := self._client:
-            pass
-        else:
-            import httpx
-
-            client = httpx.AsyncClient(timeout=self.timeout)
-        try:
-            resp = await client.post(self.url, content=payload, headers=headers)
-            if resp.status_code >= 400:
-                raise RuntimeError(
-                    f"decision endpoint returned HTTP {resp.status_code}: {resp.text[:300]}"
-                )
-            data = resp.json()
-        finally:
-            if owns_client:
-                await client.aclose()
+        data = await post_systemone(
+            self.url,
+            body,
+            headers={**self.headers, **(context.trace_headers if context is not None else {})},
+            client=self._client,
+            timeout=self.timeout,
+            max_body_bytes=self.max_body_bytes,
+            too_large_hint="the documents are not shortened",
+        )
 
         answer = (data.get("answers") or {}).get(decision["id"]) if isinstance(data, dict) else None
         if not isinstance(answer, dict):

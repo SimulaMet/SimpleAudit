@@ -87,6 +87,14 @@ from simpleaudit.repeated_results import (
     _normalised_entropy,
     _ordinal_spread,
 )
+from simpleaudit.expectations import (
+    expectation_texts,
+    merge_shared,
+    normalize_expectations,
+    objects_worth_storing,
+    stored_expectations,
+    upgrade_expectations,
+)
 from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.utils import SEVERITY_ORDER, as_str_list, describe_exception, severity_direction, ungradable_issues
 
@@ -190,11 +198,14 @@ class StoredRecord:
     scenario_severity: Optional[str] = None
     scenario_severity_source: Optional[str] = None
     scenario_metadata: Dict[str, Any] = field(default_factory=dict)
+    expectations: Optional[List[Dict[str, Any]]] = None
 
     def scenario_meta(self) -> Dict[str, Any]:
         meta = {"severity": self.scenario_severity, "severity_source": self.scenario_severity_source}
         if self.scenario_metadata:
             meta["metadata"] = self.scenario_metadata
+        if self.expectations:
+            meta["expectations"] = self.expectations
         return meta
 
 
@@ -279,6 +290,7 @@ def load_stored_records(
         if not conversation or _truncated_by_error(entry.get("judgment"), conversation):
             continue
         name = entry.get("scenario_name", "")
+        expectations = stored_expectations(entry.get("expectations"), entry.get("expected_behavior"))
         severity = _stored_designed_severity(entry)
         source_label: Optional[str] = "stored" if severity else None
         if severity is None and name in lookup:
@@ -288,10 +300,11 @@ def load_stored_records(
                 scenario_name=name,
                 scenario_description=entry.get("scenario_description", ""),
                 conversation=conversation,
-                expected_behavior=as_str_list(entry.get("expected_behavior")),
+                expected_behavior=expectation_texts(expectations) if expectations else as_str_list(entry.get("expected_behavior")),
                 scenario_severity=severity,
                 scenario_severity_source=source_label,
                 scenario_metadata=_stored_asr_metadata(entry.get("judgment") or {}),
+                expectations=expectations or None,
             )
         )
     return records
@@ -1158,6 +1171,8 @@ async def rejudge_async(
     judge: Optional[Union[str, Dict[str, Any]]] = None,
     postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
     scenario_severities: Optional[Mapping[str, str]] = None,
+    shared_expectations: Optional[Sequence[Any]] = None,
+    legacy_optional_markers: bool = True,
 ) -> AuditResults:
     """
     Grade a saved run again under another judge, keeping every transcript.
@@ -1183,6 +1198,15 @@ async def rejudge_async(
 
     Entries with an empty conversation are kept as ``ERROR`` results (with one
     warning) rather than dropped, so scenario sets stay aligned.
+
+    ``shared_expectations`` (strings or ``{id, text, required}`` objects) are
+    merged into every result's expectations with ``source="shared"``, so a
+    saved run can be graded against a set's shared rules. Results carry their
+    expectation objects when they were written with them; older results have
+    only strings, and with ``legacy_optional_markers`` (the default) those are
+    read as before: a string starting with an old optional marker such as
+    ``Kan nevne (ikke påkrevd)`` is not required. See
+    :func:`simpleaudit.expectations.upgrade_expectations`.
     """
     if max_concurrency < 1:
         raise ValueError(f"max_concurrency must be >= 1, got {max_concurrency}.")
@@ -1216,9 +1240,21 @@ async def rejudge_async(
             return {"severity": lookup[result.scenario_name], "severity_source": "lookup", "metadata": metadata}
         return {"severity": None, "severity_source": None, "metadata": metadata}
 
+    def expectations_for(result: AuditResult) -> List[Dict[str, Any]]:
+        objects = (
+            normalize_expectations(result.expectations)
+            if result.expectations
+            else (upgrade_expectations if legacy_optional_markers else normalize_expectations)(
+                result.expected_behavior
+            )
+        )
+        return merge_shared(objects, shared_expectations) if shared_expectations else objects
+
+    graded_expectations = [expectations_for(result) for result in source.results]
+
     semaphore = asyncio.Semaphore(max_concurrency)
 
-    async def grade(result: AuditResult):
+    async def grade(result: AuditResult, expectations: List[Dict[str, Any]]):
         if not result.conversation:
             return _error_judgment("No transcript to re-grade"), 0, 0
         if _truncated_by_error(result.judgment, result.conversation):
@@ -1229,7 +1265,7 @@ async def rejudge_async(
             judge_model,
             result.scenario_description or result.scenario_name,
             result.conversation,
-            as_str_list(result.expected_behavior),
+            expectation_texts(expectations) if expectations else as_str_list(result.expected_behavior),
             judge_prompt,
             response_schema,
             json_format,
@@ -1237,11 +1273,13 @@ async def rejudge_async(
             retry_backoff,
             semaphore,
             postprocess=postprocess,
-            scenario_meta=meta_for(result),
+            scenario_meta={**meta_for(result), **({"expectations": expectations} if expectations else {})},
             requires_expected_behavior=requires_expected_behavior,
         )
 
-    outcomes = await asyncio.gather(*(grade(result) for result in source.results))
+    outcomes = await asyncio.gather(
+        *(grade(result, expectations) for result, expectations in zip(source.results, graded_expectations, strict=True))
+    )
 
     empty = [r.scenario_name for r in source.results if not r.conversation]
     if empty:
@@ -1263,7 +1301,9 @@ async def rejudge_async(
         )
 
     rejudged = []
-    for result, (judgment, tokens_in, tokens_out) in zip(source.results, outcomes, strict=True):
+    for result, expectations, (judgment, tokens_in, tokens_out) in zip(
+        source.results, graded_expectations, outcomes, strict=True
+    ):
         # Same field clean-up as a live audit: a string issues_found is one
         # issue (not one per character), a null summary is "".
         judgment = coerce_judgment_fields(judgment)
@@ -1278,8 +1318,9 @@ async def rejudge_async(
                 positive_behaviors=judgment.get("positive_behaviors", []),
                 summary=judgment.get("summary", ""),
                 recommendations=judgment.get("recommendations", []),
-                expected_behavior=result.expected_behavior,
+                expected_behavior=expectation_texts(expectations) if expectations else result.expected_behavior,
                 judgment=judgment,
+                expectations=objects_worth_storing(result.expectations or result.expected_behavior, expectations),
                 auditor_input_tokens=result.auditor_input_tokens,
                 auditor_output_tokens=result.auditor_output_tokens,
                 judge_input_tokens=tokens_in,
@@ -1321,6 +1362,8 @@ def rejudge(
     judge: Optional[Union[str, Dict[str, Any]]] = None,
     postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
     scenario_severities: Optional[Mapping[str, str]] = None,
+    shared_expectations: Optional[Sequence[Any]] = None,
+    legacy_optional_markers: bool = True,
 ) -> AuditResults:
     """Synchronous wrapper around :func:`rejudge_async`.
 
@@ -1340,6 +1383,8 @@ def rejudge(
             judge=judge,
             postprocess=postprocess,
             scenario_severities=scenario_severities,
+            shared_expectations=shared_expectations,
+            legacy_optional_markers=legacy_optional_markers,
         ),
         "rejudge",
     )

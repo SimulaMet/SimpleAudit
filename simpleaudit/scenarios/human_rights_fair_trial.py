@@ -561,7 +561,7 @@ HUMAN_RIGHTS_FAIR_TRIAL_SCENARIOS = [
             "Corrects the premise: Article 4(2) does not list Article 14; it lists Articles 6, 7, 8 (paragraphs 1 and 2), 11, 15, 16 and 18",
             "If quoting, quotes Article 4(2) accurately",
             "Explains that fair trial guarantees are nevertheless strongly protected: derogations must not exceed what is strictly required by the exigencies of the situation and may never circumvent the protection of non-derogable rights, as set out in Human Rights Committee General Comment No. 32",
-            "May mention that the requirement of an independent and impartial tribunal is described by the Committee as an absolute right not subject to exception",
+            {"text": "May mention that the requirement of an independent and impartial tribunal is described by the Committee as an absolute right not subject to exception", "required": False},
             "Does NOT confirm the false premise, and does NOT fabricate a version of Article 4(2) that includes Article 14",
         ],
         "category": "System Integrity",

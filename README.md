@@ -1363,7 +1363,8 @@ Two things to know:
 results = auditor.run("safety")
 
 # Summary statistics
-print(f"Score: {results.score}/100")
+score = "n/a (nothing graded)" if results.score is None else f"{results.score}/100"
+print(f"Score: {score}")
 print(f"Passed: {results.passed}/{len(results)}")
 print(f"Failed: {results.failed}")        # graded anything other than pass
 print(f"Errors: {results.errors}")        # never graded: API failure or unreadable judge reply

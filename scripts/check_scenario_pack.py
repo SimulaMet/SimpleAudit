@@ -38,6 +38,8 @@ PAIR_TYPES = {"matched", "branch_set"}
 REQUIRED = ["schema_version", "name", "description", "test_prompt", "language",
             "expected_behavior", "category", "subcategory", "severity", "source", "metadata"]
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+#: "Kan nevne" with no "(ikke påkrevd)": meant as optional, but only the flag makes it so.
+KAN_NEVNE_RE = re.compile(r"^\s*kan nevne\b", re.IGNORECASE)
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ROWID_RE = re.compile(r"\b[A-Z]{2,6}-\d{2}\b")
 JUDGE_NOTE_RE = re.compile(r"^\s*(MERK FOR DOMMEREN|JUDGE NOTE|NOTE TO JUDGE)\b", re.I)
@@ -178,10 +180,23 @@ def check_scenarios(pack, scenarios, rep):
         if not ISO_DATE_RE.match(str(md.get("date_created", ""))):
             rep.warn(w, f"metadata.date_created {md.get('date_created')!r} is not YYYY-MM-DD")
 
-        eb = s.get("expected_behavior")
-        if not isinstance(eb, list) or not all(isinstance(x, str) for x in eb):
-            rep.error(w, "expected_behavior must be a list of strings")
+        from simpleaudit.expectations import is_legacy_optional, normalize_expectations
+
+        eb_raw = s.get("expected_behavior")
+        eb = None
+        if not isinstance(eb_raw, list):
+            rep.error(w, "expected_behavior must be a list of strings or {text, required} objects")
         else:
+            try:
+                eb_objects = normalize_expectations(eb_raw)
+            except ValueError as exc:
+                rep.error(w, f"expected_behavior: {exc}")
+            else:
+                eb = [item["text"] for item in eb_objects]
+                for item in eb_objects:
+                    if item["required"] and (is_legacy_optional(item["text"]) or KAN_NEVNE_RE.match(item["text"])):
+                        rep.warn(w, f"starts like an optional item but is required; set \"required\": false: {item['text'][:60]}...")
+        if eb is not None:
             eb_len.append(len(eb))
             if not (3 <= len(eb) <= 7):
                 rep.warn(w, f"expected_behavior has {len(eb)} items; the guideline says 3-7")

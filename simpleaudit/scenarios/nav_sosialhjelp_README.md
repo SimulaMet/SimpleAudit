@@ -37,11 +37,13 @@ contain; the absence was checked by search in the whole fetched text:
 - Scenarios 1 and 7: no source names any body other than the ministry as the one that sets the
   state guideline rate.
 
-Items that begin «Kan nevne (ikke påkrevd):» are optional. They stand in the same numbered list
-as the required items, and that list is what the judge sees; the prefix is the only thing that
-tells the judge an item is optional. `helfo` (7 items) and `lanekassen` (4) use the same prefix
-in the same way. `arbeidstilsynet_arbeidstid` (3) and `skatteetaten_legitimasjon` (1) write
-«KAN NEVNE:», and `nb_kryss_ordning` (3) writes «Kan nevne» without a marker.
+Items that begin «Kan nevne (ikke påkrevd):» are optional: each is written as
+`{"text": ..., "required": False}`, so it is graded and reported but never counts. They stand in
+the same numbered list as the required items, and the judge sees the text with its prefix.
+`helfo` (7 items) and `lanekassen` (4) use the same form. `arbeidstilsynet_arbeidstid` (3) and
+`skatteetaten_legitimasjon` (1) write «KAN NEVNE:», and `nb_kryss_ordning` (3) writes «Kan nevne»
+without a marker; before expectation objects these were graded as required, because only the
+exact prefix was recognised. They are now `required: False` too.
 
 Themes:
 

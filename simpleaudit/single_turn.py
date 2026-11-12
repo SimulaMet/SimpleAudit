@@ -39,7 +39,7 @@ Usage::
 import asyncio
 import inspect
 from datetime import date
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from tqdm.auto import tqdm
 
@@ -58,11 +58,18 @@ from .model_auditor import (
     _json_safe,
     _keep_grading_metadata,
     _link_scenario,
+    _safe_texts,
     _stored_file_uri,
     _stored_tool_events,
 )
 from .failures import build_failure
 from .provider_errors import EmptyResponseError, _content_to_text, coerce_judgment_fields
+from .expectations import (
+    apply_shared_expectations,
+    expectation_texts,
+    normalize_expectations,
+    objects_worth_storing,
+)
 from .results import AuditResult, AuditResults
 from .targets.base import TargetContext, token_count
 from .tracing.context import make_traceparent, new_trace_id
@@ -385,7 +392,12 @@ class SingleTurnAuditor(ModelAuditor):
             # As ModelAuditor: a target that needs no question (ASRTarget's
             # "Transcribe the recording.") supplies its own.
             test_prompt = getattr(self.target, "default_prompt", None)
-        expected_behavior = as_str_list(scenario.get("expected_behavior"))
+        # As ModelAuditor.run_scenario: judges see the texts, the checklist
+        # post-processor gets the flags through scenario_meta.
+        expectations = normalize_expectations(scenario.get("expected_behavior"))
+        expected_behavior = (
+            expectation_texts(expectations) if scenario.get("expected_behavior") is not None else None
+        )
         file_uri = scenario.get("file_uri")
         documents = scenario.get("documents")
 
@@ -461,6 +473,8 @@ class SingleTurnAuditor(ModelAuditor):
         }
         if decision is not None:
             scenario_meta["decision"] = decision
+        if expectations:
+            scenario_meta["expectations"] = expectations
         try:
             # Same order as ModelAuditor.run_scenario: a scenario the judge
             # cannot grade fails before any target tokens are spent.
@@ -747,6 +761,7 @@ class SingleTurnAuditor(ModelAuditor):
             recommendations=judgment.get("recommendations", []),
             expected_behavior=expected_behavior,
             judgment=judgment,
+            expectations=objects_worth_storing(scenario.get("expected_behavior"), expectations),
             # auditor_* keep their zero defaults — no probe was generated, so
             # attributing tokens to an auditor here would invent spend.
             judge_input_tokens=judge_input_tokens,
@@ -770,6 +785,7 @@ class SingleTurnAuditor(ModelAuditor):
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
         evidence_resolver: Optional[Callable[[ScenarioExecution], Union[List[Dict[str, Any]], None]]] = None,
+        shared_expectations: Optional[Sequence[Any]] = None,
     ) -> AuditResults:
         """Run every scenario single-turn and collect the results.
 
@@ -786,7 +802,8 @@ class SingleTurnAuditor(ModelAuditor):
             language: Likewise ignored; there is no probe to write.
             max_workers: Scenarios run concurrently up to this many at a time.
             params, target_params, judge_params, on_turn, evidence_spans,
-            audit_run_id, trace_correlation: As for ``ModelAuditor.run_async``.
+            audit_run_id, trace_correlation, shared_expectations: As for
+                ``ModelAuditor.run_async``.
             auditor_params: Accepted for the same drop-in reason and ignored —
                 there is no auditor call.
 
@@ -805,6 +822,13 @@ class SingleTurnAuditor(ModelAuditor):
         scenario_list = (
             self.get_scenarios(scenarios) if isinstance(scenarios, str) else scenarios
         )
+        if shared_expectations:
+            scenario_list = apply_shared_expectations(scenario_list, shared_expectations)
+        for scenario in scenario_list:
+            try:
+                normalize_expectations(scenario.get("expected_behavior"))
+            except ValueError as exc:
+                raise ValueError(f"Scenario {scenario.get('name')!r}: {exc}") from None
 
         target_info = f"{self._target_client_config['provider']} ({self.target_model})"
         judge_info = f"{self._judge_client_config['provider']} ({self.judge_model})"
@@ -853,7 +877,7 @@ class SingleTurnAuditor(ModelAuditor):
                         positive_behaviors=[],
                         summary=f"Scenario did not complete due to an error: {describe_exception(exc)}"[:500],
                         recommendations=["Re-run this scenario; check API credentials, rate limits, and connectivity."],
-                        expected_behavior=scenario.get("expected_behavior"),
+                        expected_behavior=_safe_texts(scenario.get("expected_behavior")),
                         judgment={
                             "severity": "ERROR",
                             "error": describe_exception(exc),

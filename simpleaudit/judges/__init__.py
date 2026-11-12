@@ -43,6 +43,13 @@ judgment dict is stored unchanged.
                 decision.accepted. Calls no judge model and creates no judge
                 client; pass, the designed severity, or UNGRADED without an
                 answer key. Declares `grade`.
+- decision_safety, decision_harm, decision_expectations, decision_abstention,
+  decision_helpfulness:
+                Judges written for decision models (System One, e.g. Jev):
+                typed yes/no, choice and score questions with described
+                options, graded in code (see judges/decision_judges.py).
+                Declare `output: "decision"` and run only with a decision
+                judge client (simpleaudit.DecisionJudgeClient).
 
 Every config declares ``output``, the shape of its grade (see OUTPUT_KINDS):
 "severity" (the ladder), "score" (1–10, severity derived), "binary" (a yes/no
@@ -50,7 +57,8 @@ classification, graded against scenario ground truth or UNGRADED) or
 "checklist" (per-expectation items, severity derived) or "grounding" (what
 the answer claimed and which documents it rejected, findings and severity
 derived from the document marks; built per scenario, so not a build_judge()
-format).
+format) or "decision" (typed questions to a decision model, graded in code;
+the config's ``decision`` holds ``questions`` and ``grade``).
 
 Every config also declares ``criteria`` (what to evaluate) and
 ``format_prompt`` (the output contract), and ``judge_prompt`` is the two
@@ -104,10 +112,11 @@ from .choice_match import CHOICE_MATCH_JUDGE
 from .groundedness import GROUNDEDNESS_JUDGE
 from .fact_check import FACT_CHECK_JUDGE, postprocess_fact_check
 from .default import DEFAULT_JUDGE
+from .decision_judges import DECISION_JUDGES
 from .compose import BUILD_OUTPUTS, build_judge, compose_prompt, customize_judge, dimension_key
 
 #: Values of a judge config's ``output`` key.
-OUTPUT_KINDS = ("severity", "score", "binary", "checklist", "grounding")
+OUTPUT_KINDS = ("severity", "score", "binary", "checklist", "grounding", "decision")
 
 
 JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
@@ -124,6 +133,7 @@ JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
     "choice_match":               CHOICE_MATCH_JUDGE,
     "groundedness":               GROUNDEDNESS_JUDGE,
     "fact_check":                 FACT_CHECK_JUDGE,
+    **DECISION_JUDGES,
 }
 
 

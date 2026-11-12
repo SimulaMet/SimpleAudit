@@ -311,6 +311,11 @@ def customize_judge(
             f"Judge {config.get('name') or base!r} has no format_prompt, so its criteria "
             "cannot be replaced; pass judge_prompt instead."
         )
+    if criteria is not None and config.get("output") == "decision":
+        raise ValueError(
+            f"Judge {config.get('name') or base!r} is a decision judge: its questions and "
+            "grading rules are code (judges/decision_judges.py), so it has no criteria to replace."
+        )
     if criteria is not None and config.get("grade") is not None:
         raise ValueError(
             f"Judge {config.get('name') or base!r} grades in code, so it has no criteria to "

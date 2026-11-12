@@ -97,8 +97,13 @@ def _refuse_code_graded(config: Dict[str, Any], name: Any) -> None:
     A config with ``grade`` (judges/choice_match.py) grades against the scenario's
     decision block, which stored results do not carry.
     """
+    label = config.get("name") if isinstance(name, dict) else name
+    if config.get("output") == "decision":
+        raise ValueError(
+            f"Judge {label!r} is a decision judge; re-grading stored transcripts with one is "
+            "not supported yet. Run the scenarios again with it."
+        )
     if config.get("grade") is not None:
-        label = config.get("name") if isinstance(name, dict) else name
         raise ValueError(
             f"Judge {label!r} grades in code against the scenario's decision block, which "
             "stored transcripts do not carry; run the scenarios again to grade them with it."

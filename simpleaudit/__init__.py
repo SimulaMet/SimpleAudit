@@ -38,6 +38,7 @@ from .auditor import Auditor
 from .calibration import calibrate, label, load_labels
 from .checklist import postprocess_checklist, severity_by_name
 from .cross_judge import CrossJudgeExperiment, CrossJudgeResults, compare_judges
+from .decision_judge import DecisionJudgeClient
 from .experiment import AuditExperiment, ExperimentEvent
 from .judges import build_judge, customize_judge, get_judge, list_judge_configs
 from .model_auditor import ModelAuditor, ScenarioExecution
@@ -102,6 +103,7 @@ __all__ = [
     "HTTPAppTarget",
     "CallableTarget",
     "DecisionTarget",
+    "DecisionJudgeClient",
     "ASRTarget",
     "OpenEnvTarget",
     "AuditResults",

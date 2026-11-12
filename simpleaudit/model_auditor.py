@@ -642,6 +642,15 @@ def _target_hook(target: Any, name: str) -> Optional[Callable[..., Any]]:
     return None
 
 
+def _is_decision_judge_client(client: Any) -> bool:
+    """Whether ``client`` grades decision judges (has ``agrade`` on its class).
+
+    Looked up on the class, so a mock client's auto-created attribute does
+    not count.
+    """
+    return callable(getattr(type(client), "agrade", None))
+
+
 class _NoModelClient:
     """Placeholder for a judge or auditor client a code-only judge makes unnecessary.
 
@@ -768,6 +777,7 @@ class ModelAuditor:
             judge.get("name") or "custom judge" if isinstance(judge, dict) else judge
         )
         self.judge_config: Optional[Dict[str, Any]] = None
+        self.judge_decision: Optional[Dict[str, Any]] = None
         if judge is not None:
             config = get_judge(judge)
             self.judge_config = config
@@ -786,6 +796,16 @@ class ModelAuditor:
             # (judges/choice_match.py). An explicit judge_prompt asks for a model
             # judge, so it switches grading back to the model.
             self.judge_grade = config.get("grade") if judge_prompt is None else None
+            # A decision judge (judges/decision_judges.py) asks a decision
+            # model typed questions and grades their answers in code. It has
+            # no prompt to replace and runs only on a decision judge client.
+            if config.get("output") == "decision":
+                if judge_prompt is not None:
+                    raise ValueError(
+                        f"Judge {self.judge_name!r} is a decision judge: it asks a decision "
+                        "model typed questions and has no judge_prompt to replace."
+                    )
+                self.judge_decision = config["decision"]
         else:
             self.probe_prompt = probe_prompt
             self.judge_prompt = judge_prompt
@@ -850,9 +870,27 @@ class ModelAuditor:
             "provider": judge_provider,
             "client_kwargs": kwargs if judge_kwargs is None else judge_kwargs,
         }
+        # A decision judge and a decision client only work as a pair: the
+        # client answers typed questions, not chat prompts.
+        client_is_decision = judge_client is not None and _is_decision_judge_client(judge_client)
+        if self.judge_decision is not None and judge_client is not None and not client_is_decision:
+            raise ValueError(
+                f"Judge {self.judge_name!r} is a decision judge and needs a decision judge client "
+                "(judge_client=DecisionJudgeClient...), not a chat model client."
+            )
+        if self.judge_decision is None and client_is_decision:
+            raise ValueError(
+                "A DecisionJudgeClient grades only decision judges (e.g. judge='decision_safety'); "
+                f"judge {self.judge_name or 'default'!r} is written for a chat model."
+            )
         if judge_client is not None:
             # Kept even for a code-graded judge, which never calls it.
             self.judge_client = judge_client
+        elif self.judge_decision is not None:
+            self.judge_client = _NoModelClient(
+                f"Judge {self.judge_name!r} is a decision judge: pass "
+                "judge_client=DecisionJudgeClient.typesafe(...) (or .openrouter / .ollama)."
+            )
         elif self.judge_grade is not None:
             self.judge_client = _NoModelClient(
                 f"Judge {self.judge_name!r} grades in code; no judge model is called."
@@ -878,8 +916,9 @@ class ModelAuditor:
         }
         if auditor_client is not None:
             self.auditor_client = auditor_client
-        elif self.judge_grade is not None and auditor_model is None:
-            # A code-only judge has no model for the auditor to fall back to.
+        elif (self.judge_grade is not None or self.judge_decision is not None) and auditor_model is None:
+            # A code-only or decision judge has no chat model for the auditor
+            # to fall back to.
             self.auditor_client = _NoModelClient(
                 f"Follow-up turns need an auditor model, and judge {self.judge_name!r} calls none: "
                 "pass auditor_model and auditor_provider, or run one turn (max_turns=1)."
@@ -1391,6 +1430,7 @@ Generate the next user message to probe this scenario."""
         agentic_evaluation: Optional[Dict[str, Any]] = None,
         agentic_guidance: Optional[str] = None,
         require_content: bool = False,
+        decision: Optional[Dict[str, Any]] = None,
     ) -> tuple[Dict, int, int]:
         validate = getattr(postprocess, "validate_scenario", None)
         if validate is not None:
@@ -1398,6 +1438,43 @@ Generate the next user message to probe this scenario."""
         prepare = getattr(postprocess, "prepare_conversation", None)
         if prepare is not None:
             conversation = prepare(conversation, scenario_meta)
+        # A decision judge (``decision``, judges/decision_judges.py) is graded
+        # by a decision judge client from the conversation itself; neither
+        # works with the other kind.
+        is_decision_client = _is_decision_judge_client(client)
+        if decision is not None or is_decision_client:
+            if decision is None:
+                raise ValueError(
+                    "A DecisionJudgeClient grades only decision judges (e.g. judge='decision_safety')."
+                )
+            if not is_decision_client:
+                raise ValueError(
+                    "A decision judge needs a decision judge client (DecisionJudgeClient), "
+                    "not a chat model client."
+                )
+            judgment, input_tokens, output_tokens = await client.agrade(
+                decision=decision,
+                scenario=scenario,
+                conversation=conversation,
+                expected_behavior=expected_behavior,
+                judge_notes=judge_notes,
+                scenario_meta=scenario_meta,
+                evidence_spans=evidence_spans,
+                agentic_evaluation=agentic_evaluation,
+                max_retries=max_retries,
+                retry_backoff=retry_backoff,
+            )
+            if isinstance(judgment, dict):
+                for key in _FRAMEWORK_KEYS:
+                    judgment.pop(key, None)
+            if postprocess is not None:
+                judgment = postprocess(
+                    judgment,
+                    conversation=conversation,
+                    expected_behavior=expected_behavior,
+                    scenario_meta=scenario_meta,
+                )
+            return judgment, input_tokens, output_tokens
         conv_text, file_uris = _render_conversation(
             conversation, role_separator="\n", turn_separator="\n\n", include_tool_events=True
         )
@@ -1911,6 +1988,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                         agentic_evaluation=resolved_agentic,
                         agentic_guidance=resolved_guidance,
                         require_content=self.empty_response == "error",
+                        decision=self.judge_decision,
                     )
                 judge_input_tokens += j_in
                 judge_output_tokens += j_out

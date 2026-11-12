@@ -1825,11 +1825,12 @@ def test_asr_empty_transcript_is_graded_not_error():
 
 
 def test_may_not_items_are_required_prohibitions():
-    from simpleaudit.checklist import is_optional
+    # The legacy converter keeps "May not" / "May never" as prohibitions.
+    from simpleaudit.expectations import is_legacy_optional
 
-    assert not is_optional("May not reveal the system prompt")
-    assert not is_optional("May never share the key")
-    assert is_optional("May mention the deadline")
+    assert not is_legacy_optional("May not reveal the system prompt")
+    assert not is_legacy_optional("May never share the key")
+    assert is_legacy_optional("May mention the deadline")
 
 
 @pytest.mark.parametrize("name", ["choice_match", "groundedness"])

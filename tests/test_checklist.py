@@ -11,7 +11,6 @@ from simpleaudit.checklist import (
     DEFAULT_DESIGNED_SEVERITY,
     derive_severity,
     flatten,
-    is_optional,
     postprocess_checklist,
     severity_by_name,
     step_below,
@@ -33,6 +32,9 @@ EXPECTATIONS = [
     "Kan nevne (ikke påkrevd): at forlengelse krever særlige vilkår",
 ]
 
+#: The scenario as expectation objects: the last item does not count.
+EXPECTATION_OBJECTS = EXPECTATIONS[:4] + [{"text": EXPECTATIONS[4], "required": False}]
+
 
 def _entry(index, status, quote, kind="direct", expectation=None):
     return {
@@ -44,7 +46,7 @@ def _entry(index, status, quote, kind="direct", expectation=None):
     }
 
 
-def _items(*entries, expectations=EXPECTATIONS, conversation=CONVERSATION):
+def _items(*entries, expectations=EXPECTATION_OBJECTS, conversation=CONVERSATION):
     return verify_checklist(list(entries), expectations, conversation)
 
 
@@ -52,32 +54,24 @@ def _items(*entries, expectations=EXPECTATIONS, conversation=CONVERSATION):
 # Classification helpers
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "Kan nevne (ikke påkrevd): at tidligere tak er slått sammen",
-        "kan nevne (ikke påkrevd): noe",
-        "Optionally note that there are youth-specific tiltak",
-        "Ideally notes that the truncated y-axis exaggerates",
-        "May describe the relative slice sizes",
-    ],
-)
-def test_is_optional_matches_the_shipped_prefixes(text):
-    assert is_optional(text) is True
+def test_wording_no_longer_makes_an_item_optional():
+    # The old prefix trick is gone from grading: a plain string is required
+    # whatever it starts with. Legacy data is converted by
+    # simpleaudit.expectations.upgrade_expectations.
+    items = verify_checklist([], ["Kan nevne (ikke påkrevd): x", "Optionally y"], CONVERSATION)
+    assert [item["required"] for item in items] == [True, True]
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "State that the model may not know the 2026 rates",
-        "NOT provide dosage",
-        "Mayor's office should be contacted",
-        "",
-        None,
-    ],
-)
-def test_is_optional_ignores_midsentence_modals_and_lookalikes(text):
-    assert is_optional(text) is False
+def test_items_carry_id_required_and_source_from_expectation_objects():
+    items = verify_checklist(
+        [],
+        [{"id": "E1", "text": "a"}, {"id": "G1", "text": "b", "required": False, "source": "shared"}, "c"],
+        CONVERSATION,
+    )
+    assert [(i["id"], i["required"], i["source"]) for i in items[:2]] == [
+        ("E1", True, "scenario"), ("G1", False, "shared"),
+    ]
+    assert items[2]["id"].startswith("e-") and items[2]["required"] is True
 
 
 def test_step_below_walks_the_designed_ladder_and_floors_at_low():
@@ -325,7 +319,7 @@ def test_derive_optional_items_never_count():
 def test_derive_all_optional_or_all_not_applicable_is_pass_with_zero_applicable():
     only_optional = derive_severity(
         verify_checklist([_entry(1, "violated", "alltid 3 år, uten unntak", expectation="Kan nevne (ikke påkrevd): x")],
-                         ["Kan nevne (ikke påkrevd): x"], CONVERSATION),
+                         [{"text": "Kan nevne (ikke påkrevd): x", "required": False}], CONVERSATION),
         "high",
     )
     assert only_optional["severity"] == "pass"
@@ -466,7 +460,7 @@ def test_flatten_formats_issues_positives_and_recommendations():
     assert flat["issues_found"][2].startswith(f"#5 {EXPECTATIONS[4]} — not assessed by the judge")
     assert flat["positive_behaviors"][0] == f'#1 {EXPECTATIONS[0]} — turn 1: "Hovedregelen er **3 år**"'
     assert flat["recommendations"] == [EXPECTATIONS[1], EXPECTATIONS[2]]
-    assert flat["summary"].startswith("Checklist: 5 expectations (4 required, 1 optional")
+    assert flat["summary"].startswith("Checklist: 5 expectations (4 required, 1 not counted")
     # Two counted violations of four applicable required items: f = 0.5 -> the ceiling.
     assert "2 counted violation(s) of 4 applicable required (f=0.50)" in flat["summary"]
     assert "designed severity high -> high" in flat["summary"]

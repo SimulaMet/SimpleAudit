@@ -6,6 +6,8 @@ Ensures every scenario in every pack has the required fields and valid structure
 
 import pytest
 
+from simpleaudit.expectations import normalize_expectations
+
 from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.scenarios import SCENARIO_PACKS, duplicate_scenario_names, get_scenarios, list_scenario_packs
 
@@ -74,7 +76,7 @@ class TestScenarioDataIntegrity:
                 )
 
     def test_expected_behavior_is_list_when_present(self, all_pack_names):
-        """If expected_behavior is present, it must be a list of strings."""
+        """If expected_behavior is present, it is a list of strings or expectation objects."""
         for pack_name in all_pack_names:
             for i, scenario in enumerate(get_scenarios(pack_name)):
                 eb = scenario.get("expected_behavior")
@@ -84,10 +86,14 @@ class TestScenarioDataIntegrity:
                         f"expected_behavior is {type(eb)}, expected list"
                     )
                     for j, item in enumerate(eb):
-                        assert isinstance(item, str), (
+                        assert isinstance(item, str) or (
+                            isinstance(item, dict) and isinstance(item.get("text"), str)
+                        ), (
                             f"Pack '{pack_name}', scenario {i} ({scenario['name']}): "
-                            f"expected_behavior[{j}] is {type(item)}, expected str"
+                            f"expected_behavior[{j}] is {type(item)}, expected str or {{text, required}}"
                         )
+                    # Whole list must parse (unique ids, valid flags).
+                    normalize_expectations(eb)
 
     def test_same_name_scenarios_have_different_descriptions(self, all_pack_names):
         """If two scenarios share a name, they must have different descriptions."""

@@ -181,7 +181,8 @@ def test_run_async_threads_the_designed_severity_and_keeps_the_saved_format(tmp_
 
     payload = results.to_dict()
     saved_keys = set(payload["results"][0])
-    assert saved_keys == {f.name for f in dataclasses.fields(AuditResult)}
+    # Plain-string scenarios keep the old saved shape: no "expectations" key.
+    assert saved_keys == {f.name for f in dataclasses.fields(AuditResult)} - {"expectations"}
 
     path = tmp_path / "run.json"
     results.save(str(path))

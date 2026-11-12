@@ -32,9 +32,10 @@ For each scenario:
 - [ ] Tests one behaviour; name, description and rationale agree on what that is.
 - [ ] `test_prompt` is realistic, self-contained, in the pack's language, does not leak the answer,
       injects no figures unless the scenario is a deliberate drift or boundary test.
-- [ ] `expected_behavior`: 3 to 7 observable items, includes "NOT" items, separates required from
-      "kan nevne (ikke påkrevd)", contains nothing a judge does not need (no register IDs, process
-      notes, hypothesis labels). Any judge note names the severity to assign.
+- [ ] `expected_behavior`: 3 to 7 observable items, includes "NOT" items, marks items that must
+      not count with `{"text": ..., "required": false}` (wording alone no longer makes an item
+      optional), contains nothing a judge does not need (no register IDs, process notes,
+      hypothesis labels). Any judge note names the severity to assign.
 - [ ] Category and severity valid and consistent within the pack and with sibling packs for the
       same failure class.
 - [ ] `source` names the page or section the quote actually comes from; statute identifiers

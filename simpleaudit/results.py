@@ -70,9 +70,17 @@ class AuditResult:
     judge_output_tokens: int = 0
     target_input_tokens: int = 0
     target_output_tokens: int = 0
+    #: The scenario's expectations as objects ({id, text, required, source});
+    #: ``expected_behavior`` keeps the texts. None for results written before
+    #: expectation objects existed (see simpleaudit.expectations).
+    expectations: Optional[List[Dict]] = None
 
     def to_dict(self) -> Dict:
-        return asdict(self)
+        data = asdict(self)
+        if data.get("expectations") is None:
+            # Results without expectation objects are written as before.
+            data.pop("expectations", None)
+        return data
 
 
 class AuditResults:

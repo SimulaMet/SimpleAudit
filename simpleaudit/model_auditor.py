@@ -24,7 +24,7 @@ import warnings
 from datetime import date
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
-from typing import Any, Callable, Dict, List, Mapping, Optional, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Union
 from urllib.parse import urlsplit
 
 from any_llm import AnyLLM
@@ -61,6 +61,12 @@ from .utils import (
     ungradable_issues,
 )
 from .utils import parse_json_response as _parse_json_response
+from .expectations import (
+    apply_shared_expectations,
+    expectation_texts,
+    normalize_expectations,
+    objects_worth_storing,
+)
 
 #: Progress callback: ``on_turn(turn_index, max_turns, role)``.
 #:
@@ -134,6 +140,14 @@ _FRAMEWORK_KEYS = (
     "parse_error", "error", "error_phase", "failure", "scenario_metadata",
     "designed_severity", "designed_severity_source", "judge_fallback", "asr_reference",
 )
+
+
+def _safe_texts(entries: Any) -> Any:
+    """Expectation texts for an error result; the raw value if it does not parse."""
+    try:
+        return expectation_texts(normalize_expectations(entries)) if entries is not None else None
+    except ValueError:
+        return as_str_list(entries)
 
 
 def _keep_grading_metadata(judgment: Dict[str, Any], scenario_meta: Optional[Dict[str, Any]]) -> None:
@@ -1662,7 +1676,14 @@ Evaluate this conversation and respond with this exact JSON structure:
         turns = self._turns_for_target(self._requested_turns(max_turns))
         # A bare string is one expectation / one note; iterated, it would be
         # one per character.
-        expected_behavior = as_str_list(expected_behavior)
+        # Expectations may be strings or objects ({id, text, required,
+        # source}). Judges see the texts; the checklist post-processor gets
+        # the flags through scenario_meta (the judge model never sees them).
+        raw_expected_behavior = expected_behavior
+        expectations = normalize_expectations(expected_behavior)
+        expected_behavior = expectation_texts(expectations) if expected_behavior is not None else None
+        if expectations:
+            scenario_meta = {**(scenario_meta or {}), "expectations": expectations}
         judge_notes = as_str_list(judge_notes)
         # Per-scenario correlation ids. A fresh trace id per scenario keeps each
         # scenario's turns in one W3C trace while still allowing 0..N observed
@@ -2048,6 +2069,7 @@ Evaluate this conversation and respond with this exact JSON structure:
             recommendations=judgment.get("recommendations", []),
             expected_behavior=expected_behavior,
             judgment=judgment,
+            expectations=objects_worth_storing(raw_expected_behavior, expectations),
             auditor_input_tokens=auditor_input_tokens,
             auditor_output_tokens=auditor_output_tokens,
             judge_input_tokens=judge_input_tokens,
@@ -2081,7 +2103,14 @@ Evaluate this conversation and respond with this exact JSON structure:
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
         evidence_resolver: Optional[Callable[[ScenarioExecution], Union[List[Dict[str, Any]], None]]] = None,
+        shared_expectations: Optional[Sequence[Any]] = None,
     ) -> AuditResults:
+        """Run *scenarios* against the target and grade each one.
+
+        *shared_expectations* is a list of expectations (strings or
+        ``{id, text, required}`` objects) merged into every scenario after its
+        own, with ``source="shared"``; see :mod:`simpleaudit.expectations`.
+        """
         if max_workers < 1:
             raise ValueError(
                 f"max_workers must be >= 1, got {max_workers} "
@@ -2095,6 +2124,16 @@ Evaluate this conversation and respond with this exact JSON structure:
             scenario_list = self.get_scenarios(scenarios)
         else:
             scenario_list = scenarios
+        if shared_expectations:
+            scenario_list = apply_shared_expectations(scenario_list, shared_expectations)
+
+        # Expectations are checked before any request is made, like decision
+        # blocks below: a malformed one fails at once, not after tokens are spent.
+        for scenario in scenario_list:
+            try:
+                normalize_expectations(scenario.get("expected_behavior"))
+            except ValueError as exc:
+                raise ValueError(f"Scenario {scenario.get('name')!r}: {exc}") from None
 
         # Check every decision block before any request is made, so a malformed
         # pack fails at once instead of after tokens have been spent.
@@ -2189,7 +2228,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                         positive_behaviors=[],
                         summary=f"Scenario did not complete due to an error: {describe_exception(exc)}"[:500],
                         recommendations=["Re-run this scenario; check API credentials, rate limits, and connectivity."],
-                        expected_behavior=scenario.get("expected_behavior"),
+                        expected_behavior=_safe_texts(scenario.get("expected_behavior")),
                         judgment={
                             "severity": "ERROR",
                             "error": describe_exception(exc),
@@ -2284,6 +2323,7 @@ Evaluate this conversation and respond with this exact JSON structure:
         audit_run_id: Optional[str] = None,
         trace_correlation: Optional[Any] = None,
         evidence_resolver: Optional[Callable[[ScenarioExecution], Union[List[Dict[str, Any]], None]]] = None,
+        shared_expectations: Optional[Sequence[Any]] = None,
     ) -> AuditResults:
         try:
             asyncio.get_running_loop()
@@ -2308,6 +2348,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                     audit_run_id=audit_run_id,
                     trace_correlation=trace_correlation,
                     evidence_resolver=evidence_resolver,
+                    shared_expectations=shared_expectations,
                 ))
             )
         msg = "ModelAuditor.run() cannot be called from an active event loop. Use await <object>.run_async()."

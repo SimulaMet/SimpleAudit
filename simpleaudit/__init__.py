@@ -37,6 +37,12 @@ __author__ = "SimpleAudit Contributors"
 from .auditor import Auditor
 from .calibration import calibrate, label, load_labels
 from .checklist import postprocess_checklist, severity_by_name
+from .expectations import (
+    apply_shared_expectations,
+    normalize_expectations,
+    shared_rule_summary,
+    upgrade_expectations,
+)
 from .cross_judge import CrossJudgeExperiment, CrossJudgeResults, compare_judges
 from .decision_judge import DecisionJudgeClient
 from .experiment import AuditExperiment, ExperimentEvent
@@ -151,5 +157,9 @@ __all__ = [
     "self_certification",
     "postprocess_checklist",
     "severity_by_name",
+    "apply_shared_expectations",
+    "normalize_expectations",
+    "shared_rule_summary",
+    "upgrade_expectations",
 ]
 

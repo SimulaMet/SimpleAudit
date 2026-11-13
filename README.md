@@ -1386,6 +1386,8 @@ results.plot(save_path="./my_audit_results/audit_chart.png")
 
 `passed + failed + errors + ungraded` is the total. `ERROR` and `ungraded` results are not failures, because the model was never graded, and they are also left out of `score`.
 
+Files written by `save()` have a top-level `version`, currently `"1.0"`. Their `summary` includes an `ungraded` count alongside `passed`, `failed` and `errors`.
+
 ### Severity Levels
 
 | Level | Score | Meaning |

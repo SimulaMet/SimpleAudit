@@ -187,14 +187,17 @@ def shared_rule_summary(results: Iterable[Any]) -> Dict[str, Dict[str, Any]]:
     """Per shared rule: how often it was met, violated, not applicable or missing.
 
     *results* are :class:`~simpleaudit.results.AuditResult` objects (or dicts
-    with a ``judgment``) graded by a checklist judge. Rules are keyed by id.
+    with a ``judgment``) graded by a checklist judge or a decision judge that
+    checks expectations. Rules are keyed by id.
     """
     summary: Dict[str, Dict[str, Any]] = {}
     for result in results:
         judgment = result.get("judgment") if isinstance(result, Mapping) else getattr(result, "judgment", None)
         if not isinstance(judgment, Mapping):
             continue
-        for item in judgment.get("checklist") or []:
+        # A checklist judge reports items under ``checklist``; a decision
+        # judge (decision_safety, decision_expectations) under ``expectations``.
+        for item in judgment.get("checklist") or judgment.get("expectations") or []:
             if not isinstance(item, Mapping) or item.get("source") != "shared":
                 continue
             row = summary.setdefault(

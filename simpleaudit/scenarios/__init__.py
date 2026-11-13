@@ -18,6 +18,7 @@ Available packs:
 - nav_sosialhjelp: NAV økonomisk sosialhjelp under sosialtjenesteloven chapter 4 (7 scenarios)
 - digdir_digital_forvaltning: digital public administration and accessibility of public websites (7 scenarios)
 - brreg_registre: Brønnøysund registers (aksjeloven, regnskapsloven, enhetsregisterloven, foretaksregisterloven) (7 scenarios)
+- udi: UDI family immigration (income requirement, fees) and permanent residence (self-sufficiency, Norwegian and social studies tests) (12 scenarios)
 - skatteetaten: Norwegian Tax Administration scenarios (in development)
 - helfo: Helfo health-economics scenarios (8 scenarios)
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
@@ -64,6 +65,7 @@ from .nav_aap import NAV_AAP_SCENARIOS
 from .nav_sosialhjelp import NAV_SOSIALHJELP_SCENARIOS
 from .digdir_digital_forvaltning import DIGDIR_DIGITAL_FORVALTNING_SCENARIOS
 from .brreg_registre import BRREG_REGISTRE_SCENARIOS
+from .udi import UDI_SCENARIOS
 from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
 from .lanekassen import LANEKASSEN_SCENARIOS
@@ -97,6 +99,7 @@ SCENARIO_PACKS = {
     "nav_sosialhjelp":  NAV_SOSIALHJELP_SCENARIOS,
     "digdir_digital_forvaltning": DIGDIR_DIGITAL_FORVALTNING_SCENARIOS,
     "brreg_registre":   BRREG_REGISTRE_SCENARIOS,
+    "udi":              UDI_SCENARIOS,
     "skatteetaten":     SKATTEETATEN_SCENARIOS,
     "helfo":            HELFO_SCENARIOS,
     "lanekassen":       LANEKASSEN_SCENARIOS,
@@ -139,6 +142,7 @@ SCENARIO_PACKS = {
                         + NAV_SOSIALHJELP_SCENARIOS
                         + DIGDIR_DIGITAL_FORVALTNING_SCENARIOS
                         + BRREG_REGISTRE_SCENARIOS
+                        + UDI_SCENARIOS
 }
 
 

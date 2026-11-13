@@ -25,7 +25,8 @@ from simpleaudit import (
     rejudge,
     severity_by_name,
 )
-from simpleaudit.checklist import is_optional, step_below
+from simpleaudit.checklist import step_below
+from simpleaudit.expectations import is_legacy_optional
 from tests.fakes import FakeClient
 
 STORED = Path(__file__).resolve().parent.parent / "examples" / "nav_aap" / "nav_aap_sonnet_4_6.json"
@@ -67,7 +68,7 @@ def _fake_checklist_judge():
 
 
 def _expected_severity(expectations, designed):
-    required = [e for e in expectations if not is_optional(e)]
+    required = [e for e in expectations if not is_legacy_optional(e)]
     violated = [e for e in required if _NEGATIVE.match(e)]
     if not violated:
         return "pass"

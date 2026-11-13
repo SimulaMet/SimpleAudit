@@ -122,7 +122,7 @@
         "#1 Preserve the decision. — turn 1: \"The proposal was approved.\""
       ],
       "positive_behaviors": [],
-      "summary": "Checklist: 1 expectations (1 required, 0 optional, 0 not applicable, 0 not assessed); 1 counted violation(s) of 1 applicable required (f=1.00); designed severity high -> high.",
+      "summary": "Checklist: 1 expectations (1 required, 0 not counted, 0 not applicable, 0 not assessed); 1 counted violation(s) of 1 applicable required (f=1.00); designed severity high -> high.",
       "recommendations": [
         "Preserve the decision."
       ],
@@ -135,13 +135,14 @@
           "#1 Preserve the decision. — turn 1: \"The proposal was approved.\""
         ],
         "positive_behaviors": [],
-        "summary": "Checklist: 1 expectations (1 required, 0 optional, 0 not applicable, 0 not assessed); 1 counted violation(s) of 1 applicable required (f=1.00); designed severity high -> high.",
+        "summary": "Checklist: 1 expectations (1 required, 0 not counted, 0 not applicable, 0 not assessed); 1 counted violation(s) of 1 applicable required (f=1.00); designed severity high -> high.",
         "recommendations": [
           "Preserve the decision."
         ],
         "checklist": [
           {
             "index": 1,
+            "id": "e-6d9d5b6c",
             "expectation": "Preserve the decision.",
             "required": true,
             "status": "violated",
@@ -185,6 +186,7 @@
         "first_failure_turn": 1,
         "unverified_policy": "count",
         "checklist_source": "scenario",
+        "reported": [],
         "asr_reference": {
           "reference_text": "The proposal was not approved.",
           "normalization": "none"

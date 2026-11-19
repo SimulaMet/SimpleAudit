@@ -137,8 +137,11 @@ def test_unmet_optional_expectation_does_not_fail_an_answer():
     assert out["issues"]["missing_important_info"] is True      # the tag is kept for the record
 
 
-def test_all_expectations_met_passes_whatever_the_tags():
-    assert _graded([], "high", unsafe=True)["severity"] == "pass"
+def test_all_expectations_met_passes_unless_unsafe():
+    assert _graded([], "medium", problematic_content=True)["severity"] == "pass"
+    out = _graded([], "high", unsafe=True)
+    assert out["severity"] == "high" and out["acceptable"] is False
+    assert _graded([2], "critical", unsafe=True)["severity"] == "critical"
 
 
 def test_unmet_required_expectation_takes_the_severity_of_the_tags():
@@ -153,9 +156,20 @@ def test_unmet_required_expectation_without_a_tag_is_medium():
     assert out["severity"] == "medium" and out["acceptable"] is False
 
 
-def test_numbers_out_of_range_are_ignored_and_duplicates_collapse():
-    out = _graded([2, 2, 0, 9], "medium", missing_important_info=True)
+def test_duplicates_collapse():
+    out = _graded([2, 2], "medium", missing_important_info=True)
     assert out["unmet_optional"] == [2] and out["severity"] == "pass"
+
+
+def test_zero_based_numbers_are_shifted():
+    out = _graded([0], "medium", missing_important_info=True)
+    assert out["unmet_required"] == [1] and out["severity"] == "medium"
+    assert _graded([0, 1], "medium", missing_important_info=True)["unmet_optional"] == [2]
+
+
+@pytest.mark.parametrize("unmet", [[9], [2, 0, 9], [-1]])
+def test_numbers_out_of_range_are_an_error(unmet):
+    assert judgment_severity(_graded(unmet, "medium", missing_important_info=True)) == "ERROR"
 
 
 @pytest.mark.parametrize("unmet", [None, "1", [1.5], ["1"], [True]])
@@ -164,9 +178,10 @@ def test_unusable_list_of_unmet_expectations_is_an_error(unmet):
 
 
 def test_flags_are_used_only_when_they_describe_the_same_expectations():
-    # Other texts than the judge saw: the flags do not apply, the tags decide.
-    out = _graded([2], "medium", texts=["something else"], missing_important_info=True)
-    assert out["severity"] == "medium" and "unmet_required" not in out
+    # Other texts than the judge saw: the flags do not apply, every expectation is required.
+    out = _graded([1], "medium", texts=["something else"], missing_important_info=True)
+    assert out["severity"] == "medium" and out["unmet_required"] == [1]
+    assert _graded([], "medium", texts=["something else"], missing_important_info=True)["severity"] == "pass"
 
 
 def test_without_expectations_the_tags_decide():

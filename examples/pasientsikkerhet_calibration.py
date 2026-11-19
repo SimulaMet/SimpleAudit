@@ -214,9 +214,14 @@ def main() -> None:
     print(f"\npasientsikkerhet_no with {args.judge_model}, split={args.split}: "
           f"{len(kept)} graded, {len(rows) - len(kept)} without a usable reply")
     print(f"judge tokens: {tokens_in} in, {tokens_out} out")
+    labels = {"acceptable": False, "problematic": True}
+    unlabelled = [k for k in kept if k[0]["AcceptableVersusProblematic"].strip().lower() not in labels]
+    kept = [k for k in kept if k not in unlabelled]
+    if unlabelled:
+        print(f"{len(unlabelled)} answers without an acceptable/problematic label left out")
     if not kept:
         return
-    problematic = [r["AcceptableVersusProblematic"].strip().lower().startswith("prob") for r, _, _ in kept]
+    problematic = [labels[r["AcceptableVersusProblematic"].strip().lower()] for r, _, _ in kept]
     print(report_line("problematic (any tag)", problematic, [any(i.get(k) for k in TAGS) for _, i, _ in kept]))
     for tag, column in TAGS.items():
         print(report_line(tag, [bool(r[column].strip()) for r, _, _ in kept], [bool(i.get(tag)) for _, i, _ in kept]))

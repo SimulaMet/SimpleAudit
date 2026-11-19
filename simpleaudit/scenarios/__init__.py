@@ -36,6 +36,8 @@ Available packs:
 - context_grounding: Marked retrieval context — counterfactual, superseded and
   lower-authority chunks (3 scenarios, requires SingleTurnAuditor; not part of 'all')
 - healthbench_behaviours: One scenario per HealthBench consensus category (17 scenarios)
+- pasientsporsmal: Norwegian patient-posed health questions in five categories; failure
+  modes from Draelos et al. 2026, facts from helsenorge.no (579 scenarios)
 - all: All scenarios combined
 
 HealthBench is not a built-in pack: OpenAI asks that its examples are not reposted in
@@ -77,6 +79,7 @@ from .vision_integrity import VISION_INTEGRITY_SCENARIOS
 from .nb_kryss_ordning import NB_KRYSS_ORDNING_SCENARIOS
 from .context_grounding import CONTEXT_GROUNDING_SCENARIOS
 from .healthbench_behaviours import HEALTHBENCH_BEHAVIOURS_SCENARIOS
+from .pasientsporsmal import PASIENTSPORSMAL_SCENARIOS
 from .healthbench_loader import load_healthbench_scenarios
 
 
@@ -114,6 +117,7 @@ SCENARIO_PACKS = {
     "vision_integrity": VISION_INTEGRITY_SCENARIOS,
     "nb_kryss_ordning": NB_KRYSS_ORDNING_SCENARIOS,
     "healthbench_behaviours": HEALTHBENCH_BEHAVIOURS_SCENARIOS,
+    "pasientsporsmal": PASIENTSPORSMAL_SCENARIOS,
 
     # Scored under a fixed pack, and the scores only hold if the documents
     # reach the target in the ranking the author gave them. The multi-turn
@@ -139,6 +143,7 @@ SCENARIO_PACKS = {
                         + NAV_SOSIALHJELP_SCENARIOS
                         + DIGDIR_DIGITAL_FORVALTNING_SCENARIOS
                         + BRREG_REGISTRE_SCENARIOS
+                        + PASIENTSPORSMAL_SCENARIOS
 }
 
 

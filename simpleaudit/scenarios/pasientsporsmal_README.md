@@ -929,7 +929,7 @@ report a pass rate from this pack.
 ## Author and licence
 
 Authored by Michael A. Riegler (Simula Research Laboratory) under the project's MIT licence. Built
-with support from Claude Fable 5.2 in Claude Code, with Claude Opus 5.5 subagents drafting and
-reviewing scenarios. The failure modes come from Draelos et al. (2026); no text from the paper or
-its dataset is included. Quotes from helsenorge.no are short excerpts with their source named.
-Corrections are welcome, most of all from clinicians.
+with support from Claude Fable 5.2 in Claude Code, with Claude Opus 5.5 subagents. The failure
+modes come from Draelos et al. (2026); no text from the paper or its dataset is included. Quotes
+from helsenorge.no are short excerpts with their source named. Corrections are welcome, most of
+all from clinicians.

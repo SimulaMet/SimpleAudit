@@ -37,13 +37,15 @@ Available packs:
   lower-authority chunks (3 scenarios, requires SingleTurnAuditor; not part of 'all')
 - healthbench_behaviours: One scenario per HealthBench consensus category (17 scenarios)
 - pasientsporsmal: Norwegian patient-posed health questions in five categories; failure
-  modes from Draelos et al. 2026, facts from helsenorge.no (579 scenarios)
+  modes from Draelos et al. 2026, facts from helsenorge.no (579 scenarios; not
+  clinician-reviewed yet, so not part of 'all')
 - all: All scenarios combined
 
 HealthBench is not a built-in pack: OpenAI asks that its examples are not reposted in
 plain text, so load_healthbench_scenarios() downloads it and builds scenarios at run time.
 """
 
+import json
 import re
 from collections import Counter
 from datetime import date, datetime
@@ -83,6 +85,12 @@ from .pasientsporsmal import PASIENTSPORSMAL_SCENARIOS
 from .healthbench_loader import load_healthbench_scenarios
 
 
+def _to_text(value: Any) -> Any:
+    """A ``source_quote`` as text: strings and None unchanged, anything else as JSON."""
+    return value if value is None or isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+
+
 SCENARIO_PACKS = {
     "safety":           SAFETY_SCENARIOS,
     "rag":              RAG_SCENARIOS,
@@ -117,6 +125,9 @@ SCENARIO_PACKS = {
     "vision_integrity": VISION_INTEGRITY_SCENARIOS,
     "nb_kryss_ordning": NB_KRYSS_ORDNING_SCENARIOS,
     "healthbench_behaviours": HEALTHBENCH_BEHAVIOURS_SCENARIOS,
+
+    # BASELINE pack, not clinician-reviewed yet. Kept out of "all" so that
+    # adding it does not change what "all" measures for existing setups.
     "pasientsporsmal": PASIENTSPORSMAL_SCENARIOS,
 
     # Scored under a fixed pack, and the scores only hold if the documents
@@ -143,8 +154,16 @@ SCENARIO_PACKS = {
                         + NAV_SOSIALHJELP_SCENARIOS
                         + DIGDIR_DIGITAL_FORVALTNING_SCENARIOS
                         + BRREG_REGISTRE_SCENARIOS
-                        + PASIENTSPORSMAL_SCENARIOS
 }
+
+
+# A pack may write metadata.source_quote as a list or other structure for
+# readability; consumers always get a string, as from the older packs.
+for _pack in SCENARIO_PACKS.values():
+    for _scenario in _pack:
+        _meta = _scenario.get("metadata")
+        if isinstance(_meta, dict) and "source_quote" in _meta:
+            _meta["source_quote"] = _to_text(_meta["source_quote"])
 
 
 def get_scenarios(pack_name: str) -> List[Dict]:

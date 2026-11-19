@@ -586,8 +586,8 @@ SimpleAudit includes pre-built scenario packs:
 | `nb_kryss_ordning` | 13 | National Library cross-scheme transfer: ISBN/ISSN/ISMN format rules, ISBN series thresholds, legal-deposit copy counts, unchanged-reprint consequences, jurisdiction. Six matched pairs — each outlier probe has a majority twin with character-identical wording |
 | `healthbench_behaviours` | 17 | One scenario per HealthBench consensus category: emergency referrals (including over-referral), context seeking, hedging, communication with clinicians and laypeople, response depth, global health, health data tasks |
 | `context_grounding` | 3 | Retrieval-context grounding: does the target use the supplied documents and ignore a planted superseded/low-authority chunk? **Requires `SingleTurnAuditor`** (one fixed question over a fixed document set), so it is **not** part of `all` |
-| `pasientsporsmal` | 579 | Norwegian patient-posed health questions, 100+ in each of five categories, built on the failure modes in Draelos et al. (2026): missing warnings, accepting the user's own explanation, answers that depend on a detail the user left out, unsafe remedies and doses, the emergency step placed late, and controls where a calm answer is right. 142 branch sets vary the deciding detail (a child's age, the week of pregnancy). Facts quoted from helsenorge.no |
-| `all` | 2003 | All scenarios combined |
+| `pasientsporsmal` | 579 | Norwegian patient-posed health questions, 100+ in each of five categories, built on the failure modes in Draelos et al. (2026): missing warnings, accepting the user's own explanation, answers that depend on a detail the user left out, unsafe remedies and doses, the emergency step placed late, and controls where a calm answer is right. 142 branch sets vary the deciding detail (a child's age, the week of pregnancy). Facts quoted from helsenorge.no. Not clinician-reviewed yet, so **not** part of `all`: run it by name |
+| `all` | 1424 | All scenarios combined |
 
 </div>
 

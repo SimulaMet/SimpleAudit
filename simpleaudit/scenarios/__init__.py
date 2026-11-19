@@ -18,6 +18,7 @@ Available packs:
 - nav_sosialhjelp: NAV økonomisk sosialhjelp under sosialtjenesteloven chapter 4 (7 scenarios)
 - digdir_digital_forvaltning: digital public administration and accessibility of public websites (7 scenarios)
 - brreg_registre: Brønnøysund registers (aksjeloven, regnskapsloven, enhetsregisterloven, foretaksregisterloven) (7 scenarios)
+- udi: UDI family immigration (income requirement, fees) and permanent residence (self-sufficiency, Norwegian and social studies tests) (12 scenarios)
 - skatteetaten: Norwegian Tax Administration scenarios (in development)
 - helfo: Helfo health-economics scenarios (8 scenarios)
 - lanekassen: Lånekassen student-finance scenarios (8 scenarios)
@@ -36,12 +37,16 @@ Available packs:
 - context_grounding: Marked retrieval context — counterfactual, superseded and
   lower-authority chunks (3 scenarios, requires SingleTurnAuditor; not part of 'all')
 - healthbench_behaviours: One scenario per HealthBench consensus category (17 scenarios)
+- pasientsporsmal: Norwegian patient-posed health questions in five categories; failure
+  modes from Draelos et al. 2026, facts from helsenorge.no (579 scenarios; not
+  clinician-reviewed yet, so not part of 'all')
 - all: All scenarios combined
 
 HealthBench is not a built-in pack: OpenAI asks that its examples are not reposted in
 plain text, so load_healthbench_scenarios() downloads it and builds scenarios at run time.
 """
 
+import json
 import re
 from collections import Counter
 from datetime import date, datetime
@@ -64,6 +69,7 @@ from .nav_aap import NAV_AAP_SCENARIOS
 from .nav_sosialhjelp import NAV_SOSIALHJELP_SCENARIOS
 from .digdir_digital_forvaltning import DIGDIR_DIGITAL_FORVALTNING_SCENARIOS
 from .brreg_registre import BRREG_REGISTRE_SCENARIOS
+from .udi import UDI_SCENARIOS
 from .skatteetaten import SKATTEETATEN_SCENARIOS
 from .helfo import HELFO_SCENARIOS
 from .lanekassen import LANEKASSEN_SCENARIOS
@@ -77,7 +83,14 @@ from .vision_integrity import VISION_INTEGRITY_SCENARIOS
 from .nb_kryss_ordning import NB_KRYSS_ORDNING_SCENARIOS
 from .context_grounding import CONTEXT_GROUNDING_SCENARIOS
 from .healthbench_behaviours import HEALTHBENCH_BEHAVIOURS_SCENARIOS
+from .pasientsporsmal import PASIENTSPORSMAL_SCENARIOS
 from .healthbench_loader import load_healthbench_scenarios
+
+
+def _to_text(value: Any) -> Any:
+    """A ``source_quote`` as text: strings and None unchanged, anything else as JSON."""
+    return value if value is None or isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
 
 
 SCENARIO_PACKS = {
@@ -97,6 +110,8 @@ SCENARIO_PACKS = {
     "nav_sosialhjelp":  NAV_SOSIALHJELP_SCENARIOS,
     "digdir_digital_forvaltning": DIGDIR_DIGITAL_FORVALTNING_SCENARIOS,
     "brreg_registre":   BRREG_REGISTRE_SCENARIOS,
+    # Kept out of "all" so adding it does not change what "all" measures.
+    "udi":              UDI_SCENARIOS,
     "skatteetaten":     SKATTEETATEN_SCENARIOS,
     "helfo":            HELFO_SCENARIOS,
     "lanekassen":       LANEKASSEN_SCENARIOS,
@@ -114,6 +129,10 @@ SCENARIO_PACKS = {
     "vision_integrity": VISION_INTEGRITY_SCENARIOS,
     "nb_kryss_ordning": NB_KRYSS_ORDNING_SCENARIOS,
     "healthbench_behaviours": HEALTHBENCH_BEHAVIOURS_SCENARIOS,
+
+    # BASELINE pack, not clinician-reviewed yet. Kept out of "all" so that
+    # adding it does not change what "all" measures for existing setups.
+    "pasientsporsmal": PASIENTSPORSMAL_SCENARIOS,
 
     # Scored under a fixed pack, and the scores only hold if the documents
     # reach the target in the ranking the author gave them. The multi-turn
@@ -140,6 +159,15 @@ SCENARIO_PACKS = {
                         + DIGDIR_DIGITAL_FORVALTNING_SCENARIOS
                         + BRREG_REGISTRE_SCENARIOS
 }
+
+
+# A pack may write metadata.source_quote as a list or other structure for
+# readability; consumers always get a string, as from the older packs.
+for _pack in SCENARIO_PACKS.values():
+    for _scenario in _pack:
+        _meta = _scenario.get("metadata")
+        if isinstance(_meta, dict) and "source_quote" in _meta:
+            _meta["source_quote"] = _to_text(_meta["source_quote"])
 
 
 def get_scenarios(pack_name: str) -> List[Dict]:

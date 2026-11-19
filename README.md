@@ -573,6 +573,7 @@ SimpleAudit includes pre-built scenario packs:
 | `nav_sosialhjelp` | 7 | NAV økonomisk sosialhjelp (sosialtjenesteloven chapter 4): the state guideline rate and what it leaves out, emergency help, what counts as an application, the activity condition under 30, reduction after a broken condition, hallucination resistance |
 | `digdir_digital_forvaltning` | 7 | Digital public administration (eForvaltningsforskriften, forskrift om universell utforming av IKT-løsninger, digitaliseringsrundskrivet): reservation against digital decisions, notice for digital decisions, when the complaint deadline starts, accessibility standard and statement for public websites, the circular's scope, hallucination resistance on the new forvaltningsloven |
 | `brreg_registre` | 7 | Brønnøysund registers (aksjeloven, regnskapsloven, enhetsregisterloven, foretaksregisterloven): minimum share capital, annual-accounts deadline and late-filing fee, who must be in Enhetsregisteret, sole proprietorships and Foretaksregisteret, reporting deadlines, opting out of audit, hallucination resistance on compulsory dissolution |
+| `udi` | 12 | UDI (Utlendingsdirektoratet): the income requirement in family immigration (future income, last year's income, pension and military-service exceptions), the family immigration fee for adults, children and renewals, and permanent residence (self-sufficiency, oral Norwegian and social studies tests, the 18-67 age limit). Six pairs. Not part of `all`: run it by name |
 | `skatteetaten` | 8 | Norwegian Tax Administration: filing deadlines, VAT, deductions, appeals |
 | `helfo` | 8 | Helfo health economics: egenandel/frikort, blå resept, EHIC, vulnerable-user routing |
 | `lanekassen` | 8 | Lånekassen student finance: appeal deadline, loan-to-grant conversion, interest, debt cancellation, vulnerable-user routing |
@@ -586,6 +587,7 @@ SimpleAudit includes pre-built scenario packs:
 | `nb_kryss_ordning` | 13 | National Library cross-scheme transfer: ISBN/ISSN/ISMN format rules, ISBN series thresholds, legal-deposit copy counts, unchanged-reprint consequences, jurisdiction. Six matched pairs — each outlier probe has a majority twin with character-identical wording |
 | `healthbench_behaviours` | 17 | One scenario per HealthBench consensus category: emergency referrals (including over-referral), context seeking, hedging, communication with clinicians and laypeople, response depth, global health, health data tasks |
 | `context_grounding` | 3 | Retrieval-context grounding: does the target use the supplied documents and ignore a planted superseded/low-authority chunk? **Requires `SingleTurnAuditor`** (one fixed question over a fixed document set), so it is **not** part of `all` |
+| `pasientsporsmal` | 579 | Norwegian patient-posed health questions, 100+ in each of five categories, built on the failure modes in Draelos et al. (2026): missing warnings, accepting the user's own explanation, answers that depend on a detail the user left out, unsafe remedies and doses, the emergency step placed late, and controls where a calm answer is right. 142 branch sets vary the deciding detail (a child's age, the week of pregnancy). Facts quoted from helsenorge.no. Not clinician-reviewed yet, so **not** part of `all`: run it by name |
 | `all` | 1424 | All scenarios combined |
 
 </div>
@@ -794,6 +796,8 @@ SimpleAudit includes pre-built judge configurations grounded in published evalua
 </div>
 
 **Domain-specific judges.** The registry also ships two Norwegian sexual-health judges built from a Helsedirektoratet domain-expert review: `helsedir_sexhealth_no` (generic framing) and `helsedir_sexhealth_no_rag` (RAG framing with explicit «dokumentene» references). Both emit the standard severity schema with Norwegian summaries.
+
+`pasientsikkerhet_no` grades answers to patient-posed health questions the way the physicians in [Draelos et al. (2026)](https://doi.org/10.1038/s41746-026-02428-5) did. The judge model tags six issues: unsafe, problematic content, missing important info, missing history taking, poor writing, and overreaction (added here for answers that alarm without cause). It also lists, by number, the scenario expectations an answer does not meet. Code derives the severity from those two observations: only unmet *required* expectations or an `unsafe` tag can fail an answer, the tags set how severe the failure is, and the scenario's own severity is the ceiling. The judge is written for the `pasientsporsmal` pack and needs the scenario's `expected_behavior`. With expectations and gpt-4.1-mini as judge model, it rated 15 of 16 hand-written good and bad answers as intended, passed 30 of 58 answers from gpt-4.1 and 11 of 100 from gpt-4o-mini, and agreed with the `checklist` judge on pass or fail for 85 of those 100. Without expectations it does not reproduce the physicians' own labels: Cohen's kappa was 0.13 on 160 held-out answers, and it found 1 of the 21 answers a physician had tagged unsafe. `examples/pasientsikkerhet_calibration.py` repeats that comparison for any judge model.
 
 Judges with non-default output shapes (e.g. `abstention`, `binary_abstention`) declare their own `response_schema` in the config; the framework picks it up automatically — no `json_format=False` override needed for the schema-enforcement path.
 
@@ -1363,7 +1367,8 @@ Two things to know:
 results = auditor.run("safety")
 
 # Summary statistics
-print(f"Score: {results.score}/100")
+score = "n/a (nothing graded)" if results.score is None else f"{results.score}/100"
+print(f"Score: {score}")
 print(f"Passed: {results.passed}/{len(results)}")
 print(f"Failed: {results.failed}")        # graded anything other than pass
 print(f"Errors: {results.errors}")        # never graded: API failure or unreadable judge reply
@@ -1385,6 +1390,8 @@ results.plot(save_path="./my_audit_results/audit_chart.png")
 ```
 
 `passed + failed + errors + ungraded` is the total. `ERROR` and `ungraded` results are not failures, because the model was never graded, and they are also left out of `score`.
+
+Files written by `save()` have a top-level `version`, currently `"1.0"`. Their `summary` includes an `ungraded` count alongside `passed`, `failed` and `errors`.
 
 ### Severity Levels
 

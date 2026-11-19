@@ -24,9 +24,10 @@ class TestScenarioDataIntegrity:
     IN_DEVELOPMENT_PACKS: set = set()
 
     # Packs deliberately left out of "all" because they need model capabilities
-    # or a runner "all" cannot assume. These are still covered by every other
+    # or a runner "all" cannot assume, or are not clinician-reviewed yet
+    # (pasientsporsmal). These are still covered by every other
     # check below — only the union count excludes them.
-    EXCLUDED_FROM_ALL_PACK = {"vision_integrity", "context_grounding"}
+    EXCLUDED_FROM_ALL_PACK = {"vision_integrity", "context_grounding", "pasientsporsmal", "udi"}
 
     @pytest.fixture
     def all_pack_names(self):

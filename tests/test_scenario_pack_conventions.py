@@ -31,6 +31,8 @@ CONFORMING_PACKS = [
     "nav_sosialhjelp",
     "digdir_digital_forvaltning",
     "brreg_registre",
+    "udi",
+    "pasientsporsmal",
 ]
 
 

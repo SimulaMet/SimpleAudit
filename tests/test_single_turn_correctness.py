@@ -350,3 +350,62 @@ def test_the_guard_names_the_reason_over_an_off_contract_issues_found():
     assert out["asserted_spans"] == [STALE_ANSWER]
     assert out["abstained"] is False
     assert observation["issues_found"] == []  # the input dict is not mutated
+
+
+# ---------------------------------------------------------------------------
+# metadata.judge_notes reach the judge that sees the expectations
+# ---------------------------------------------------------------------------
+
+NOTES = ["AKSEPTABELT: å be brukeren bekrefte på helfo.no."]
+# The section heading, not just the words: the checklist prompt itself says
+# what to do "if JUDGE NOTES are given".
+NOTES_HEADING = "JUDGE NOTES (scoring instructions for this scenario):"
+
+
+def _prompt(call):
+    return "\n".join(str(m["content"]) for m in call["messages"])
+
+
+def test_judge_notes_reach_the_correctness_judge_but_not_the_blind_one():
+    judge = RoutingJudge(_groundedness([TARGET_ANSWER]), _checklist("met", "17-åringer betaler ikke egenandel"))
+    sta = _build(TARGET_ANSWER, judge)
+    scenario = dict(HELFO_SCENARIO, severity="medium", metadata={"judge_notes": NOTES})
+    asyncio.run(sta._run_one_scenario(scenario))
+
+    checklist = [c for c in judge.calls if "evidence checker" in c["messages"][0]["content"]]
+    grounding = [c for c in judge.calls if "evidence checker" not in c["messages"][0]["content"]]
+    assert len(checklist) == len(grounding) == 1
+    assert NOTES_HEADING in _prompt(checklist[0])
+    assert f"- {NOTES[0]}" in _prompt(checklist[0])
+    # The groundedness judge is blind to expected_behavior, and so to the notes.
+    assert NOTES_HEADING not in _prompt(grounding[0])
+
+
+def test_judge_notes_reach_the_judge_of_an_unmarked_scenario():
+    judge = RoutingJudge(_checklist("met", TARGET_ANSWER), _checklist("met", TARGET_ANSWER))
+    with patch.object(ModelAuditor, "_create_anyllm_client", return_value=MagicMock()):
+        sta = SingleTurnAuditor(
+            model="fake-model", provider="openai", judge_model="fake-judge", judge_provider="openai",
+            judge="checklist", show_progress=False, max_retries=0,
+        )
+    sta.target_client = FakeClient(lambda **_: TARGET_ANSWER)
+    sta.judge_client = judge
+    scenario = {
+        "name": "unmarked", "description": "d", "test_prompt": HELFO_SCENARIO["test_prompt"],
+        "expected_behavior": HELFO_SCENARIO["expected_behavior"], "severity": "medium",
+        "metadata": {"judge_notes": NOTES},
+    }
+    asyncio.run(sta._run_one_scenario(scenario))
+
+    assert len(judge.calls) == 1
+    assert f"- {NOTES[0]}" in _prompt(judge.calls[0])
+
+
+def test_no_judge_notes_section_when_the_scenario_has_none():
+    judge, _result = _run(
+        TARGET_ANSWER,
+        _groundedness([TARGET_ANSWER]),
+        _checklist("met", "17-åringer betaler ikke egenandel"),
+    )
+    assert len(judge.calls) == 2
+    assert all(NOTES_HEADING not in _prompt(c) for c in judge.calls)

@@ -57,7 +57,9 @@ excerpt in `metadata.source_quote` was matched verbatim against the fetched text
   /KAPITTEL_11-1 and /KAPITTEL_17-9; the front page reads «Sist endret FOR-2026-10-19-2098»).
 - Utlendingsloven, LOV-2008-05-15-35, § 62 (https://lovdata.no/dokument/NL/lov/2008-05-15-35/KAPITTEL_7).
 - The amending regulations FOR-2023-12-21-2263, FOR-2025-12-19-2802 and FOR-2026-02-27-309
-  (https://lovdata.no/dokument/LTI/forskrift/...).
+  (https://lovdata.no/dokument/LTI/forskrift/2023-12-21-2263,
+  https://lovdata.no/dokument/LTI/forskrift/2025-12-19-2802 and
+  https://lovdata.no/dokument/LTI/forskrift/2026-02-27-309).
 - The basic amount of the National Insurance, https://www.nav.no/grunnbelopet.
 - UDI: https://www.udi.no/ord-og-begreper/krav-til-inntekt-i-familieinnvandringssaker/,
   https://www.udi.no/ord-og-begreper/gebyr/,

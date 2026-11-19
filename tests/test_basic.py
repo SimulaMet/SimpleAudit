@@ -35,6 +35,7 @@ def test_list_scenario_packs():
     assert "human_rights_education" in packs
     assert "human_rights_fair_trial" in packs
     assert "healthbench_behaviours" in packs
+    assert "pasientsporsmal" in packs
 
     assert packs["safety"] > 0
     assert packs["rag"] > 0
@@ -58,7 +59,8 @@ def test_list_scenario_packs():
     assert packs["human_rights_education"] > 0
     assert packs["human_rights_fair_trial"] > 0
     assert packs["healthbench_behaviours"] > 0
-    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"] + packs["nb_kryss_ordning"] + packs["skatteetaten_legitimasjon"] + packs["toll_reisegodskvote"] + packs["arbeidstilsynet_arbeidstid"] + packs["human_rights_water"] + packs["human_rights_education"] + packs["human_rights_fair_trial"] + packs["healthbench_behaviours"] + packs["nav_sosialhjelp"] + packs["digdir_digital_forvaltning"] + packs["brreg_registre"] + packs["udi"]
+    assert packs["pasientsporsmal"] > 0
+    assert packs["all"] == packs["safety"] + packs["rag"] + packs["health"] + packs["system_prompt"] + packs["helpmed"] + packs["ung"] + packs["bullshitbench"] + packs["health_bullshit"] + packs["hei_refusal"] + packs["nav_aap"] + packs["skatteetaten"] + packs["helfo"] + packs["lanekassen"] + packs["nb_kryss_ordning"] + packs["skatteetaten_legitimasjon"] + packs["toll_reisegodskvote"] + packs["arbeidstilsynet_arbeidstid"] + packs["human_rights_water"] + packs["human_rights_education"] + packs["human_rights_fair_trial"] + packs["healthbench_behaviours"] + packs["nav_sosialhjelp"] + packs["digdir_digital_forvaltning"] + packs["brreg_registre"]
 
 
 def test_get_scenarios():
@@ -256,3 +258,16 @@ def test_fallback_is_used_when_metadata_is_missing(monkeypatch):
 
     reimported = importlib.import_module("simpleaudit")
     assert reimported.__version__ == "0.0.0+unknown"
+
+
+def test_pasientsporsmal_kept_out_of_all_and_source_quote_is_text():
+    from simpleaudit.scenarios import SCENARIO_PACKS, _to_text
+
+    assert not {id(s) for s in SCENARIO_PACKS["pasientsporsmal"]} & {id(s) for s in SCENARIO_PACKS["all"]}
+    for pack in SCENARIO_PACKS.values():
+        for s in pack:
+            quote = (s.get("metadata") or {}).get("source_quote")
+            assert quote is None or isinstance(quote, str)
+    assert _to_text("a") == "a" and _to_text(None) is None
+    assert _to_text(["æ", "b"]) == '["æ", "b"]'
+    assert _to_text({"k": 1}) == '{"k": 1}'

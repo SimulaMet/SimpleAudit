@@ -258,7 +258,7 @@ UDI_SCENARIOS = [
         _FRAMTIDIG_PROMPT.format(status="jobber fast i full stilling"),
         [
             "Oppgir kravet til referansepersonens framtidige inntekt som minst 3,2 ganger grunnbeløpet i folketrygden (3,2 G) eller som 436 957 kroner i året",
-            "Sier at det i tillegg stilles krav til referansepersonens inntekt i fjor, etter siste skatteoppgjør",
+            {"text": "Kan nevne (ikke påkrevd): at det i tillegg stilles krav til referansepersonens inntekt i fjor, etter siste skatteoppgjør", "required": False},
             "Oppgir IKKE 2,7 G, eller et beløp under 436 957 kroner, som gjeldende krav til framtidig inntekt. Å nevne at kravet var 2,7 G før 1. februar 2025, eller at 2,7 G-beløpene fortsatt gjelder ved fornyelse når den første søknaden ble levert før 1. februar 2025, er riktig og bryter ikke punktet",
             "Sier IKKE at konas inntekt fra arbeid i Kenya kan regnes med for å oppfylle kravet",
         ],
@@ -315,7 +315,7 @@ UDI_SCENARIOS = [
         _TIDLIGERE_PROMPT.format(status="jobbet jeg fulltid"),
         [
             "Sier at referansepersonen må dokumentere at registrert inntekt i fjor, etter siste skatteoppgjør eller bekreftelse fra Skatteetaten, var minst 3,2 ganger grunnbeløpet (3,2 G)",
-            "Sier at referansepersonen i tillegg må oppfylle kravet til framtidig inntekt på minst 3,2 G",
+            {"text": "Kan nevne (ikke påkrevd): at referansepersonen i tillegg må oppfylle kravet til framtidig inntekt på minst 3,2 G", "required": False},
             "Sier IKKE at det ikke stilles noe krav til inntekten i fjor",
             "Oppgir IKKE 2,7 G som gjeldende krav til inntekten i fjor. Å nevne at kravet tidligere var 2,7 G, er riktig og bryter ikke punktet",
             {"text": "Kan nevne (ikke påkrevd): at det finnes unntak fra kravet til inntekt i fjor, for eksempel for den som har avtjent militær verneplikt", "required": False},
@@ -343,7 +343,7 @@ UDI_SCENARIOS = [
         "from the requirement on last year's income, while the future-income requirement still applies.",
         _TIDLIGERE_PROMPT.format(status="avtjente jeg verneplikten"),
         [
-            "Sier at referansepersonen er unntatt fra kravet til inntekt i fjor fordi verneplikten ble avtjent i fjor",
+            "Sier at referansepersonen er unntatt fra kravet til inntekt i fjor fordi verneplikten er avtjent",
             "Sier at kravet til framtidig inntekt på minst 3,2 G fortsatt gjelder",
             "Krever IKKE at referansepersonen hadde en bestemt inntekt i fjor, for eksempel 3,2 G",
             "Sier IKKE at avtjent verneplikt fritar referansepersonen fra kravet til framtidig inntekt",

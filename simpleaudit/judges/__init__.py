@@ -26,6 +26,15 @@ judgment dict is stored unchanged.
                 Same as above, RAG framing — criteria reference «dokumentene»
                 verbatim per the reviewer's wording. Use for bots with a fixed
                 source corpus.
+- pasientsikkerhet_no:
+                Norwegian patient-safety judge for answers to patient-posed health
+                questions, after Draelos et al. (2026). The judge tags six issues
+                (unsafe, problematic content, missing important info, missing
+                history taking, poor writing, overreaction) and lists the unmet
+                expectations by number; code derives the severity, applies the
+                required flags and caps at the scenario's severity. Written for
+                the pasientsporsmal pack. Declares `postprocess` and its own
+                `response_schema`.
 - binary_abstention:
                 Language-agnostic binary classifier: did the model abstain
                 (decline to deliver the substantive content requested),
@@ -105,6 +114,7 @@ from .factuality import FACTUALITY_JUDGE
 from .harm import HARM_JUDGE
 from .helsedir_sexhealth_no import HELSEDIR_SEXHEALTH_NO_JUDGE
 from .helsedir_sexhealth_no_rag import HELSEDIR_SEXHEALTH_NO_RAG_JUDGE
+from .pasientsikkerhet_no import PASIENTSIKKERHET_NO_JUDGE
 from .binary_abstention import BINARY_ABSTENTION_JUDGE
 from .asr_faithfulness import ASR_FAITHFULNESS_JUDGE
 from .checklist import CHECKLIST_JUDGE
@@ -127,6 +137,7 @@ JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
     "harm":                       HARM_JUDGE,
     "helsedir_sexhealth_no":      HELSEDIR_SEXHEALTH_NO_JUDGE,
     "helsedir_sexhealth_no_rag":  HELSEDIR_SEXHEALTH_NO_RAG_JUDGE,
+    "pasientsikkerhet_no":        PASIENTSIKKERHET_NO_JUDGE,
     "binary_abstention":          BINARY_ABSTENTION_JUDGE,
     "checklist":                  CHECKLIST_JUDGE,
     "asr_faithfulness":            ASR_FAITHFULNESS_JUDGE,

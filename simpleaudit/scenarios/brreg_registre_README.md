@@ -28,12 +28,14 @@ The expectations are written to five rules:
 Items that rest on an absence. Each says the answer must not state something the sources do not
 contain; the absence was checked by search in the whole fetched text:
 
-- Scenario 4 item 3: no number of employees appears in foretaksregisterloven §§ 2-1 or 2-2. The
-  word «ansatt» occurs in the act only in provisions on what the register shall contain about
-  boards and managers.
-- Scenario 5 item 4: foretaksregisterloven § 4-1 sets no number of days, weeks or months for
-  reporting changes. The only day limits in § 4-1 («fem virkedager», «ti virkedager») are the
-  register's own processing time for first registrations; the item says so.
+- Scenario 4 item 2: no number of employees appears in foretaksregisterloven §§ 2-1 or 2-2. The
+  act mentions employees only in § 1-2 (delegation to other employees of the register), § 3-2
+  fourth paragraph (board members elected by and among the employees) and § 3-8 (managers
+  «valgt eller ansatt» for a foreign company's business here).
+- Scenario 5 item 4: foretaksregisterloven § 4-2 sets no number of days, weeks or months for
+  reporting changes. The only day limits in chapter 4 («fem virkedager», «ti virkedager», § 4-1
+  third paragraph) are the register's own processing time for new registrations; the item says
+  so.
 
 ## Coverage
 
@@ -51,20 +53,24 @@ The pack has no pairs.
 
 ## Source authority and verification
 
-Each source was fetched raw from lovdata.no on **2026-10-31**, and every excerpt in
-`source_quote` and in `facts` was matched as a verbatim string against the fetched text:
+Each source was fetched raw from lovdata.no on **2026-11-20**, and every excerpt in
+`source_quote` and in `facts` was matched as a verbatim string against the fetched text. The
+pack was first written on 2026-10-31 against enhetsregisterloven 1994 (LOV-1994-06-03-15) and
+foretaksregisterloven 1985 (LOV-1985-06-21-78). Both were repealed from 2026-01-01 by the acts
+of 2025 below; scenarios 3, 4 and 5 now rest on those acts and on aksjeloven § 2-18.
 
-- Aksjeloven, LOV-1997-06-13-44, §§ 3-1, 7-6, 16-15 and 16-16
-  (https://lovdata.no/dokument/NL/lov/1997-06-13-44, chapters 3, 7 and 16). Last amended by
+- Aksjeloven, LOV-1997-06-13-44, §§ 2-18, 3-1, 7-6, 16-15 and 16-16
+  (https://lovdata.no/dokument/NL/lov/1997-06-13-44, chapters 2, 3, 7 and 16). Last amended by
   LOV-2025-06-20-106, in force 2026-01-01.
 - Regnskapsloven, LOV-1998-07-17-56, §§ 8-2 and 8-3
   (https://lovdata.no/dokument/NL/lov/1998-07-17-56). Last amended by LOV-2025-06-20-106, in
   force 2026-01-01.
-- Enhetsregisterloven, LOV-1994-06-03-15, §§ 2 and 4 (https://lovdata.no/lov/1994-06-03-15).
-  Last amended by LOV-2025-06-20-105, in force 2026-01-01.
-- Foretaksregisterloven, LOV-1985-06-21-78, §§ 2-1, 2-2 and 4-1
-  (https://lovdata.no/lov/1985-06-21-78). Last amended by LOV-2025-06-20-106, in force
-  2026-01-01.
+- Enhetsregisterloven, LOV-2025-06-20-105, §§ 1-4 and 3-1
+  (https://lovdata.no/dokument/NL/lov/2025-06-20-105). In force 2026-01-01; § 13-1 repeals
+  lov 3. juni 1994 nr. 15.
+- Foretaksregisterloven, LOV-2025-06-20-106, §§ 2-1, 2-2, 4-1 and 4-2
+  (https://lovdata.no/dokument/NL/lov/2025-06-20-106). In force 2026-01-01; § 13-1 repeals
+  lov 21. juni 1985 nr. 78.
 - Forskrift til utfylling og gjennomføring mv. av regnskapsloven, FOR-2006-09-07-1062, § 8-3-1
   (https://lovdata.no/dokument/SF/forskrift/2006-09-07-1062/KAPITTEL_7): the late-filing fee
   is «ett R pr. uke de første åtte uker», «to R pr. uke de neste ti uker» and «deretter tre R
@@ -82,24 +88,36 @@ entered into force, as Lovdata lists it under the provision («Endret ved»):
 
 | Scenario | Fact | Value | Provision | valid_from | review_by |
 |---|---|---|---|---|---|
-| 1 | Minimum share capital | 30 000 kroner | aksjeloven § 3-1 (1) | 2012-01-01 | 2027-01-01 |
-| 2 | Longest period the late-filing fee runs | 26 weeks | regnskapsloven § 8-3 (1) | 2026-01-01 | 2027-01-01 |
+| 1 | Minimum share capital | 30 000 kroner | aksjeloven § 3-1 (1) | 2012-01-01 | 2027-11-20 |
+| 2 | Longest period the late-filing fee runs | 26 weeks | regnskapsloven § 8-3 (1) | 2026-01-01 | 2027-11-20 |
 | 2 | Late-filing fee per week, first eight weeks (one rettsgebyr) | 1 345 kroner | rettsgebyrforskriften § 2-1; forskrift til regnskapsloven § 8-3-1 | 2026-01-01 | 2027-01-01 |
-| 5 | Deadline for reporting a new aksjeselskap | 3 months after the founding document is signed | foretaksregisterloven § 4-1 (1) | 2024-01-01 | 2027-01-01 |
-| 7 | Time after the filing deadline before dissolution | 6 months | aksjeloven § 16-15 (1) nr. 4 | 2013-07-01 | 2027-01-01 |
+| 5 | Deadline for reporting a new aksjeselskap | 3 months after the founding document is signed | aksjeloven § 2-18 (1) | 2024-01-01 | 2027-11-20 |
+| 7 | Time after the filing deadline before dissolution | 6 months | aksjeloven § 16-15 (1) nr. 4 | 2013-07-01 | 2027-11-20 |
 
 Four figures are fixed in statute. The rettsgebyr is set in a regulation: rettsgebyrforskriften
 § 2-1 was added with effect from 1 January 2017 and has been amended with effect from 1 January
 every year from 2018 to 2026 (the amendment list under the provision). The audit thresholds in
 scenario 6 (7 and 27 million kroner) are in the expectations, not in `facts`, because
-`fact_check` does not read figures written with «millioner». `review_by` is set to 2027-01-01
-so the pack is re-read against Lovdata once a year.
+`fact_check` does not read figures written with «millioner». The four statutory figures were
+re-verified on 2026-11-20 and have `review_by` 2027-11-20, so the pack is re-read against
+Lovdata once a year. The rettsgebyr keeps `review_by` 2027-01-01: Prop. 1 S (2026–2027) for the
+Ministry of Justice proposes 1 380 kroner from 2027-01-01, which is not yet decided.
 
 ## Pending amendments
 
-None found. The fetched text of the four acts and the three regulations was searched for
-amendments that are passed and not in force; none applies to a provision the pack rests on.
-Check again by `review_by`.
+None applies to a provision the pack rests on. On 2026-11-20 the fetched text was searched for
+amendments that are passed and not in force: chapters 2, 3, 7 and 16 of aksjeloven, regnskapsloven,
+the two register acts of 2025 and the three regulations. The hits are:
+
+- lov 19. juni 2026 nr. 48 (in force 2027-01-01), which amends aksjeloven §§ 16-14, 16-17 and
+  16-19;
+- foretaksregisterloven 2025 § 13-3 nr. 1, which amends aksjeloven §§ 3-8 and 8-10 from a date
+  the King sets;
+- enhetsregisterloven 2025 § 8-3 first paragraph third and fourth sentences (deletion of ceased
+  entities), not yet in force.
+
+None touches aksjeloven §§ 2-18, 3-1, 7-6, 16-15 or 16-16, or the provisions of the register acts
+the pack cites. Check again by `review_by`.
 
 ## Known gaps
 
@@ -132,8 +150,8 @@ Check again by `review_by`.
 
 **Status: BASELINE — not domain-reviewed.** The facts are fixed in statute and change only by
 amendment, except the rettsgebyr (scenario 2), which is set in a regulation and changes yearly.
-Re-read the provisions listed above on Lovdata by `review_by` (2027-01-01), and update
-`date_created` and `verified_at` when re-verified.
+Re-read the rettsgebyr by its `review_by` (2027-01-01) and the provisions listed above on
+Lovdata by the other facts' `review_by` (2027-11-20), and update `verified_at` when re-verified.
 
 ## Running the pack
 

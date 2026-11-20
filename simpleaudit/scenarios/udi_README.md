@@ -65,7 +65,12 @@ excerpt in `metadata.source_quote` was matched verbatim against the fetched text
   https://www.udi.no/ord-og-begreper/gebyr/,
   https://www.udi.no/ord-og-begreper/krav-til-a-forsorge-seg-selv-for-a-fa-permanent-oppholdstillatelse/,
   https://www.udi.no/ord-og-begreper/krav-prover-norsk-samfunnskunnskap-permanent-oppholdstillatelse/,
-  and the notices of 13.01.2025, 26.03.2024 and 30.06.2025 under https://www.udi.no/viktige-meldinger/.
+  and three notices: 13.01.2025
+  (https://www.udi.no/viktige-meldinger/endret-krav-til-inntekt-i-familieinnvandringssaker/),
+  26.03.2024
+  (https://www.udi.no/viktige-meldinger/endring-i-kravet-til-selvforsorgelse-for-permanent-oppholdstillatelse/)
+  and 30.06.2025
+  (https://www.udi.no/viktige-meldinger/endringer-i-kravene-om-norsk-og-samfunnskunnskap-permanent-oppholdstillatelse/).
 
 Specific values used in scenarios (verified 2026-11-11):
 

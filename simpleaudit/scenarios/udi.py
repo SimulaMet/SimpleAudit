@@ -50,8 +50,10 @@ Sources. Each was fetched raw on 2026-11-11, and every excerpt in
   FOR-2026-02-27-309 (exemptions for some children from 2026-04-01).
 - The basic amount of the National Insurance (grunnbeløpet, G),
   https://www.nav.no/grunnbelopet: 136 549 kroner from 2026-05-01.
-- UDI pages under https://www.udi.no/ord-og-begreper/ and three notices under
-  https://www.udi.no/viktige-meldinger/ (13.01.2025, 26.03.2024, 30.06.2025).
+- UDI pages under https://www.udi.no/ord-og-begreper/ and three UDI notices:
+  13.01.2025, https://www.udi.no/viktige-meldinger/endret-krav-til-inntekt-i-familieinnvandringssaker/;
+  26.03.2024, https://www.udi.no/viktige-meldinger/endring-i-kravet-til-selvforsorgelse-for-permanent-oppholdstillatelse/;
+  30.06.2025, https://www.udi.no/viktige-meldinger/endringer-i-kravene-om-norsk-og-samfunnskunnskap-permanent-oppholdstillatelse/.
 
 The amounts are computed from the regulation and G: 3.2 G = 436 957 kroner
 (future income in family immigration) and 2.5 G = 341 373 kroner

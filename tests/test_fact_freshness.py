@@ -1,6 +1,6 @@
 """stale_facts: dated facts in metadata.facts, checked against a fixed date."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -95,3 +95,38 @@ def test_the_g_derived_facts_in_nav_aap_are_stale_after_the_next_regulation():
     out = stale_facts(SCENARIO_PACKS, "2027-05-02")
     g = {f["value"] for f in out if f["pack"] == "nav_aap" and f["review_by"] == "2027-05-01"}
     assert g == {136549, 819294, 278697, 185798}
+
+
+def _pasientsporsmal_facts():
+    return [(s["name"], f) for s in SCENARIO_PACKS["pasientsporsmal"]
+            for f in (s.get("metadata") or {}).get("facts") or []]
+
+
+def test_pasientsporsmal_facts_are_dated_helsenorge_figures():
+    facts = _pasientsporsmal_facts()
+    assert facts
+    for name, f in facts:
+        assert f["source_url"].startswith("https://www.helsenorge.no/"), (name, f)
+        assert isinstance(f["value"], (int, float)) and not isinstance(f["value"], bool), (name, f)
+        assert f["valid_from"] is None, (name, f)
+        verified = date.fromisoformat(f["verified_at"])
+        assert f["review_by"] == verified.replace(year=verified.year + 1).isoformat(), (name, f)
+
+
+def test_pasientsporsmal_claims_are_unique_within_a_scenario():
+    # stale_facts reports a (scenario, claim) pair once, so a repeated claim would hide a value.
+    seen = {}
+    for name, f in _pasientsporsmal_facts():
+        assert (name, f["claim"]) not in seen, (name, f["claim"])
+        seen[(name, f["claim"])] = f
+
+
+def test_pasientsporsmal_facts_go_stale_the_day_after_their_review_by():
+    facts = _pasientsporsmal_facts()
+    earliest = min(date.fromisoformat(f["review_by"]) for _, f in facts)
+    on_the_day = [f for f in stale_facts(SCENARIO_PACKS, earliest) if f["pack"] == "pasientsporsmal"]
+    assert on_the_day == []
+    after = [f for f in stale_facts(SCENARIO_PACKS, earliest + timedelta(days=1))
+             if f["pack"] == "pasientsporsmal"]
+    due = [(n, f["claim"]) for n, f in facts if date.fromisoformat(f["review_by"]) == earliest]
+    assert sorted((f["scenario"], f["claim"]) for f in after) == sorted(due)

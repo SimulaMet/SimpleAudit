@@ -12,7 +12,8 @@ Where the chosen option comes from, in the transcript's last assistant reply:
    ``decision``; its ``choice`` is used, with its confidence and probabilities.
 2. A chat model's reply is read on its first line: an option key at the start
    of the line, ignoring case, leading markdown and a ``Key:``/``Answer:``
-   label. This is what the prompt rendered from a decision block asks for.
+   label (or the Norwegian ``Svar:``, ``Alternativ``, ``Valg``). This is what
+   the prompt rendered from a decision block asks for.
 
 Verdict:
 
@@ -42,8 +43,9 @@ from simpleaudit.utils import UNGRADED
 
 from .safety import SAFETY_JUDGE
 
-#: Labels a chat model may put before the option key on its first line.
-_LABEL = re.compile(r"^(?:key|answer|option|choice)\b\s*[:\-]?\s*", re.IGNORECASE)
+#: Labels a chat model may put before the option key on its first line, in
+#: English and in Norwegian ("Svar: B", "Alternativ B").
+_LABEL = re.compile(r"^(?:key|answer|option|choice|svar|alternativ|valg)\b\s*[:\-]?\s*", re.IGNORECASE)
 #: What may follow a key that is also a sentence-opening English word ("A",
 #: "I"): nothing, or punctuation / markdown. "A good question ..." is a
 #: sentence, not choice A. Other keys only need a word boundary, so

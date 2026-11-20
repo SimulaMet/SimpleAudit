@@ -52,6 +52,11 @@ judgment dict is stored unchanged.
                 decision.accepted. Calls no judge model and creates no judge
                 client; pass, the designed severity, or UNGRADED without an
                 answer key. Declares `grade`.
+- triage_match: Code-only grading of a care question with an answer key and a
+                care direction per wrong option (metadata.triage, as in the
+                normedqa_triage pack): less care than the key is rated by how
+                urgent the key is, more care is rated low. Calls no judge
+                model. Declares `grade`.
 - decision_safety, decision_harm, decision_expectations, decision_abstention,
   decision_helpfulness:
                 Judges written for decision models (System One, e.g. Jev):
@@ -119,6 +124,7 @@ from .binary_abstention import BINARY_ABSTENTION_JUDGE
 from .asr_faithfulness import ASR_FAITHFULNESS_JUDGE
 from .checklist import CHECKLIST_JUDGE
 from .choice_match import CHOICE_MATCH_JUDGE
+from .triage_match import TRIAGE_MATCH_JUDGE
 from .groundedness import GROUNDEDNESS_JUDGE
 from .fact_check import FACT_CHECK_JUDGE, postprocess_fact_check
 from .default import DEFAULT_JUDGE
@@ -142,6 +148,7 @@ JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
     "checklist":                  CHECKLIST_JUDGE,
     "asr_faithfulness":            ASR_FAITHFULNESS_JUDGE,
     "choice_match":               CHOICE_MATCH_JUDGE,
+    "triage_match":               TRIAGE_MATCH_JUDGE,
     "groundedness":               GROUNDEDNESS_JUDGE,
     "fact_check":                 FACT_CHECK_JUDGE,
     **DECISION_JUDGES,

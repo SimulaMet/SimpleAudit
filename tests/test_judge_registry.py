@@ -29,6 +29,7 @@ EXPECTED_JUDGES = {
     "checklist",
     "asr_faithfulness",
     "choice_match",
+    "triage_match",
     "groundedness",
     "fact_check",
     "decision_safety",

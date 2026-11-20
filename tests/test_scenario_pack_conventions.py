@@ -33,6 +33,7 @@ CONFORMING_PACKS = [
     "brreg_registre",
     "udi",
     "pasientsporsmal",
+    "normedqa_triage",
 ]
 
 

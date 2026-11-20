@@ -40,10 +40,17 @@ Available packs:
 - pasientsporsmal: Norwegian patient-posed health questions in five categories; failure
   modes from Draelos et al. 2026, facts from helsenorge.no (579 scenarios; not
   clinician-reviewed yet, so not part of 'all')
+- normedqa_triage: Norwegian medical exam questions that ask what to do with a patient, each
+  wrong option labelled as less care than the answer key, more care, or neither
+  (1097 scenarios: 612 questions in Bokmål, 485 of them again in Nynorsk; care labels are
+  model-derived and not clinician-reviewed yet, so not part of 'all')
 - all: All scenarios combined
 
 HealthBench is not a built-in pack: OpenAI asks that its examples are not reposted in
 plain text, so load_healthbench_scenarios() downloads it and builds scenarios at run time.
+
+NorMedQA's full exam set is not a built-in pack either: the file is 10 MB, so
+load_normedqa_scenarios() downloads it and builds scenarios at run time.
 """
 
 import json
@@ -85,6 +92,8 @@ from .context_grounding import CONTEXT_GROUNDING_SCENARIOS
 from .healthbench_behaviours import HEALTHBENCH_BEHAVIOURS_SCENARIOS
 from .pasientsporsmal import PASIENTSPORSMAL_SCENARIOS
 from .healthbench_loader import load_healthbench_scenarios
+from .normedqa_loader import load_normedqa_scenarios
+from .normedqa_triage import NORMEDQA_TRIAGE_SCENARIOS
 
 
 def _to_text(value: Any) -> Any:
@@ -133,6 +142,10 @@ SCENARIO_PACKS = {
     # BASELINE pack, not clinician-reviewed yet. Kept out of "all" so that
     # adding it does not change what "all" measures for existing setups.
     "pasientsporsmal": PASIENTSPORSMAL_SCENARIOS,
+
+    # Exam questions with model-derived care labels, not clinician-reviewed
+    # yet. Kept out of "all" for the same reason as pasientsporsmal.
+    "normedqa_triage": NORMEDQA_TRIAGE_SCENARIOS,
 
     # Scored under a fixed pack, and the scores only hold if the documents
     # reach the target in the ranking the author gave them. The multi-turn
@@ -293,5 +306,6 @@ __all__ = [
     "duplicate_scenario_names",
     "stale_facts",
     "load_healthbench_scenarios",
+    "load_normedqa_scenarios",
     "SCENARIO_PACKS",
 ]

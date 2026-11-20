@@ -81,8 +81,9 @@ from .repeated_results import (
     aggregate_severities,
 )
 from .results import AuditResult, AuditResults
-from .scenarios import get_scenarios, list_scenario_packs, load_healthbench_scenarios
+from .scenarios import get_scenarios, list_scenario_packs, load_healthbench_scenarios, load_normedqa_scenarios
 from .stats import DEFAULT_Z, two_proportion_z, wilson_interval
+from .triage import TriageReport, triage_rates
 from .targets import (
     ASRTarget,
     CallableTarget,
@@ -117,6 +118,7 @@ __all__ = [
     "get_scenarios",
     "list_scenario_packs",
     "load_healthbench_scenarios",
+    "load_normedqa_scenarios",
     "get_judge",
     "build_judge",
     "customize_judge",
@@ -128,6 +130,8 @@ __all__ = [
     "ScenarioStats",
     "FRAGILE_THRESHOLD_DEFAULT",
     "aggregate_severities",
+    "triage_rates",
+    "TriageReport",
     "wilson_interval",
     "two_proportion_z",
     "DEFAULT_Z",

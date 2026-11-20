@@ -59,6 +59,12 @@ def _reply(content, decision=None):
         ("- no, because", "no"),
         ("Key: not_mentioned\nThe judgment does not say.", "not_mentioned"),
         ("Answer: yes", "yes"),
+        # Norwegian labels, as a reply to a Norwegian prompt writes them
+        ("Svar: no", "no"),
+        ("**Svar:** yes", "yes"),
+        ("Alternativ not_mentioned", "not_mentioned"),
+        ("Valg: no", "no"),
+        ("Svaret mitt kommer under.", None),
         ("\n\n  no\n", "no"),
         ("yesterday the court said", None),
         ("The court found him guilty.\nyes", None),

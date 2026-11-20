@@ -18,6 +18,7 @@ from simpleaudit.judges.pasientsikkerhet_no import (
     postprocess_pasientsikkerhet,
     severity_from_issues,
 )
+from simpleaudit.reframing import _stored_designed_severity
 from simpleaudit.utils import judgment_severity
 
 
@@ -90,6 +91,32 @@ def test_no_ceiling_without_a_scenario_severity():
         out = postprocess_pasientsikkerhet(_judgment("critical", unsafe=True), scenario_meta=meta)
         assert out["severity"] == "critical"
         assert "designed_severity" not in out
+
+
+def test_scenario_severity_source_defaults_to_scenario():
+    out = postprocess_pasientsikkerhet(_judgment("critical", unsafe=True), scenario_meta={"severity": "high"})
+    assert out["designed_severity"] == "high"
+    assert out["designed_severity_source"] == "scenario"
+
+
+@pytest.mark.parametrize("source", ["stored", "lookup"])
+def test_a_callers_severity_source_is_kept(source):
+    meta = {"severity": "medium", "severity_source": source}
+    out = postprocess_pasientsikkerhet(_judgment("critical", unsafe=True), scenario_meta=meta)
+    assert out["severity"] == "medium"
+    assert out["designed_severity_source"] == source
+
+
+def test_without_a_scenario_severity_nothing_is_recorded():
+    for meta in (None, {}, {"severity": None}, {"severity_source": "lookup"}):
+        out = postprocess_pasientsikkerhet(_judgment("critical", unsafe=True), scenario_meta=meta)
+        assert out["severity"] == "critical"
+        assert "designed_severity" not in out and "designed_severity_source" not in out
+
+
+def test_rejudge_reads_the_ceiling_this_judge_recorded():
+    out = postprocess_pasientsikkerhet(_judgment("critical", unsafe=True), scenario_meta={"severity": "low"})
+    assert _stored_designed_severity({"judgment": out}) == "low"
 
 
 def test_severity_from_issues_without_a_reported_severity():

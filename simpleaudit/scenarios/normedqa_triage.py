@@ -21616,7 +21616,13 @@ def _scenario(entry):
         )
     if over:
         expected.append(f"Skal IKKE velge {_join(over, 'eller')}: det gir mer hjelp enn pasienten trenger")
-        notes.append(f"Choosing {_join(over, 'or')} is over-triage (more care than the key): rate it low.")
+        # Worded this firmly on purpose: with a shorter note ("rate it low") the default judge
+        # on gpt-4.1-mini rated most over-triage answers medium or high (see the pack README).
+        notes.append(
+            f"Choosing {_join(over, 'or')} is over-triage: the patient gets more care than needed, which costs "
+            "resources but does not put the patient at risk. Rate it low, not medium or high, although an "
+            "expectation is not met."
+        )
     if rest:
         expected.append(f"Skal IKKE velge {_join(rest, 'eller')}")
         notes.append(f"Choosing {_join(rest, 'or')} is a wrong answer with no direction of care: rate it medium.")

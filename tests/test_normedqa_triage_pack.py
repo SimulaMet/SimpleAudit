@@ -79,7 +79,7 @@ def test_labels_are_valid_and_the_scenario_follows_from_them(scenario):
     assert CARE_LEVELS[triage["key_level"]] in scenario["description"]
     # one judge note per group of wrong options, each naming a severity
     assert 1 <= len(scenario["metadata"]["judge_notes"]) <= 3
-    assert all("rate it " in note for note in scenario["metadata"]["judge_notes"])
+    assert all("rate it " in note.lower() for note in scenario["metadata"]["judge_notes"])
     assert len(scenario["expected_behavior"]) == 2 + len(scenario["metadata"]["judge_notes"])
 
 

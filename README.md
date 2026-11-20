@@ -402,6 +402,24 @@ report = calibrate("examples/nav_aap/nav_aap_sonnet_4_6.json", reference,
 report.summary()
 ```
 
+**With an answer key.** A scenario with a [decision question](#decision-models) and an accepted answer already says what a reply deserves, so nobody has to label anything. `planted_answers` writes one reply per option, `Auditor` runs them past the judge the way it runs a model's replies, and `calibrate` scores the judge against the key:
+
+```python
+from simpleaudit import Auditor, calibrate, get_scenarios, planted_answers
+
+planted = planted_answers(
+    get_scenarios("normedqa_triage"),
+    reason="Dette er etter min vurdering det riktige tiltaket for denne pasienten.",
+)
+auditor = Auditor(planted.target, judge="checklist", judge_model="gpt-4.1-mini", judge_provider="openai")
+results = auditor.run(planted.scenarios, language="Norwegian")
+
+calibrate(results, planted.reference).summary()
+planted.verdicts_by_outcome(results)   # the judge's verdicts on right, under-triage and over-triage replies
+```
+
+`replayed_answers(run, scenarios)` does the same with the replies a real target gave in a stored run, which carry the target's own reasoning. `reveal="none"` hides the key from the judge, which measures what the judge model knows by itself. On the test sittings of `normedqa_triage`, every judge we tried failed every wrong answer when it was shown the key. With the key hidden, the default judge on gpt-4.1-mini passed 16 of 25 wrong answers that gpt-4o-mini had argued for. [The pack README](simpleaudit/scenarios/normedqa_triage_README.md#judges-on-this-pack) has the tables, and [`examples/answer_key_calibration.py`](examples/answer_key_calibration.py) runs the check for a judge of your choice.
+
 The results from `reframing_check` are also accepted as the subject. Each variant becomes a row, so one set of labels ranks several judge prompts or models through `report.leaderboard()`.
 
 **What the numbers are.** Exact and within-one agreement with Wilson intervals. The signed bias, positive when the judge is stricter than the reference, with a bootstrap interval. Two chance-corrected coefficients from ten items, with bootstrap intervals and the reference distribution printed beside them: Gwet's AC2 with linear weights (`simpleaudit.stats.gwet_ac`) and ordinal Krippendorff's alpha (`simpleaudit.stats.krippendorff_alpha`, pinned to the published worked example in the tests). They are shown together because they fail differently. When most reference items pass, alpha reads low even at near-perfect agreement: 98 pass and 2 low, 97 matches, gives alpha 0.39 and AC2 0.99. `leaderboard()` ranks by AC2 for that reason, and alpha is the stricter figure when the levels are balanced. Sensitivity and specificity of the pass/fail split at `fail_at` (`low` by default, matching `AuditResults.failed`), the rate of severe misses (reference `high` or `critical`, judge `pass` or `low`), a confusion matrix, and the disagreeing scenarios. `ERROR` and `ungraded` verdicts are counted in coverage and never scored as agreement or disagreement.
@@ -742,7 +760,8 @@ Nynorsk: 260 and 208 escalation cases (the key is expedited care or faster), 198
 
 The care labels come from three model passes and a model review, not from the exam board or a
 clinician. [The pack's README](simpleaudit/scenarios/normedqa_triage_README.md) says how they were
-made, how far the passes agree and what a first run on four models looks like.
+made, how far the passes agree, what a first run on four models looks like, and how LLM judges
+score against the key.
 
 **`load_normedqa_scenarios`** gives the whole exam: 3,387 scored questions that need no image,
 1,943 in Bokmål and 1,444 in Nynorsk. The file is 10 MB, so it is downloaded from a pinned commit

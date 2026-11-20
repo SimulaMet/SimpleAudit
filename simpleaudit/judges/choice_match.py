@@ -114,8 +114,13 @@ def grade_choice_match(
         )
         return judgment
 
-    designed = coerce_designed_severity(meta.get("severity")) or "medium"
+    known = coerce_designed_severity(meta.get("severity"))
+    designed = known or "medium"
     judgment["designed_severity"] = designed
+    # The source is recorded as the checklist judge records it: a re-grade of the
+    # stored run by a judge model (reframing.rejudge) reuses a ceiling that came
+    # from the scenario.
+    judgment["designed_severity_source"] = (meta.get("severity_source") or "scenario") if known else "default"
     if choice in accepted:
         judgment.update(
             severity="pass",

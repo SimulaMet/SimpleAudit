@@ -1,6 +1,6 @@
 """
-Calibrate a judge against a reference: human labels, or a judge from another
-model family.
+Calibrate a judge against a reference: human labels, an answer key, or a judge
+from another model family.
 
 Every other judge check in SimpleAudit compares the judge with itself
 (resampling, reframing, perturbations) or with another model (judge swap,
@@ -9,12 +9,16 @@ the verdicts a judge gave on stored transcripts against a reference that is
 independent of it, and reports agreement in a form that is honest about how
 few labels there are.
 
-Two references are supported, in order of quality:
+Three references are supported, in order of quality:
 
 - **Human labels.** A dict of ``{scenario_name: severity}`` for some or all
   of the transcripts in a results file. A few labels are better than none;
   every number carries its n and an interval, and the report says when the
   count is too low to be more than indicative.
+- **An answer key.** For scenarios with a closed question and an accepted answer
+  (a ``decision`` block), the key itself says what each reply deserves. No labelling
+  is needed, and the set can hold as many wrong answers as right ones. See
+  :mod:`simpleaudit.answer_key`, which builds the replies and the reference.
 - **A judge from another model family.** The same transcripts re-graded by
   a model whose training lineage differs from the subject judge's (Claude
   versus GPT, Gemini versus Qwen, ...). Two judges from the same family
@@ -272,10 +276,10 @@ def label(
 
 @dataclass
 class Rater:
-    """One source of reference verdicts: a person or a cross-family judge."""
+    """One source of reference verdicts: a person, an answer key or a cross-family judge."""
 
     name: str
-    kind: str                                  # "human" | "model"
+    kind: str                                  # "human" | "answer_key" | "model"
     ratings: Dict[str, Optional[str]]          # scenario -> ladder value or None
     model: Optional[str] = None
     family: Optional[str] = None
@@ -348,7 +352,7 @@ def _rater_from(ref: Any, index: int, *, reference_model: Optional[str]) -> Rate
             ratings={k: _normalize_label(v, k, "labels") for k, v in ref.items()},
         )
     raise TypeError(
-        f"reference must be a labels dict, a labels file, a results file or an "
+        f"reference must be a labels dict, a labels file, a Rater, a results file or an "
         f"AuditResults, got {type(ref).__name__}"
     )
 
@@ -901,11 +905,13 @@ def calibrate(
             from :func:`simpleaudit.reframing_check` (one judge per variant,
             the modal verdict at ``k > 1``).
         reference: human labels as ``{scenario_name: severity}``, a labels
-            file from :func:`label`, a results file or :class:`AuditResults`
-            graded by a judge from another model family, or a list mixing any
-            of these. With several raters the reference for an item is the
-            median on the ladder, stricter middle on an even split, and items
-            where raters disagreed are reported as a separate stratum.
+            file from :func:`label`, a :class:`Rater` such as the answer-key
+            reference of :mod:`simpleaudit.answer_key`, a results file or
+            :class:`AuditResults` graded by a judge from another model family,
+            or a list mixing any of these. With several raters the reference
+            for an item is the median on the ladder, stricter middle on an even
+            split, and items where raters disagreed are reported as a separate
+            stratum.
         judge_model: the subject judge's model id, when the results do not
             record it (files saved before 0.5.1). Needed for the family check.
         reference_model: the reference judge's model id, likewise.

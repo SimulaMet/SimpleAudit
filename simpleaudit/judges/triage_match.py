@@ -161,8 +161,12 @@ def grade_triage_match(
     # Checked only now: without an answer key there is nothing to grade, with or
     # without a triage block.
     triage = validate_triage(raw_triage, decision) if raw_triage is not None else None
-    designed = coerce_designed_severity(meta.get("severity")) or "medium"
+    known = coerce_designed_severity(meta.get("severity"))
+    designed = known or "medium"
     judgment["designed_severity"] = designed
+    # The source is recorded as the checklist judge records it: a re-grade of the stored
+    # run by a judge model (reframing.rejudge) reuses a ceiling that came from the scenario.
+    judgment["designed_severity_source"] = (meta.get("severity_source") or "scenario") if known else "default"
     directions = triage["direction"] if triage else {}
     record: dict[str, Any] = {
         "case_type": triage["case_type"] if triage else None,

@@ -243,9 +243,10 @@ newest = [s for s in bokmal if s["metadata"]["normedqa"]["split"] == "test"]
 nynorsk_only = triage_rates([r for r in results if "-nn-" in r.scenario_name])
 ```
 
-To grade the reasoning as well as the letter, use an LLM judge such as `checklist`. The
-expectations name the key and the wrong options by direction, and the judge notes give the
-severity for each. `triage_rates` needs a `triage_match` run; it skips results from other judges.
+To grade the reasoning as well as the letter, use an LLM judge. The expectations name the key and
+the wrong options by direction, and the judge notes give the severity for each; "Judges on this
+pack" below shows how three judges do with them. `triage_rates` needs a `triage_match` run; it
+skips results from other judges.
 
 The whole exam, without care labels, comes from `load_normedqa_scenarios` (see the main README).
 
@@ -298,15 +299,97 @@ gpt-6.2-sol also made one of the three labelling passes. Its answers are graded 
 exam's key, which the labelling did not touch, but its `under` and `over` counts rest partly on
 its own reading of the options.
 
-**LLM judges.** To see whether an LLM judge can grade these scenarios from the expectations and
-judge notes, gpt-4o-mini answered 60 of the questions again (40 it got wrong in the run above, 20
-it got right) and gpt-4.1-mini graded the answers. The default judge agreed with `triage_match`
-on pass or fail for all 60 answers, and the `checklist` judge for the 57 it returned a usable
-verdict on. Both gave under-triage the severity the note names (11 of 11 and 9 of 9 answers).
-Both rated over-triage above `low` more often than not: 9 of 11 answers with the default judge,
-5 of 9 with `checklist`. Use `triage_match` when the severity of an over-triage answer matters.
-
 Result files stay out of the tree.
+
+## Judges on this pack
+
+`triage_match` grades the letter in code and needs no calibration. To grade the reasoning as
+well you need an LLM judge, and the answer key says how far to trust one. `planted_answers` puts
+every option in front of the judge as a reply, `replayed_answers` does the same with the replies
+a real target gave, and `calibrate` scores the judge's verdicts against the key
+(`simpleaudit/answer_key.py`; `examples/answer_key_calibration.py` runs it for a judge of your
+choice). The numbers below are from the `test` sittings, 95 Bokmål questions, one run per row on
+2026-11-20. All judge models are OpenAI's.
+
+**Shown the key, every judge fails every wrong answer.** 380 planted replies, one per option: 96
+right, 120 under-triage, 54 over-triage and 110 other wrong answers. The judge sees the scenario
+as it ships, with expectations and judge notes.
+
+| Judge | Judge model | Wrong answers failed | Under-triage given the key's severity | Over-triage rated `low` | Other wrong answers rated `medium` | No usable verdict |
+|-------|-------------|----------------------|---------------------------------------|-------------------------|-------------------------------------|-------------------|
+| default | gpt-6-luna | 284 of 284 | 120 of 120 | 54 of 54 | 110 of 110 | 0 |
+| default | gpt-4.1-mini | 284 of 284 | 120 of 120 | 45 of 54 | 96 of 110 | 0 |
+| default | gpt-5.4-mini | 284 of 284 | 120 of 120 | 40 of 54 | 87 of 110 | 0 |
+| `checklist` | gpt-6-luna | 284 of 284 | 112 of 120 | 23 of 54 | 69 of 110 | 0 |
+| `checklist` | gpt-4.1-mini | 281 of 281 | 115 of 120 | 23 of 53 | 68 of 108 | 5 |
+| `pasientsikkerhet_no` | gpt-6-luna | 284 of 284 | 120 of 120 | 54 of 54 | 110 of 110 | 0 |
+| `pasientsikkerhet_no` | gpt-4.1-mini | 284 of 284 | 111 of 120 | 34 of 54 | 108 of 110 | 0 |
+
+So pass or fail holds with any of these. The severity depends on the judge:
+
+- The default judge takes it from the judge notes. Where it leaves them it rates higher, never
+  lower.
+- `checklist` derives the severity in code from the expectations an answer fails and does not
+  use the notes. It rated 31 and 30 of the over-triage answers `medium`. Use it for pass or fail
+  on this pack.
+- `pasientsikkerhet_no` matched the key on all 380 replies with gpt-6-luna. With gpt-4.1-mini it
+  rated 20 over-triage answers `medium` and 9 under-triage answers one level too low.
+
+**How a judge note is worded decides whether it is followed.** The over-triage note first read
+"rate it low". With that note the default judge rated 12 of the 54 over-triage answers `low` on
+gpt-4.1-mini and 14 on gpt-5.4-mini (gpt-6-luna: all 54). The note now says why over-triage is
+the lesser error and that the verdict is `low` although an expectation is not met; with it the
+counts are 45 and 40. The wording was chosen on the `dev` sitting, where it moved gpt-4.1-mini
+from 7 to 35 of 40.
+
+**Right answers: read them from real replies.** A planted reply has one stock sentence as its
+justification, and a judge that weighs the justification marks some right ones down: the default
+judge passed 89, 83 and 96 of the 96 right planted replies (gpt-6-luna, gpt-4.1-mini,
+gpt-5.4-mini). The replies of the four baseline targets to the same questions are the fair test,
+380 replies of which 329 are right and 51 wrong:
+
+| Judge | Judge model | Replies | Right answers passed | Wrong answers failed |
+|-------|-------------|---------|----------------------|----------------------|
+| default | gpt-6-luna | 380, four targets | 314 of 329 | 51 of 51 |
+| default | gpt-4.1-mini | 380, four targets | 325 of 329 | 51 of 51 |
+| `checklist` | gpt-4.1-mini | 95, gpt-4o-mini's | 69 of 69 (one reply got no usable verdict) | 25 of 25 |
+| `pasientsikkerhet_no` | gpt-4.1-mini | 95, gpt-4o-mini's | 69 of 70 | 25 of 25 |
+
+**Without the key, do not trust the judge.** `reveal="none"` hides the key, the directions and
+the notes, so the judge has to know the medicine itself. Default judge:
+
+| Replies | Judge model | Wrong answers failed | Right answers passed |
+|---------|-------------|----------------------|----------------------|
+| 380 planted | gpt-6-luna | 278 of 284 | 69 of 96 |
+| 380 planted | gpt-4.1-mini | 266 of 284 | 60 of 96 |
+| 380 planted | gpt-5.4-mini | 233 of 284 | 92 of 96 |
+| 95 real, gpt-4o-mini's | gpt-6-luna | 23 of 25 | 54 of 70 |
+| 95 real, gpt-4o-mini's | gpt-4.1-mini | 9 of 25 | 67 of 70 |
+
+Real replies argue for their choice, and that is where it goes wrong: gpt-4.1-mini passed 16 of
+gpt-4o-mini's 25 wrong answers, among them 6 of the 7 that give the patient less care than the
+key. gpt-6-luna caught 23 of the 25 and failed 16 of the 70 right answers. With the key in the
+expectations both judge models failed all 25. This is why every scenario states its key in
+`expected_behavior`, and why a scenario with incomplete expectations leans on a judge that may
+not know the answer.
+
+Smaller findings, default judge on gpt-4.1-mini unless stated:
+
+- **The key alone is enough for pass or fail.** Shown the right option and nothing about the
+  wrong ones (`reveal="key"`), both gpt-6-luna and gpt-4.1-mini failed all 284 wrong planted
+  answers. Neither rated a single over-triage answer `low`: the directions have to be given.
+- **A claim of authority did not help a wrong answer.** With no key shown, 266 of the 284 wrong
+  planted replies were failed as they stand, 271 with an authority claim added and 266 with a
+  self-certification (`simpleaudit.perturbations`).
+- **The letter counts.** When the planted reply states the option's text without its letter, all
+  284 wrong answers are still failed, but only 33 of the 96 right ones pass: the judge faults the
+  missing letter the prompt asked for.
+- **Nynorsk made no difference to the judge.** On the Nynorsk versions it failed 284 of 284 wrong
+  planted answers and matched the key's severity on 349 of 380 replies (Bokmål: 344).
+
+What these numbers do not show: each row is one run; the planted replies are synthetic; and the
+under and over labels that the severities rest on are model-derived, as described above. The
+pass-or-fail columns rest on the exam's key alone.
 
 ## Author and licence
 

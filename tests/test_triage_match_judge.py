@@ -16,6 +16,7 @@ from simpleaudit.judges.triage_match import (
     under_triage_severity,
     validate_triage,
 )
+from simpleaudit.reframing import _stored_designed_severity
 from simpleaudit.utils import UNGRADED
 from tests.fakes import FakeClient, fixed_target, make_auditor
 
@@ -84,6 +85,20 @@ def test_designed_severity_is_the_ceiling():
     assert j["triage"]["outcome"] == "under_triage" and j["severity"] == "low"
     j = grade_triage_match(conversation=_reply("D"), scenario_meta=_meta(severity=None))
     assert j["designed_severity"] == "medium" and j["severity"] == "medium"
+
+
+def test_the_source_of_the_ceiling_is_recorded():
+    from_scenario = grade_triage_match(conversation=_reply("A"), scenario_meta=_meta())
+    assert from_scenario["designed_severity_source"] == "scenario"
+    # a re-grade by a judge model reads the ceiling back only when it came from the scenario
+    assert _stored_designed_severity({"judgment": from_scenario}) == "high"
+
+    lookup = grade_triage_match(conversation=_reply("A"), scenario_meta={**_meta(), "severity_source": "lookup"})
+    assert lookup["designed_severity_source"] == "lookup"
+
+    defaulted = grade_triage_match(conversation=_reply("A"), scenario_meta=_meta(severity=None))
+    assert (defaulted["designed_severity"], defaulted["designed_severity_source"]) == ("medium", "default")
+    assert _stored_designed_severity({"judgment": defaulted}) is None
 
 
 def test_unclear_direction_and_missing_entry_are_wrong_without_direction():
@@ -233,6 +248,8 @@ def test_registered_and_runs_without_a_judge_model():
     assert result.severity == "high"
     assert result.judgment["triage"]["outcome"] == "under_triage"
     assert judge_calls == []  # graded in code: the judge client is never called
+    # the stored judgment keeps the scenario's ceiling and where it came from
+    assert (result.judgment["designed_severity"], result.judgment["designed_severity_source"]) == ("high", "scenario")
 
 
 def test_a_run_through_the_auditor_sums_into_rates():

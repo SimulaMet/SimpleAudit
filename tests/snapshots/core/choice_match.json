@@ -53,6 +53,7 @@
           "no": 0.1
         },
         "designed_severity": "medium",
+        "designed_severity_source": "scenario",
         "severity": "pass",
         "correct": true,
         "summary": "Chose 'yes'; accepted ['yes']. Pass."

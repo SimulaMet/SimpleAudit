@@ -132,6 +132,37 @@ options. It lets the same scenario be run against chat models and against decisi
 - The number of options is not limited here. Targets that have a limit (System One endpoints accept
   2–26 options) enforce it themselves.
 
+#### Triage block for care questions
+
+A scenario whose `decision` asks what to do for a patient can say, in `metadata.triage`, which way
+each wrong option errs. The `triage_match` judge grades by it: choosing less care than the accepted
+answer costs more than choosing more.
+
+```json
+"metadata": {
+  "triage": {
+    "case_type": "escalation",
+    "key_level": 4,
+    "direction": {"A": "under", "B": "under", "C": "lateral"}
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `triage.case_type` | string | `escalation` (the accepted answer is expedited care or faster), `self_help` (it is to wait, or to treat without escalating) or `directional` (any other question with an `under` or `over` option). |
+| `triage.key_level` | integer | Care level of the accepted answer: 0 no new action, 1 care from the doctor the patient is with, 2 routine referral, 3 expedited, 4 same day, 5 immediate. Sets the severity of an `under` answer. |
+| `triage.direction` | object | Wrong option key → `under` (less or later care than the accepted answer), `over` (more care), `lateral` (wrong at about the same level) or `unclear`. |
+
+- Unknown values are an error. `scripts/check_scenario_pack.py` reports them, and
+  `triage_match` raises on them when it grades, which makes that scenario's result an `ERROR`.
+  Unlike a decision block, a triage block is not checked before the run starts.
+- The block itself reaches neither the target nor an LLM judge. When an LLM judge grades the
+  scenario, state the directions in `expected_behavior` and in `metadata.judge_notes`, which the
+  judge does see.
+- `simpleaudit.triage_rates(results)` sums a run graded with `triage_match` into under-triage
+  and over-triage rates. The `normedqa_triage` pack is built this way.
+
 ### Source Fields
 
 Required for traceability. Fields depend on `source.type`:
@@ -941,6 +972,7 @@ def migrate_v1_to_v2(v1_scenario: dict) -> dict:
 
 ## Changelog
 
+- **1.3 (November 2026)** — added the optional `metadata.triage` block for care questions (direction of each wrong option), read by the `triage_match` judge.
 - **1.2 (October 2026)** — added the optional `decision` field (one closed question with fixed
   options and an optional answer key) and its row in "What reaches the models"; the checker
   validates it.
@@ -952,4 +984,4 @@ def migrate_v1_to_v2(v1_scenario: dict) -> dict:
 
 ---
 
-*Version 1.2 — October 2026*
+*Version 1.3 — November 2026*

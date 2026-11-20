@@ -10,8 +10,9 @@ ERROR (must fix), WARN (fix or explain in the PR) or INFO (for the reviewer).
 Exit code is 1 when any ERROR is present. tests/test_scenario_pack_conventions.py
 runs the ERROR-level rules in CI for the packs listed there.
 
-Standard library only, apart from simpleaudit itself (the pack registry, and the
-decision-block rules in simpleaudit/decision.py).
+Standard library only, apart from simpleaudit itself (the pack registry, the
+decision-block rules in simpleaudit/decision.py and the triage-block rules in
+simpleaudit/judges/triage_match.py).
 """
 
 import argparse
@@ -219,6 +220,15 @@ def check_scenarios(pack, scenarios, rep):
                 validate_decision(s["decision"])
             except ValueError as exc:
                 rep.error(w, f"invalid decision block: {exc}")
+
+        if "triage" in md:
+            # Same rules the triage_match judge applies when it grades (judges/triage_match.py).
+            from simpleaudit.judges.triage_match import validate_triage
+
+            try:
+                validate_triage(md["triage"], s.get("decision") or {})
+            except ValueError as exc:
+                rep.error(w, f"invalid triage block: {exc}")
 
         jn = md.get("judge_notes")
         if jn is not None:

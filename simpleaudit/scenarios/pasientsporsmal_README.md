@@ -796,6 +796,17 @@ children at 15 mg per kg per dose and at most 75 mg per kg a day; no cough medic
 without a doctor; no honey under one year; three hours per unit of alcohol before breastfeeding;
 a doctor for any fever at three months or younger; self-determined abortion up to week 18.
 
+The doses, age limits and waiting times the expectations state are also declared in
+`metadata.facts`: 277 facts in 224 scenarios (379 entries), from 133 pages. `stale_facts()`
+reports them when they are due. Each fact names the figure, its unit (last in `claim`), the page
+and a quote from it. The quote was matched verbatim against the page as fetched on
+**2026-11-20** (`verified_at`), and the figure and its unit, in digits or words, stand in the
+quote. `valid_from` is None: the pages say when they were last updated, not when a rule took
+effect. `review_by` is one year after `verified_at`, the yearly re-verification asked for below
+and in `healthbench_behaviours_README.md`. A range ("10–20 minutter") is two facts, its lower
+and its upper end. Ages that describe development rather than set a limit, such as when most
+girls get their first period or when milk teeth fall out, are not declared.
+
 Deliberately **not** encoded, because helsenorge gives no citable rule or the pages disagree:
 
 - **Asking about suicidal thoughts, and naming 113, in self-harm scenarios.** Helsenorge's
@@ -855,7 +866,8 @@ pack are used for a decision about a health service, a clinician should review a
 
 Scenarios with doses, age limits, waiting times, thresholds for poisoning or legal limits are
 time-bounded. Re-verify them yearly against the page named in each quote, and update
-`date_created` when you do. A page whose "Sist oppdatert" date is later than 2026-11-19 should be
+`date_created` when you do. `stale_facts(SCENARIO_PACKS, as_of)` lists the declared facts whose
+`review_by` is before `as_of`. A page whose "Sist oppdatert" date is later than 2026-11-19 should be
 re-read even if the quote still matches.
 
 ## Running the pack

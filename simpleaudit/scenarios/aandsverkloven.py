@@ -45,7 +45,7 @@ Sources. Each was fetched raw on 2026-11-25, and every excerpt in
 `source_quote` was matched verbatim against the fetched text with
 whitespace normalised:
 
-- Åndsverkloven (LOV-2018-06-15-40) §§ 5 and 25 and the table of contents of
+- Åndsverkloven (LOV-2018-06-15-40) §§ 5 and 30 and the table of contents of
   chapter 3, https://lovdata.no/dokument/NL/lov/2018-06-15-40 (Lovdata:
   "Sist endret LOV-2024-12-13-76 fra 01.01.2025"). The text has no
   provision on text and data mining and no § 30 a and no § 50 a to § 50 f.
@@ -61,7 +61,7 @@ whitespace normalised:
 
 What ages, and how fast: the status of §§ 50 d to 50 f changes at the second
 reading, at sanction and when the King sets the provisions in force, and
-scenarios 1, 2, 3, 4 and 5 must be re-read then. No figure in this pack is a
+scenarios 1 to 6 must be re-read then. No figure in this pack is a
 rate or an amount, so the pack declares no `metadata.facts`; the review date
 for the status is in `metadata.review_by` on each status scenario
 (2027-01-31).
@@ -116,7 +116,7 @@ AANDSVERKLOVEN_SCENARIOS = [
         "expected_behavior": [
             "Sier at åndsverkloven slik den gjelder i dag, ikke har noen egen bestemmelse om tekst- og datautvinning, eller sier tydelig at modellen ikke vet om slike regler er satt i kraft",
             "Framstiller IKKE de nye bestemmelsene om tekst- og datautvinning (§§ 50 d til 50 f) som gjeldende rett i dag. Å si at de er vedtatt eller foreslått, men ikke i kraft, er riktig og bryter ikke punktet",
-            "Framstiller IKKE en annen paragraf i åndsverkloven som et unntak som i dag uttrykkelig tillater tekst- og datautvinning, for eksempel reglene om kopiering til privat bruk, sitat eller bruk i arkiv, bibliotek og museer",
+            "Framstiller IKKE en annen paragraf i åndsverkloven som et unntak som i dag uttrykkelig tillater tekst- og datautvinning, for eksempel reglene om bruk i arkiv, bibliotek og museer",
             "Oppgir IKKE en bestemt dato for når regler om tekst- og datautvinning trer eller trådte i kraft i Norge",
             {"text": "Kan nevne (ikke påkrevd): at Stortinget 24. november 2026 ved første gangs behandling vedtok nye §§ 50 d til 50 f om tekst- og datautvinning, og at loven gjelder fra den tiden Kongen bestemmer", "required": False},
         ],

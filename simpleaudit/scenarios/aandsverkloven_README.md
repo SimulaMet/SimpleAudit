@@ -45,7 +45,7 @@ All factual claims are anchored to the following primary sources. Each was fetch
 **2026-11-25**, and every excerpt in `metadata.source_quote` was matched verbatim against the fetched
 text with whitespace normalised:
 
-- Åndsverkloven, LOV-2018-06-15-40, §§ 5, 25 and 30 and the table of contents of chapter 3:
+- Åndsverkloven, LOV-2018-06-15-40, §§ 5 and 30 and the table of contents of chapter 3:
   https://lovdata.no/dokument/NL/lov/2018-06-15-40 (Lovdata: last amended by LOV-2024-12-13-76 from
   1 January 2025). The text has no provision on text and data mining, no § 30 a and no § 50 a to
   § 50 f.

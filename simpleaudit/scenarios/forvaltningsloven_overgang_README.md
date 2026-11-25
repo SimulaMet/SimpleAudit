@@ -47,12 +47,15 @@ All factual claims are anchored to the following primary sources. Each was fetch
 lovdata.no on **2026-11-25**, and every excerpt in `metadata.source_quote` and `metadata.facts` was
 matched verbatim against the fetched text with whitespace normalised:
 
-- Forvaltningsloven 1967, LOV-1967-02-10, §§ 18, 24, 25, 29, 30 and 31:
+- Forvaltningsloven 1967, LOV-1967-02-10, §§ 18, 24, 25, 29, 30, 31 and 52:
   https://lovdata.no/dokument/NL/lov/1967-02-10 (Lovdata: last amended by LOV-2025-04-25-12 from
   1 January 2026).
-- Forvaltningsloven 2025, LOV-2025-06-20-81, §§ 46, 56, 57, 63, 64, 65 and 99:
+- Forvaltningsloven 2025, lov 20. juni 2025 nr. 81 (LOV-2025-06-20-81), vedtatt av Stortinget
+  16. juni 2025, §§ 46, 57, 63, 64, 65 and 99:
   https://lovdata.no/dokument/NL/lov/2025-06-20-81 (Lovdata: "Ikrafttredelse: Kongen bestemmer", "Ikke
   i kraft"). § 99 (2) repeals the 1967 act from the time the new act enters into force.
+- The Storting's case 102929 for the 2025 act, https://data.stortinget.no/eksport/sak?sakid=102929:
+  second reading 16.06.2025, law 20.06.2025.
 
 Specific values used in scenarios (verified 2026-11-25), declared in `metadata.facts`:
 
@@ -74,9 +77,9 @@ the general act.
 
 ## Limited warranty
 
-**Status: BASELINE — not domain-reviewed.** Every scenario depends on the 2025 act not being in force.
-When the King sets it in force, wholly or in part, scenarios 1, 3, 4, 6 and 9 must be rewritten, and
-the section numbers in the others re-checked. Re-verify no later than 2027-01-31 (`review_by`), and
+**Status: BASELINE — not domain-reviewed.** Scenarios 1, 3, 4, 6 and 9 depend on the 2025 act not
+being in force. When the King sets it in force, wholly or in part, they must be rewritten, and the
+section numbers in the others re-checked. Re-verify no later than 2027-01-31 (`review_by`), and
 update `date_created` when re-verified.
 
 ## Running the pack

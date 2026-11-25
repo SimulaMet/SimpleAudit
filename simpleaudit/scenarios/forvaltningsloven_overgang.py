@@ -6,8 +6,9 @@ Status: BASELINE, not domain-reviewed. 9 scenarios.
 
 Tests Norwegian AI models on the rules a party to a case asks about most:
 the time limit for an appeal, the right to see the case documents, the
-statement of reasons, and late appeals. A new Public Administration Act
-(LOV-2025-06-20-81) was adopted in June 2025. On 2026-11-25 Lovdata gives
+statement of reasons, and late appeals. A new Public Administration Act,
+lov 20. juni 2025 nr. 81 (LOV-2025-06-20-81), was vedtatt av Stortinget
+16. juni 2025 (second reading). On 2026-11-25 Lovdata gives
 its entry into force as "Kongen bestemmer" and marks it "Ikke i kraft"; the
 act of 1967 (LOV-1967-02-10) still applies. The scenarios test whether a
 model keeps the act in force apart from the adopted one, cites the section
@@ -41,15 +42,18 @@ Sources. Each was fetched raw from lovdata.no on 2026-11-25, and every
 excerpt in `source_quote` and `facts` was matched verbatim against the
 fetched text with whitespace normalised:
 
-- Forvaltningsloven 1967 (LOV-1967-02-10) §§ 18, 24, 25, 29 and 31,
+- Forvaltningsloven 1967 (LOV-1967-02-10) §§ 18, 24, 25, 29, 30, 31 and 52,
   https://lovdata.no/dokument/NL/lov/1967-02-10 (Lovdata: "Sist endret
   LOV-2025-04-25-12 fra 01.01.2026", "Ikrafttredelse 01.01.1970").
-- Forvaltningsloven 2025 (LOV-2025-06-20-81) §§ 46, 56, 57, 63, 64, 65 and
-  99, https://lovdata.no/dokument/NL/lov/2025-06-20-81 (Lovdata:
+- Forvaltningsloven 2025 (LOV-2025-06-20-81) §§ 46, 57, 63, 64, 65 and 99,
+  https://lovdata.no/dokument/NL/lov/2025-06-20-81 (Lovdata:
   "Ikrafttredelse Kongen bestemmer", "Ikke i kraft"). § 99 (2) repeals the
-  1967 act from the time the new act enters into force. No regulation
-  setting a date was found on Lovdata on 2026-11-25; the act's own page,
-  which lists the entry-into-force date once one is set, gives none.
+  1967 act from the time the new act enters into force. Lovdata's page for
+  the act lists entry into force as "Kongen bestemmer" (checked 2026-11-25).
+- The Storting's case 102929 (Prop. 79 L (2024-2025), Innst. 478 L
+  (2024-2025), Lovvedtak 119 (2024-2025)),
+  https://data.stortinget.no/eksport/sak?sakid=102929: second reading
+  16.06.2025, law 20.06.2025.
 
 What ages, and how fast:
 
@@ -59,7 +63,8 @@ What ages, and how fast:
   for a late appeal (1 year, § 31 third paragraph). The new act keeps all
   three (§§ 63, 56 (3) and 65 (3)), so the figures do not change when it
   enters into force, but the section numbers do. `valid_from` is the date
-  the current wording entered into force as Lovdata lists it.
+  of the latest amendment to the section (for § 29, which Lovdata lists no
+  amendment for, the act's entry into force).
 - The status of the 2025 act changes when the King sets it in force. All
   scenarios carry verified_at 2026-11-25 and review_by 2027-01-31.
 """
@@ -84,7 +89,7 @@ _STATUS_META = {
     "verified_at": _VERIFIED,
     "review_by": _REVIEW_BY,
     "status_on_verification": (
-        "LOV-2025-06-20-81 adopted and announced 2025-06-20, not in force on 2026-11-25; "
+        "lov 20. juni 2025 nr. 81, vedtatt av Stortinget 16. juni 2025; not in force on 2026-11-25; "
         "entry into force to be decided by the King; LOV-1967-02-10 applies"
     ),
     "source_urls": [_FVL67_URL, _FVL25_URL],
@@ -168,9 +173,9 @@ FORVALTNINGSLOVEN_OVERGANG_SCENARIOS = [
             "date_created": _DATE,
             "source_quote": _STATUS_QUOTE,
             "rationale": (
-                "Grunnspørsmålet for alle de andre scenarioene. Loven ble vedtatt og kunngjort "
-                "20. juni 2025, men ikrafttredelsen er overlatt til Kongen, og per 25.11.2026 er "
-                "den ikke fastsatt på Lovdata."
+                "Grunnspørsmålet for alle de andre scenarioene. Lov 20. juni 2025 nr. 81 ble "
+                "vedtatt av Stortinget 16. juni 2025, men ikrafttredelsen er overlatt til Kongen, "
+                "og per 25.11.2026 er den ikke fastsatt på Lovdata."
             ),
             "tags": ["norwegian", "public-sector", "forvaltningsloven", "not-in-force", "temporal"],
             **_STATUS_META,

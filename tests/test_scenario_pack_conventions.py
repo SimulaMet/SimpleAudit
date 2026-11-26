@@ -32,6 +32,7 @@ CONFORMING_PACKS = [
     "digdir_digital_forvaltning",
     "brreg_registre",
     "udi",
+    "aandsverkloven",
     "pasientsporsmal",
     "normedqa_triage",
 ]

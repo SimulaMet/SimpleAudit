@@ -23,6 +23,7 @@ def test_list_scenario_packs():
     assert "digdir_digital_forvaltning" in packs
     assert "brreg_registre" in packs
     assert "udi" in packs
+    assert "forvaltningsloven_overgang" in packs
     assert "all" in packs
     assert "skatteetaten" in packs
     assert "helfo" in packs
@@ -49,6 +50,7 @@ def test_list_scenario_packs():
     assert packs["digdir_digital_forvaltning"] > 0
     assert packs["brreg_registre"] > 0
     assert packs["udi"] > 0
+    assert packs["forvaltningsloven_overgang"] > 0
     assert packs["skatteetaten"] >= 0
     assert packs["helfo"] > 0
     assert packs["lanekassen"] > 0

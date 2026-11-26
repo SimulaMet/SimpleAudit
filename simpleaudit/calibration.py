@@ -343,7 +343,9 @@ def _render_transcript(result: Any) -> str:
         if not isinstance(content, str):
             content = json.dumps(content, ensure_ascii=False)
         lines.append(f"[{role}]\n{content}\n")
-    return "\n".join(lines)
+    # A reply can hold a lone surrogate (half an emoji), which a results file
+    # keeps but neither a terminal nor a UTF-8 sheet can write; show it as \udXXX.
+    return "\n".join(lines).encode("utf-8", "backslashreplace").decode("utf-8")
 
 
 def _existing_labels(path: Path, scale: Scale) -> Dict[str, str]:
@@ -388,7 +390,7 @@ def label(
     ``pass``, ``medium`` and ``fail`` (``p``, ``m``, ``f``); the rules the
     judge is given are printed first, and ``?`` prints them again. On every
     scale ``unsure`` leaves the item out, an empty line skips it for now,
-    and ``q`` stops.
+    and ``q`` (or the end of input, Ctrl-D) stops.
 
     Args:
         results_or_path: a results file or object. With an object, *out*
@@ -452,7 +454,12 @@ def label(
         print_fn(_render_transcript(result))
         prompt = "severity> " if scale is SEVERITY_SCALE else "verdict> "
         while True:
-            answer = input_fn(prompt).strip().lower()
+            try:
+                answer = input_fn(prompt).strip().lower()
+            except EOFError:
+                # Ctrl-D, or piped answers that ran out: stop, as q does.
+                print_fn("")
+                answer = "q"
             if answer == "q":
                 print_fn(f"Stopped. {len(labels)} labels in {out}")
                 return labels
@@ -483,8 +490,8 @@ def label(
 #: :func:`import_labelling_sheet` refuse a sheet made for another scale.
 SHEET_COLUMNS = ("scenario_name", "label", "scenario", "expected_behavior", "transcript")
 
-#: Excel keeps at most this many characters in a cell and cuts the rest when
-#: it saves. Only the transcript can be that long, and it is not read back.
+#: Excel holds at most this many characters in a cell. Only the transcript
+#: can be that long.
 _EXCEL_CELL_LIMIT = 32767
 
 
@@ -560,7 +567,9 @@ def export_labelling_sheet(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     long_rows = []
-    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+    # backslashreplace, as results files are written: a run that saves and
+    # loads must also export.
+    with open(path, "w", encoding="utf-8-sig", errors="backslashreplace", newline="") as f:
         writer = csv.writer(f, delimiter=delimiter)
         writer.writerow([_label_header(scale) if c == "label" else c for c in SHEET_COLUMNS])
         for result in results.results:
@@ -572,13 +581,14 @@ def export_labelling_sheet(
                 long_rows.append(result.scenario_name)
             writer.writerow([result.scenario_name, "", result.scenario_description or "", expected, transcript])
     path.with_name(path.stem + ".instructions.txt").write_text(
-        _sheet_instructions(scale, scale.rubric(criteria)), encoding="utf-8"
+        _sheet_instructions(scale, scale.rubric(criteria)), encoding="utf-8", errors="backslashreplace"
     )
     if long_rows:
+        # Not tested: what Excel writes back when it saves such a sheet.
         warnings.warn(
             f"{len(long_rows)} transcript(s) are longer than the {_EXCEL_CELL_LIMIT} characters an "
-            f"Excel cell holds, so Excel will show them cut off: {long_rows}. Labels are still "
-            "read back correctly; give these raters the transcripts another way.",
+            f"Excel cell holds, so Excel will not show them in full: {long_rows}. Give raters "
+            "who use Excel these transcripts another way, such as the terminal labelling.",
             stacklevel=2,
         )
     return path

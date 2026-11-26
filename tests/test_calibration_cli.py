@@ -256,3 +256,122 @@ def test_kept_grades_are_redone_when_the_run_is_newer_or_on_request(tmp_path, mo
     assert main(argv) == 0 and len(calls) == 24
     assert "is newer than the grades" in capsys.readouterr().out
     assert main(argv + ["--regrade"]) == 0 and len(calls) == 36
+
+
+# ---------------------------------------------------------------------------
+# found in the PR review
+# ---------------------------------------------------------------------------
+
+def _counting_judge(monkeypatch, verdict="pass"):
+    calls = []
+
+    def judge(**kwargs):
+        calls.append(1)
+        return json.dumps({"issues_found": [], "positive_behaviors": [], "verdict": verdict,
+                           "summary": "", "recommendations": []})
+
+    monkeypatch.setattr("simpleaudit.reframing.make_judge_client", lambda *a, **k: FakeClient(judge))
+    return calls
+
+
+def test_a_failed_conversation_in_the_run_does_not_stop_grades_being_kept(tmp_path, monkeypatch, capsys):
+    run = _run(tmp_path, judge=None)
+    stored = AuditResults.load(str(run))
+    cut = stored.results[0]
+    cut.conversation = cut.conversation[:1]          # the user turn is kept, the reply never came
+    cut.severity = "ERROR"
+    cut.judgment = {"severity": "ERROR", "error": "timeout", "error_phase": "conversation"}
+    stored.save(str(run))
+    _labels_for(tmp_path)
+    calls = _counting_judge(monkeypatch)
+    argv = ["pass_fail", "report", str(run), "--judge-model", "m", "--save-dir", str(tmp_path / "r")]
+    assert main(argv) == 0 and len(calls) == 11
+    out = capsys.readouterr().out
+    assert "judge calls failed" not in out
+    assert regraded_path(run, "pass_fail", "m").exists()
+    assert not list(tmp_path.glob("*.incomplete.json"))
+    assert main(argv) == 0 and len(calls) == 11      # the kept grades are used
+    assert "Using the pass_fail grades in" in capsys.readouterr().out
+
+
+def test_kept_grades_are_redone_for_another_provider_base_url_or_pack(tmp_path, monkeypatch, capsys):
+    run = _run(tmp_path, judge=None)
+    _labels_for(tmp_path)
+    calls = _counting_judge(monkeypatch)
+    argv = ["pass_fail", "report", str(run), "--judge-model", "m", "--save-dir", str(tmp_path / "r")]
+    assert main(argv) == 0 and len(calls) == 12
+    kept = AuditResults.load(str(regraded_path(run, "pass_fail", "m"))).meta
+    assert kept["calibrate_graded_with"] == {"provider": "openai", "base_url": None, "scenario_pack": None}
+    assert kept["judge_provider"] == "openai"
+    assert main(argv + ["--provider", "anthropic"]) == 0 and len(calls) == 24
+    assert "made with another --provider; grading again" in capsys.readouterr().out
+    assert main(argv + ["--provider", "anthropic", "--base-url", "http://localhost:8000/v1"]) == 0
+    assert len(calls) == 36
+    assert "made with another --base-url; grading again" in capsys.readouterr().out
+    pack = ["--provider", "anthropic", "--base-url", "http://localhost:8000/v1", "--pack", "no_such_pack"]
+    assert main(argv + pack) == 0 and len(calls) == 48
+    assert "made with another --pack; grading again" in capsys.readouterr().out
+    assert main(argv + pack) == 0 and len(calls) == 48
+    assert "Using the pass_fail grades in" in capsys.readouterr().out
+
+
+def test_regrade_on_a_run_graded_by_the_judge_says_its_own_grades_are_used(tmp_path, capsys):
+    run = _run(tmp_path)
+    _labels_for(tmp_path)
+    assert main(["pass_fail", "report", str(run), "--regrade", "--save-dir", str(tmp_path / "r")]) == 0
+    assert "its own grades are used" in capsys.readouterr().out
+
+
+def test_export_does_not_replace_a_sheet_without_force(tmp_path, capsys):
+    run = _run(tmp_path)
+    assert main(["pass_fail", "export", str(run), "--rater", "ola"]) == 0
+    sheet = tmp_path / "run.pass_fail.ola.csv"
+    _fill(sheet, {"Skatt 0": "fail"})
+    assert main(["pass_fail", "export", str(run), "--rater", "ola", "--delimiter", ";"]) == 1
+    assert "--force" in capsys.readouterr().err
+    assert "Skatt 0,fail" in sheet.read_text(encoding="utf-8-sig")       # the filled-in sheet is kept
+    assert main(["pass_fail", "export", str(run), "--rater", "ola", "--force"]) == 0
+    assert "Skatt 0,fail" not in sheet.read_text(encoding="utf-8-sig")
+
+
+def test_half_an_emoji_in_a_reply_exports_and_labels(tmp_path, monkeypatch, capsys):
+    run = _run(tmp_path)
+    stored = AuditResults.load(str(run))
+    stored.results[1].conversation[-1]["content"] = "ok \ud83d"
+    stored.save(str(run))
+    assert main(["pass_fail", "export", str(run), "--rater", "ola"]) == 0
+    assert "ok \\ud83d" in (tmp_path / "run.pass_fail.ola.csv").read_text(encoding="utf-8-sig")
+    capsys.readouterr()
+    monkeypatch.setattr("sys.stdin", io.StringIO("f\np\nq\n"))
+    assert main(["pass_fail", "label", str(run), "--rater", "anna"]) == 0
+    assert "ok \\ud83d" in capsys.readouterr().out
+
+
+def test_end_of_input_in_label_stops_like_q(tmp_path, monkeypatch, capsys):
+    run = _run(tmp_path)
+    monkeypatch.setattr("sys.stdin", io.StringIO("f\n"))     # then Ctrl-D
+    assert main(["pass_fail", "label", str(run), "--rater", "anna"]) == 0
+    assert "Stopped. 1 labels in" in capsys.readouterr().out
+    data = json.loads(labels_path(run, "pass_fail", "anna").read_text(encoding="utf-8"))
+    assert data["labels"] == {"Skatt 0": "fail"}
+
+
+def test_report_finds_labels_at_the_python_default_path(tmp_path, capsys):
+    run = _run(tmp_path)
+    labels = {n: ("fail" if i % 3 == 0 else "pass") for i, n in enumerate(NAMES)}
+    (tmp_path / "run.pass_fail.labels.json").write_text(
+        json.dumps({"scale": "pass_fail", "labels": labels}), encoding="utf-8")
+    assert main(["pass_fail", "report", str(run), "--save-dir", str(tmp_path / "r")]) == 0
+    out = capsys.readouterr().out
+    assert "Labels: " + str(tmp_path / "run.pass_fail.labels.json") in out
+    assert "exact agreement     12/12" in out
+
+
+def test_import_refuses_a_labels_file_on_another_scale(tmp_path, capsys):
+    run = _run(tmp_path)
+    labels_path(run, "pass_fail", "anna").write_text(
+        json.dumps({"scale": "pass_medium_fail", "labels": {"Skatt 1": "medium"}}), encoding="utf-8")
+    sheet = tmp_path / "s.csv"
+    sheet.write_text("scenario_name,label\nSkatt 0,fail\n", encoding="utf-8")
+    assert main(["pass_fail", "import", str(run), str(sheet), "--rater", "anna"]) == 1
+    assert "holds labels on the 'pass_medium_fail' scale" in capsys.readouterr().err

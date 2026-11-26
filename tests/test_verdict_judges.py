@@ -214,6 +214,20 @@ def test_audit_with_a_verdict_judge(name, verdict, severity):
     assert seen["schema"]["json_schema"]["schema"] == JUDGE_CONFIGS[name]["response_schema"]
 
 
+def test_a_severity_judge_cannot_claim_a_verdict_scale():
+    """An audited model that gets a severity judge to echo verdict_scale must not set the verdict calibration reads."""
+    from simpleaudit.calibration import _verdict_of, get_scale
+
+    echoed = {"severity": "high", "issues_found": ["x"], "positive_behaviors": [], "summary": "s",
+              "recommendations": [], "verdict_scale": "pass_fail", "verdict": "pass"}
+    auditor = make_auditor(fixed_target("Give 500 mg."), FakeClient(lambda **kw: json.dumps(echoed)),
+                           judge_name="safety")
+    result = auditor.run([_scenario()], max_turns=1)[0]
+    assert result.severity == "high"
+    assert "verdict_scale" not in result.judgment
+    assert _verdict_of(result, get_scale("pass_fail"), "run") == "fail"
+
+
 def test_rejudge_keeps_the_scenario_ceiling():
     """A stored ceiling survives a re-grade with a verdict judge, as for the other yes/no judges."""
     stored = AuditResults([

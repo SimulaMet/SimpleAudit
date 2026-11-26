@@ -40,13 +40,13 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .calibration import (
+    _existing_labels,
     _read_labels,
     calibrate,
     export_labelling_sheet,
     get_scale,
     import_labelling_sheet,
     label,
-    load_labels,
     save_labels,
 )
 from .judges import JUDGE_CONFIGS
@@ -121,6 +121,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--delimiter", default=",", choices=[",", ";"],
                    help="';' for Excel set to a language with decimal commas (default: ',')")
     p.add_argument("--no-expected", action="store_true", help="leave out the scenario's expected behaviour")
+    p.add_argument("--force", action="store_true", help="replace the sheet if it exists")
 
     p = steps.add_parser("import", help="read a filled-in sheet back as the rater's labels")
     p.add_argument("results", type=Path, help="a results file saved by AuditResults.save()")
@@ -138,7 +139,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--pack", help="the scenario pack the run came from, for the scenarios' severities "
                                   "(default: the pack the run records)")
     p.add_argument("--regrade", action="store_true",
-                   help="grade the run again even when grades from an earlier report are kept")
+                   help="grade the run again even when an earlier report kept grades made the same way")
     p.add_argument("--save-dir", type=Path, default=Path("results/calibration"),
                    help="where reports are saved (default: results/calibration)")
     return parser
@@ -174,6 +175,13 @@ def _cmd_label(args: argparse.Namespace, scale: str) -> int:
 
 def _cmd_export(args: argparse.Namespace, scale: str) -> int:
     out = args.out or sheet_path(args.results, scale, args.rater)
+    if out.exists() and not args.force:
+        # It may be the sheet the rater is filling in: export prints this same
+        # path for the import, so a second export would replace their labels.
+        return _fail(
+            f"{out} exists and may be a sheet someone is filling in. Import it first, "
+            "choose another file with --out, or pass --force to replace it."
+        )
     path = export_labelling_sheet(str(args.results), out, scale=scale, delimiter=args.delimiter,
                                   show_expected=not args.no_expected)
     instructions = path.with_name(path.stem + ".instructions.txt")
@@ -197,7 +205,8 @@ def _cmd_import(args: argparse.Namespace, scale: str) -> int:
     conflict = _owner_conflict(out, args.rater)
     if conflict:
         return _fail(conflict)
-    existing = load_labels(out) if out.exists() else {}
+    # As label() does: refuse a file on another scale rather than mix the two.
+    existing = _existing_labels(out, get_scale(scale)) if out.exists() else {}
     changed = sum(1 for k, v in labels.items() if k in existing and existing[k] != v)
     added = sum(1 for k in labels if k not in existing)
     merged = {**existing, **labels}
@@ -222,11 +231,40 @@ def _pack_severities(pack: str | None) -> dict[str, str] | None:
         return None
 
 
+#: Run meta key for how kept grades were made, besides the judge and model in
+#: their file name. Grades made another way are not reused.
+_GRADED_WITH = "calibrate_graded_with"
+_GRADED_WITH_OPTIONS = {"provider": "--provider", "base_url": "--base-url", "scenario_pack": "--pack"}
+
+
+def _kept_grades(cached: Path, results_path: Path, judge: str, graded_with: dict) -> bool:
+    """True when *cached* holds grades to reuse; otherwise says why it will grade again."""
+    if cached.stat().st_mtime < results_path.stat().st_mtime:
+        print(f"{results_path} is newer than the grades in {cached}; grading again.")
+        return False
+    try:
+        kept = AuditResults.load(str(cached)).meta.get(_GRADED_WITH)
+    except (ValueError, OSError, KeyError, TypeError):
+        print(f"{cached} cannot be read; grading again.")
+        return False
+    if kept != graded_with:
+        changed = [flag for key, flag in _GRADED_WITH_OPTIONS.items()
+                   if not isinstance(kept, dict) or kept.get(key) != graded_with[key]]
+        spoken = changed[0] if len(changed) == 1 else ", ".join(changed[:-1]) + " or " + changed[-1]
+        print(f"The grades in {cached} were made with another {spoken}; grading again.")
+        return False
+    print(f"Using the {judge} grades in {cached} (--regrade to grade again).")
+    return True
+
+
 def _subject(args: argparse.Namespace, results: AuditResults) -> tuple[str | None, str | None]:
     """``(results file graded by the judge, judge model)``; ``(None, message)`` when there is none."""
     graded_by = results.meta.get("judge_name")
     stored_model = results.meta.get("judge_model")
     if graded_by == args.judge and args.judge_model in (None, stored_model):
+        if args.regrade:
+            print(f"note: {args.results} was graded by {args.judge} on {stored_model}, so its own grades "
+                  "are used; --regrade only redoes grades an earlier report kept.")
         return str(args.results), stored_model
     if args.judge_model is None:
         graded = f"judge {graded_by!r}" if graded_by else "no judge name (the default judge or a custom prompt)"
@@ -236,12 +274,11 @@ def _subject(args: argparse.Namespace, results: AuditResults) -> tuple[str | Non
             "that costs judge tokens only, the target is not called."
         )
     cached = regraded_path(args.results, args.judge, args.judge_model)
-    if cached.exists() and not args.regrade:
-        if cached.stat().st_mtime >= args.results.stat().st_mtime:
-            print(f"Using the {args.judge} grades in {cached} (--regrade to grade again).")
-            return str(cached), args.judge_model
-        print(f"{args.results} is newer than the grades in {cached}; grading again.")
-    from .reframing import make_judge_client, rejudge
+    pack = args.pack or results.meta.get("scenario_pack")
+    graded_with = {"provider": args.provider, "base_url": args.base_url, "scenario_pack": pack}
+    if cached.exists() and not args.regrade and _kept_grades(cached, args.results, args.judge, graded_with):
+        return str(cached), args.judge_model
+    from .reframing import _truncated_by_error, make_judge_client, rejudge
 
     print(f"Grading {len(results.results)} transcripts with {args.judge} on {args.judge_model} ...")
     with warnings.catch_warnings(record=True) as caught:
@@ -253,7 +290,7 @@ def _subject(args: argparse.Namespace, results: AuditResults) -> tuple[str | Non
             judge=args.judge,
             max_concurrency=args.concurrency,
             max_retries=2,
-            scenario_severities=_pack_severities(args.pack or results.meta.get("scenario_pack")),
+            scenario_severities=_pack_severities(pack),
         )
     for warning in caught:
         if "default designed severity" in str(warning.message):
@@ -265,14 +302,18 @@ def _subject(args: argparse.Namespace, results: AuditResults) -> tuple[str | Non
     # rejudge() names the judge only when the run had metadata to carry over.
     regraded.meta.setdefault("judge_name", args.judge)
     regraded.meta.setdefault("judge_model", args.judge_model)
+    regraded.meta["judge_provider"] = args.provider
+    regraded.meta[_GRADED_WITH] = graded_with
     # A call that failed (a wrong key, a provider down) says nothing about the
     # judge. Grades with such failures are not kept, so the next report tries
-    # again instead of reusing them.
-    failed = [r for r in regraded.results if isinstance(r.judgment, dict) and r.judgment.get("error")]
-    if len(failed) == len(regraded.results):
+    # again instead of reusing them. A result whose conversation failed in the
+    # run is carried through with that failure, not graded, so it is not one.
+    graded = [r for r in regraded.results if r.conversation and not _truncated_by_error(r.judgment, r.conversation)]
+    failed = [r for r in graded if isinstance(r.judgment, dict) and r.judgment.get("error_phase") == "judge"]
+    if failed and len(failed) == len(graded):
         return None, f"every judge call failed; the first: {failed[0].issues_found[0] if failed[0].issues_found else 'no detail'}"
     if failed:
-        print(f"note: {len(failed)} of {len(regraded.results)} judge calls failed and count as ERROR. "
+        print(f"note: {len(failed)} of {len(graded)} judge calls failed and count as ERROR. "
               "These grades are not kept; the next report grades again.")
         # Saved apart from the cache, so the report can name a file.
         failed_path = cached.with_name(cached.stem + ".incomplete.json")
@@ -283,12 +324,15 @@ def _subject(args: argparse.Namespace, results: AuditResults) -> tuple[str | Non
 
 
 def _label_files(args: argparse.Namespace, scale: str) -> list[Path]:
-    pattern = glob.escape(str(args.results.with_name(args.results.stem))) + f".{scale}.*.labels.json"
+    stem = str(args.results.with_name(args.results.stem))
+    # label() from Python, without a rater, saves to <stem>.<scale>.labels.json.
+    found = [Path(p) for p in glob.glob(glob.escape(stem) + f".{scale}.labels.json")]
+    found += [Path(p) for p in sorted(glob.glob(glob.escape(stem) + f".{scale}.*.labels.json"))]
     files: list[Path] = []
     seen: set[Path] = set()
     # One file given twice (found here and passed with --labels, or by two
     # spellings of its path) must not count as two raters who always agree.
-    for path in [Path(p) for p in sorted(glob.glob(pattern))] + list(args.labels):
+    for path in found + list(args.labels):
         key = path.resolve()
         if key not in seen:
             seen.add(key)

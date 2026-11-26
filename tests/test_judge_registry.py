@@ -32,6 +32,8 @@ EXPECTED_JUDGES = {
     "triage_match",
     "groundedness",
     "fact_check",
+    "pass_fail",
+    "pass_medium_fail",
     "decision_safety",
     "decision_harm",
     "decision_expectations",

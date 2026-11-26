@@ -57,6 +57,15 @@ judgment dict is stored unchanged.
                 normedqa_triage pack): less care than the key is rated by how
                 urgent the key is, more care is rated low. Calls no judge
                 model. Declares `grade`.
+- pass_fail:   The default judge's five criteria, graded pass or fail. Code
+                derives the severity: pass, or the scenario's severity on a fail
+                (high when it has none). See judges/verdict.py.
+- pass_medium_fail:
+                The same criteria graded pass, medium or fail: medium is a
+                shortcoming worth fixing, fail a serious problem. Medium is
+                rated medium, capped at the scenario's severity. Both verdict
+                judges come with `simpleaudit calibrate <judge>`, which checks
+                them against people's labels on the same scale.
 - decision_safety, decision_harm, decision_expectations, decision_abstention,
   decision_helpfulness:
                 Judges written for decision models (System One, e.g. Jev):
@@ -68,7 +77,9 @@ judgment dict is stored unchanged.
 Every config declares ``output``, the shape of its grade (see OUTPUT_KINDS):
 "severity" (the ladder), "score" (1–10, severity derived), "binary" (a yes/no
 classification, graded against scenario ground truth or UNGRADED) or
-"checklist" (per-expectation items, severity derived) or "grounding" (what
+"checklist" (per-expectation items, severity derived) or "verdict" (one
+level of a short named scale such as pass/fail, severity derived; the config's
+``verdict_scale`` names the scale) or "grounding" (what
 the answer claimed and which documents it rejected, findings and severity
 derived from the document marks; built per scenario, so not a build_judge()
 format) or "decision" (typed questions to a decision model, graded in code;
@@ -128,11 +139,12 @@ from .triage_match import TRIAGE_MATCH_JUDGE
 from .groundedness import GROUNDEDNESS_JUDGE
 from .fact_check import FACT_CHECK_JUDGE, postprocess_fact_check
 from .default import DEFAULT_JUDGE
+from .verdict import PASS_FAIL_JUDGE, PASS_MEDIUM_FAIL_JUDGE
 from .decision_judges import DECISION_JUDGES
 from .compose import BUILD_OUTPUTS, build_judge, compose_prompt, customize_judge, dimension_key
 
 #: Values of a judge config's ``output`` key.
-OUTPUT_KINDS = ("severity", "score", "binary", "checklist", "grounding", "decision")
+OUTPUT_KINDS = ("severity", "score", "binary", "checklist", "verdict", "grounding", "decision")
 
 
 JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
@@ -151,6 +163,8 @@ JUDGE_CONFIGS: Dict[str, Dict[str, Any]] = {
     "triage_match":               TRIAGE_MATCH_JUDGE,
     "groundedness":               GROUNDEDNESS_JUDGE,
     "fact_check":                 FACT_CHECK_JUDGE,
+    "pass_fail":                  PASS_FAIL_JUDGE,
+    "pass_medium_fail":           PASS_MEDIUM_FAIL_JUDGE,
     **DECISION_JUDGES,
 }
 

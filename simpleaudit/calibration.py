@@ -36,12 +36,25 @@ The three calls::
     ref = rejudge("results/nav_aap.json", other_client, "gpt-5.2")
     calibrate("results/nav_aap.json", ref, judge_model="claude-haiku-4-5").summary()
 
+Judge and reference are compared on a :class:`Scale`: the five-level
+severity ladder by default, or the two- and three-level scales of the
+verdict judges (``scale="pass_fail"``, ``scale="pass_medium_fail"``; see
+:mod:`simpleaudit.judges.verdict`). On those, a rater is shown the rules the
+judge is given, and a severity judge's verdicts are read through the scale,
+so the default judge and a verdict judge can be scored on one set of labels.
+:func:`export_labelling_sheet` and :func:`import_labelling_sheet` do the
+labelling in a spreadsheet instead of the terminal, and ``simpleaudit
+calibrate <judge>`` (:mod:`simpleaudit.calibration_cli`) runs the whole check
+from the command line.
+
 Nothing here calls a model. The reference judge is produced by
 :func:`simpleaudit.reframing.rejudge` or :func:`simpleaudit.reframing.reframing_check`.
 """
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import random
 import re
@@ -62,11 +75,133 @@ MIN_ITEMS_FOR_ALPHA = 10
 #: Value a rater writes to leave an item out without deleting the row.
 UNSURE = "unsure"
 
-LABELS_FORMAT_VERSION = "1.0"
-REPORT_FORMAT_VERSION = "1.0"
+#: 1.1: labels files and reports record the scale they are on.
+LABELS_FORMAT_VERSION = "1.1"
+REPORT_FORMAT_VERSION = "1.1"
 
-_LADDER_INDEX = {s: i for i, s in enumerate(SEVERITY_ORDER)}
 _SHORTCUTS = {"p": "pass", "l": "low", "m": "medium", "h": "high", "c": "critical"}
+
+
+# ---------------------------------------------------------------------------
+# Scales
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Scale:
+    """The levels a judge and its raters grade on, best first.
+
+    ``severity`` is the five-level ladder every judge's ``result.severity``
+    is on. ``pass_fail`` and ``pass_medium_fail`` are the scales of the
+    verdict judges (:mod:`simpleaudit.judges.verdict`): their verdicts are
+    read from ``judgment["verdict"]``, and a severity judge's verdicts are
+    read through ``reads["severity"]``, so the default judge can be scored
+    against the same labels.
+
+    Attributes:
+        name: the scale's name, also ``verdict_scale`` in a verdict judge's judgment.
+        levels: the levels, best first.
+        shortcuts: one-letter answers a rater may type.
+        severe: reference levels whose miss is reported as severe ...
+        missed: ... when the judge gave one of these instead.
+        reads: ``{other scale: {its level: level here}}`` for labels and
+            verdicts recorded on another scale.
+        criteria: the built-in verdict judge's criteria, shown to a rater
+            unless other criteria are given. ``None`` for the severity ladder.
+        definitions: what each level means, as the judge is told; always
+            shown to a rater on this scale. ``None`` for the severity ladder.
+    """
+
+    name: str
+    levels: Tuple[str, ...]
+    shortcuts: Mapping[str, str]
+    severe: Tuple[str, ...]
+    missed: Tuple[str, ...]
+    reads: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
+    criteria: Optional[str] = None
+    definitions: Optional[str] = None
+
+    def rubric(self, criteria: Optional[str] = None) -> Optional[str]:
+        """What a rater is shown: *criteria* (default: the scale's own), then the level definitions."""
+        criteria = criteria if criteria is not None else self.criteria
+        parts = [p.strip() for p in (criteria, self.definitions) if p and p.strip()]
+        if not parts:
+            return None
+        intro = "The judge model is given these rules. Label by the same rules.\n\n" if self.definitions else ""
+        return intro + "\n\n".join(parts)
+
+    @property
+    def index(self) -> Dict[str, int]:
+        return {level: i for i, level in enumerate(self.levels)}
+
+    def read(self, value: str, scale: Optional[str]) -> str:
+        """*value*, recorded on *scale*, as a level of this scale; off-scale values unchanged."""
+        if scale is None or scale == self.name:
+            return value
+        if scale not in self.reads:
+            raise ValueError(
+                f"labels or verdicts on the {scale!r} scale cannot be read on the {self.name!r} scale"
+                + (f"; it reads {sorted(self.reads)}" if self.reads else "")
+                + "."
+            )
+        return self.reads[scale].get(value, value)
+
+
+def _verdict_scales() -> Dict[str, Scale]:
+    from .judges.verdict import (
+        PASS_FAIL_DEFINITIONS,
+        PASS_FAIL_JUDGE,
+        PASS_FAIL_LEVELS,
+        PASS_MEDIUM_FAIL_AS_PASS_FAIL,
+        PASS_MEDIUM_FAIL_DEFINITIONS,
+        PASS_MEDIUM_FAIL_JUDGE,
+        PASS_MEDIUM_FAIL_LEVELS,
+        SEVERITY_AS_PASS_FAIL,
+        SEVERITY_AS_PASS_MEDIUM_FAIL,
+    )
+
+    return {
+        "pass_fail": Scale(
+            name="pass_fail",
+            levels=PASS_FAIL_LEVELS,
+            shortcuts={"p": "pass", "f": "fail"},
+            severe=("fail",),
+            missed=("pass",),
+            reads={"severity": SEVERITY_AS_PASS_FAIL, "pass_medium_fail": PASS_MEDIUM_FAIL_AS_PASS_FAIL},
+            criteria=PASS_FAIL_JUDGE["criteria"],
+            definitions=PASS_FAIL_DEFINITIONS,
+        ),
+        "pass_medium_fail": Scale(
+            name="pass_medium_fail",
+            levels=PASS_MEDIUM_FAIL_LEVELS,
+            shortcuts={"p": "pass", "m": "medium", "f": "fail"},
+            severe=("fail",),
+            missed=("pass",),
+            reads={"severity": SEVERITY_AS_PASS_MEDIUM_FAIL},
+            criteria=PASS_MEDIUM_FAIL_JUDGE["criteria"],
+            definitions=PASS_MEDIUM_FAIL_DEFINITIONS,
+        ),
+    }
+
+
+SEVERITY_SCALE = Scale(
+    name="severity",
+    levels=tuple(SEVERITY_ORDER),
+    shortcuts=_SHORTCUTS,
+    severe=("high", "critical"),
+    missed=("pass", "low"),
+)
+
+#: The scales :func:`label` and :func:`calibrate` accept by name.
+SCALES: Dict[str, Scale] = {"severity": SEVERITY_SCALE, **_verdict_scales()}
+
+
+def get_scale(scale: Union[str, Scale]) -> Scale:
+    """A :class:`Scale` by name (``severity``, ``pass_fail``, ``pass_medium_fail``), or as given."""
+    if isinstance(scale, Scale):
+        return scale
+    if scale not in SCALES:
+        raise ValueError(f"Unknown scale {scale!r}. Available: {', '.join(SCALES)}")
+    return SCALES[scale]
 
 
 # ---------------------------------------------------------------------------
@@ -113,12 +248,14 @@ def model_family(model: Optional[str]) -> Optional[str]:
 # Labels
 # ---------------------------------------------------------------------------
 
-def _normalize_label(value: Any, scenario: str, source: str) -> Optional[str]:
-    """One reference rating onto the ladder; ``None`` means "no rating".
+def _normalize_label(
+    value: Any, scenario: str, source: str, scale: Scale = SEVERITY_SCALE
+) -> Optional[str]:
+    """One reference rating onto *scale*; ``None`` means "no rating".
 
     Humans write ``unsure`` or leave a blank to skip an item. A judge writes
     ``ERROR`` or ``ungraded`` when it did not grade one. Both drop out of the
-    comparison; anything else off the ladder is a typo and raises, because a
+    comparison; anything else off the scale is a typo and raises, because a
     silently dropped label would make the report look better than it is.
     """
     if value is None:
@@ -126,33 +263,50 @@ def _normalize_label(value: Any, scenario: str, source: str) -> Optional[str]:
     text = str(value).strip().lower()
     if text in ("", UNSURE, "skip", "error", UNGRADED):
         return None
-    text = _SHORTCUTS.get(text, text)
-    if text in _LADDER_INDEX:
+    text = scale.shortcuts.get(text, text)
+    if text in scale.levels:
         return text
+    if scale is SEVERITY_SCALE:
+        raise ValueError(
+            f"{source}: label {value!r} for {scenario!r} is not a severity. "
+            f"Use one of {SEVERITY_ORDER} or {UNSURE!r} to leave the item out."
+        )
     raise ValueError(
-        f"{source}: label {value!r} for {scenario!r} is not a severity. "
-        f"Use one of {SEVERITY_ORDER} or {UNSURE!r} to leave the item out."
+        f"{source}: label {value!r} for {scenario!r} is not one of {', '.join(scale.levels)} "
+        f"(the {scale.name} scale). Use {UNSURE!r} to leave the item out."
+    )
+
+
+def _read_labels(path: Union[str, Path]) -> Tuple[Dict[str, Any], Optional[str], Optional[str]]:
+    """``(labels, scale, rater)`` from a labels file; ``None`` for what the file does not say."""
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if isinstance(data, dict) and "labels" in data and isinstance(data["labels"], dict):
+        scale, rater = data.get("scale"), data.get("rater")
+        if scale is None and data.get("version") == "1.0":
+            scale = "severity"   # label() wrote 1.0 files before scales existed
+        return (
+            dict(data["labels"]),
+            scale if isinstance(scale, str) else None,
+            rater if isinstance(rater, str) and rater.strip() else None,
+        )
+    if isinstance(data, dict) and all(isinstance(v, (str, type(None))) for v in data.values()):
+        return dict(data), None, None
+    raise ValueError(
+        f"{path}: expected a {{scenario_name: label}} mapping or a labels file "
+        "with a 'labels' key."
     )
 
 
 def load_labels(path: Union[str, Path]) -> Dict[str, str]:
     """Read a labels file written by :func:`label` (or by hand).
 
-    The file is JSON, either a bare ``{scenario_name: severity}`` mapping or
+    The file is JSON, either a bare ``{scenario_name: label}`` mapping or
     the object :func:`label` writes, which holds that mapping under
-    ``"labels"``. Returns the mapping; ``unsure`` entries are kept so the
-    report can count them.
+    ``"labels"`` and the scale it is on under ``"scale"``. Returns the
+    mapping; ``unsure`` entries are kept so the report can count them.
     """
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    if isinstance(data, dict) and "labels" in data and isinstance(data["labels"], dict):
-        return dict(data["labels"])
-    if isinstance(data, dict) and all(isinstance(v, (str, type(None))) for v in data.values()):
-        return dict(data)
-    raise ValueError(
-        f"{path}: expected a {{scenario_name: severity}} mapping or a labels file "
-        "with a 'labels' key."
-    )
+    return _read_labels(path)[0]
 
 
 def save_labels(
@@ -161,8 +315,13 @@ def save_labels(
     *,
     source: Optional[str] = None,
     rater: Optional[str] = None,
+    scale: Optional[Union[str, Scale]] = None,
 ) -> None:
-    """Write labels as the JSON object :func:`load_labels` reads back."""
+    """Write labels as the JSON object :func:`load_labels` reads back.
+
+    *scale* is recorded so :func:`calibrate` can refuse, or convert, labels
+    given on another scale than the one it scores.
+    """
     payload: Dict[str, Any] = {
         "version": LABELS_FORMAT_VERSION,
         "source": source,
@@ -170,6 +329,8 @@ def save_labels(
         "saved_at": datetime.now().isoformat(timespec="seconds"),
         "labels": dict(labels),
     }
+    if scale is not None:
+        payload["scale"] = get_scale(scale).name
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     _atomic_json_dump(payload, str(path))
 
@@ -182,7 +343,26 @@ def _render_transcript(result: Any) -> str:
         if not isinstance(content, str):
             content = json.dumps(content, ensure_ascii=False)
         lines.append(f"[{role}]\n{content}\n")
-    return "\n".join(lines)
+    # A reply can hold a lone surrogate (half an emoji), which a results file
+    # keeps but neither a terminal nor a UTF-8 sheet can write; show it as \udXXX.
+    return "\n".join(lines).encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+def _existing_labels(path: Path, scale: Scale) -> Dict[str, str]:
+    """Labels already in *path*, refused when they are on another scale than *scale*."""
+    labels, recorded, _ = _read_labels(path)
+    if recorded is not None and recorded != scale.name:
+        raise ValueError(
+            f"{path} holds labels on the {recorded!r} scale; labelling on {scale.name!r} would "
+            "mix the two. Use another file."
+        )
+    if recorded is None and scale is not SEVERITY_SCALE:
+        # A file that does not say is taken to be on the scale asked for; make
+        # sure it is, so severities are not mixed into it. (On the ladder a file
+        # is loaded unchecked, as before scales existed.)
+        for name, value in labels.items():
+            _normalize_label(value, name, str(path), scale)
+    return labels
 
 
 def label(
@@ -192,33 +372,49 @@ def label(
     rater: Optional[str] = None,
     relabel: bool = False,
     show_expected: bool = True,
+    scale: Union[str, Scale] = "severity",
+    criteria: Optional[str] = None,
     input_fn: Callable[[str], str] = input,
     print_fn: Callable[[str], None] = print,
 ) -> Dict[str, str]:
     """Label stored transcripts one at a time in the terminal.
 
     Prints the scenario, what the target was expected to do, and the full
-    transcript, then asks for a severity. The judge's own verdict is never
-    shown, so the label is blind. Each answer is written to *out* at once,
-    so stopping after six items and picking up tomorrow loses nothing.
+    transcript, then asks for a label on *scale*. The judge's own verdict is
+    never shown, so the label is blind. Each answer is written to *out* at
+    once, so stopping after six items and picking up tomorrow loses nothing.
 
-    Answers: ``pass``, ``low``, ``medium``, ``high``, ``critical`` (or the
-    first letter), ``unsure`` to leave the item out, an empty line to skip
-    it for now, and ``q`` to stop.
+    On the severity ladder (the default) the answers are ``pass``, ``low``,
+    ``medium``, ``high``, ``critical`` or the first letter. On ``pass_fail``
+    they are ``pass`` and ``fail`` (``p``, ``f``), on ``pass_medium_fail``
+    ``pass``, ``medium`` and ``fail`` (``p``, ``m``, ``f``); the rules the
+    judge is given are printed first, and ``?`` prints them again. On every
+    scale ``unsure`` leaves the item out, an empty line skips it for now,
+    and ``q`` (or the end of input, Ctrl-D) stops.
 
     Args:
         results_or_path: a results file or object. With an object, *out*
             is required.
         out: where to save; defaults to ``<results stem>.labels.json`` next
-            to the results file.
+            to the results file (``<results stem>.<scale>.labels.json`` off
+            the severity ladder).
         rater: a name recorded in the file, for when several people label.
         relabel: ask again for items the file already holds.
         show_expected: print the scenario's ``expected_behavior`` list.
+        scale: ``"severity"``, ``"pass_fail"``, ``"pass_medium_fail"`` or a
+            :class:`Scale`. The file records it; a file on another scale is
+            refused rather than mixed.
+        criteria: the judge's criteria to show the rater; defaults to the
+            scale's own (the built-in verdict judge's). Pass the criteria of a
+            judge built with ``customize_judge`` when labelling for that judge.
+            The scale's level definitions are shown after them either way.
         input_fn, print_fn: injectable for tests and for other front ends.
 
     Returns:
-        The labels now in the file, ``{scenario_name: severity}``.
+        The labels now in the file, ``{scenario_name: label}``.
     """
+    scale = get_scale(scale)
+    rubric = scale.rubric(criteria)
     if isinstance(results_or_path, AuditResults):
         if out is None:
             raise ValueError("label() needs out= when given an AuditResults object.")
@@ -229,14 +425,19 @@ def label(
         results = AuditResults.load(source)
         if out is None:
             p = Path(source)
-            out = p.with_name(p.stem + ".labels.json")
+            suffix = ".labels.json" if scale is SEVERITY_SCALE else f".{scale.name}.labels.json"
+            out = p.with_name(p.stem + suffix)
     out = Path(out)
-    labels: Dict[str, str] = load_labels(out) if out.exists() else {}
+    labels: Dict[str, str] = _existing_labels(out, scale) if out.exists() else {}
 
     total = len(results.results)
     print_fn(f"Labelling {total} transcripts -> {out}")
-    print_fn("Answer pass / low / medium / high / critical (or p l m h c), "
-             "'unsure' to leave out, Enter to skip, q to stop.\n")
+    if rubric:
+        print_fn(rubric.rstrip() + "\n")
+    answers = " / ".join(scale.levels) + " (or " + " ".join(scale.shortcuts) + ")"
+    print_fn(f"Answer {answers}, 'unsure' to leave out, "
+             + ("'?' to show the rules again, " if rubric else "")
+             + "Enter to skip, q to stop.\n")
     for i, result in enumerate(results.results, 1):
         name = result.scenario_name
         if name in labels and not relabel:
@@ -251,22 +452,232 @@ def label(
                 print_fn(f"  - {item}")
         print_fn("-" * 72)
         print_fn(_render_transcript(result))
+        prompt = "severity> " if scale is SEVERITY_SCALE else "verdict> "
         while True:
-            answer = input_fn("severity> ").strip().lower()
+            try:
+                answer = input_fn(prompt).strip().lower()
+            except EOFError:
+                # Ctrl-D, or piped answers that ran out: stop, as q does.
+                print_fn("")
+                answer = "q"
             if answer == "q":
                 print_fn(f"Stopped. {len(labels)} labels in {out}")
                 return labels
             if answer == "":
                 break
+            if answer == "?" and rubric:
+                print_fn(rubric.rstrip() + "\n")
+                continue
             try:
-                value = _normalize_label(answer, name, "label()")
+                value = _normalize_label(answer, name, "label()", scale)
             except ValueError as exc:
                 print_fn(str(exc))
                 continue
             labels[name] = UNSURE if value is None else value
-            save_labels(labels, out, source=source, rater=rater)
+            save_labels(labels, out, source=source, rater=rater, scale=scale)
             break
     print_fn(f"Done. {len(labels)} labels in {out}")
+    return labels
+
+
+# ---------------------------------------------------------------------------
+# Labelling sheets: the same labelling in a spreadsheet
+# ---------------------------------------------------------------------------
+
+#: Columns of a labelling sheet. Only scenario_name and label are read back.
+#: In the sheet the label column is headed with the scale's levels, e.g.
+#: ``label (pass | fail)``, which tells the rater the answers and lets
+#: :func:`import_labelling_sheet` refuse a sheet made for another scale.
+SHEET_COLUMNS = ("scenario_name", "label", "scenario", "expected_behavior", "transcript")
+
+#: Excel holds at most this many characters in a cell. Only the transcript
+#: can be that long.
+_EXCEL_CELL_LIMIT = 32767
+
+
+def _label_header(scale: Scale) -> str:
+    return f"label ({' | '.join(scale.levels)})"
+
+
+def _sheet_instructions(scale: Scale, rubric: Optional[str]) -> str:
+    answers = ", ".join(scale.levels)
+    lines = [
+        f"Labelling sheet: one row per transcript, on the {scale.name} scale.",
+        "",
+        f"Write one of {answers} in the label column (or the first letter), "
+        f"{UNSURE!r} to leave a transcript out, or nothing to skip it for now.",
+        "Do not edit scenario_name or the header row: they are how a label finds its transcript.",
+        "The other columns are for reading. The judge's own verdict is not in the sheet.",
+        "Save the file as CSV (UTF-8 if you are asked) and send it back.",
+    ]
+    if rubric:
+        lines += ["", "=" * 72, "", rubric.rstrip()]
+    return "\n".join(lines) + "\n"
+
+
+def export_labelling_sheet(
+    results_or_path: Union[AuditResults, str, Path],
+    path: Union[str, Path],
+    *,
+    scale: Union[str, Scale] = "severity",
+    criteria: Optional[str] = None,
+    show_expected: bool = True,
+    delimiter: str = ",",
+) -> Path:
+    """Write the transcripts of a run as a CSV sheet for a rater to fill in.
+
+    The spreadsheet route to what :func:`label` does in the terminal, for
+    raters who will not use one. One row per transcript with an empty label
+    column, headed with the answers allowed (``label (pass | fail)``); the
+    judge's verdict is not in the sheet, so the label is blind. The file is
+    UTF-8 with a byte order mark, which Excel needs to show non-ASCII text
+    such as æ, ø and å. Next to it, ``<sheet stem>.instructions.txt`` holds
+    the answers and the rules the judge is given: send both.
+
+    Read the filled-in sheet back with :func:`import_labelling_sheet`.
+
+    Args:
+        results_or_path: a results file or object.
+        path: the CSV file to write.
+        scale: the scale the rater labels on.
+        criteria: the judge's criteria for the instructions, as for
+            :func:`label`; the scale's level definitions follow them.
+        show_expected: include the scenario's ``expected_behavior``.
+        delimiter: the field separator. Excel set to a language that writes
+            decimal commas (Norwegian, German, ...) splits columns on ``;``
+            when it opens a CSV file directly; use ``";"`` for those raters,
+            or have them open the file with Data > From Text/CSV.
+
+    Returns:
+        The path of the CSV file.
+
+    Raises:
+        ValueError: when two transcripts share a scenario name, since their
+            labels could not be told apart.
+    """
+    scale = get_scale(scale)
+    results = results_or_path if isinstance(results_or_path, AuditResults) else AuditResults.load(str(results_or_path))
+    names = [r.scenario_name for r in results.results]
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    if dupes:
+        raise ValueError(
+            f"duplicate scenario names {dupes}: labels are keyed by scenario name, so "
+            "export one run per sheet."
+        )
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    long_rows = []
+    # backslashreplace, as results files are written: a run that saves and
+    # loads must also export.
+    with open(path, "w", encoding="utf-8-sig", errors="backslashreplace", newline="") as f:
+        writer = csv.writer(f, delimiter=delimiter)
+        writer.writerow([_label_header(scale) if c == "label" else c for c in SHEET_COLUMNS])
+        for result in results.results:
+            expected = ""
+            if show_expected and result.expected_behavior:
+                expected = "\n".join(f"{i}. {item}" for i, item in enumerate(result.expected_behavior, 1))
+            transcript = _render_transcript(result)
+            if len(transcript) > _EXCEL_CELL_LIMIT:
+                long_rows.append(result.scenario_name)
+            writer.writerow([result.scenario_name, "", result.scenario_description or "", expected, transcript])
+    path.with_name(path.stem + ".instructions.txt").write_text(
+        _sheet_instructions(scale, scale.rubric(criteria)), encoding="utf-8", errors="backslashreplace"
+    )
+    if long_rows:
+        # Not tested: what Excel writes back when it saves such a sheet.
+        warnings.warn(
+            f"{len(long_rows)} transcript(s) are longer than the {_EXCEL_CELL_LIMIT} characters an "
+            f"Excel cell holds, so Excel will not show them in full: {long_rows}. Give raters "
+            "who use Excel these transcripts another way, such as the terminal labelling.",
+            stacklevel=2,
+        )
+    return path
+
+
+def _decode_sheet(data: bytes) -> str:
+    """Text of a sheet as a spreadsheet program saved it.
+
+    UTF-16 when it starts with a UTF-16 byte order mark (Excel's "Unicode
+    text"), else UTF-8 with or without a BOM, else Windows-1252.
+    """
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("cp1252")
+
+
+def import_labelling_sheet(
+    path: Union[str, Path],
+    *,
+    scale: Union[str, Scale] = "severity",
+) -> Dict[str, str]:
+    """Read a sheet written by :func:`export_labelling_sheet` after a rater filled it in.
+
+    Accepts the sheet as spreadsheet programs save it back: comma-,
+    semicolon- or tab-separated, in UTF-8, UTF-16 or Windows-1252, with the
+    columns in any order. Only ``scenario_name`` and the label column are
+    read. A sheet whose label column names another scale's levels is
+    refused; a hand-made sheet headed just ``label`` is read on *scale*. A
+    blank label is an item not labelled yet and is left out; ``unsure`` is
+    kept so the report can count it. Every label that cannot be read is
+    reported at once, with its row, so the rater can fix the sheet in one go.
+
+    Returns:
+        ``{scenario_name: label}``, to save with ``save_labels(..., scale=scale)``.
+    """
+    scale = get_scale(scale)
+    text = _decode_sheet(Path(path).read_bytes())
+    # The header row holds no separators of its own, so the one it uses most is the one.
+    first_line = text.splitlines()[0] if text else ""
+    delimiter = max(",;\t", key=first_line.count)
+    # A transcript can be longer than the csv module's default field limit
+    # (131,072 characters); allow more for this read only.
+    old_limit = csv.field_size_limit()
+    csv.field_size_limit(max(old_limit, 2**31 - 1))
+    try:
+        rows = list(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter))
+    except csv.Error as exc:
+        raise ValueError(f"{path}: not a readable CSV sheet ({exc})") from None
+    finally:
+        csv.field_size_limit(old_limit)
+    header = [h.strip().lower() for h in (rows[0] if rows else [])]
+    label_col = next((i for i, h in enumerate(header) if h == "label" or h.startswith("label (")), None)
+    missing = [c for c, col in (("scenario_name", "scenario_name" in header), ("label", label_col is not None)) if not col]
+    if missing:
+        raise ValueError(f"{path}: no {' or '.join(missing)} column; was the header row changed?")
+    if header[label_col] != "label":
+        levels = tuple(level.strip() for level in header[label_col][len("label ("):].rstrip(")").split("|"))
+        if levels != scale.levels:
+            made_for = next((name for name, sc in SCALES.items() if sc.levels == levels), None)
+            raise ValueError(
+                f"{path} is a sheet for {f'the {made_for}' if made_for else 'another'} scale ({', '.join(levels)}), "
+                f"not {scale.name}; import it with the judge it was made for."
+            )
+    name_col = header.index("scenario_name")
+    labels: Dict[str, str] = {}
+    problems: List[str] = []
+    for row_number, row in enumerate(rows[1:], start=2):
+        name = row[name_col].strip() if len(row) > name_col else ""
+        value = row[label_col].strip() if len(row) > label_col else ""
+        if not value:
+            continue
+        if not name:
+            problems.append(f"row {row_number}: label {value!r} has no scenario_name")
+            continue
+        try:
+            level = _normalize_label(value, name, f"row {row_number}", scale)
+        except ValueError as exc:
+            problems.append(str(exc))
+            continue
+        level = UNSURE if level is None else level
+        if name in labels and labels[name] != level:
+            problems.append(f"row {row_number}: {name!r} is labelled twice, {labels[name]!r} and {level!r}")
+            continue
+        labels[name] = level
+    if problems:
+        raise ValueError(f"{path}: {len(problems)} label(s) to fix:\n  " + "\n  ".join(problems))
     return labels
 
 
@@ -276,13 +687,19 @@ def label(
 
 @dataclass
 class Rater:
-    """One source of reference verdicts: a person, an answer key or a cross-family judge."""
+    """One source of reference verdicts: a person, an answer key or a cross-family judge.
+
+    ``scale`` is the scale ``ratings`` are on: the severity ladder for the
+    answer key of :mod:`simpleaudit.answer_key`. :func:`calibrate` converts
+    a rater's ratings to the scale it scores when that scale can read them.
+    """
 
     name: str
     kind: str                                  # "human" | "answer_key" | "model"
-    ratings: Dict[str, Optional[str]]          # scenario -> ladder value or None
+    ratings: Dict[str, Optional[str]]          # scenario -> level on ``scale``, or None
     model: Optional[str] = None
     family: Optional[str] = None
+    scale: str = "severity"
 
     @property
     def n_rated(self) -> int:
@@ -299,10 +716,33 @@ def _is_results_file(path: Path) -> bool:
     return isinstance(data, dict) and isinstance(data.get("results"), list)
 
 
-def _verdicts_of(results: AuditResults, source: str) -> Dict[str, str]:
-    """``{scenario_name: normalised severity}`` for a results object.
+def _verdict_of(result: Any, scale: Scale, source: str) -> str:
+    """One stored result's verdict as a level of *scale*.
 
-    Off-ladder values (``ERROR``, ``ungraded``, a custom vocabulary) are kept
+    On the severity ladder that is the result's severity, as it always was.
+    On a verdict scale it is ``judgment["verdict"]`` when a verdict judge
+    graded the result, read through ``scale.reads`` when that judge used
+    another scale; a severity judge's severity is read through
+    ``scale.reads["severity"]``. ``ERROR`` and ``ungraded`` stay as they are.
+    """
+    severity = normalize_severity(result.severity)
+    if scale is SEVERITY_SCALE or severity in ("ERROR", UNGRADED):
+        return severity
+    judgment = result.judgment if isinstance(result.judgment, dict) else {}
+    graded_on = judgment.get("verdict_scale")
+    try:
+        if graded_on is not None:
+            verdict = str(judgment.get("verdict") or "").strip().lower()
+            return scale.read(verdict, graded_on)
+        return scale.read(severity, "severity")
+    except ValueError as exc:
+        raise ValueError(f"{source}: {result.scenario_name!r}: {exc}") from None
+
+
+def _verdicts_of(results: AuditResults, source: str, scale: Scale = SEVERITY_SCALE) -> Dict[str, str]:
+    """``{scenario_name: verdict on scale}`` for a results object.
+
+    Off-scale values (``ERROR``, ``ungraded``, a custom vocabulary) are kept
     as they are so coverage can count them. Duplicate names (a repeated run
     saved flat) warn, and the last one wins, as elsewhere in the library.
     """
@@ -311,7 +751,7 @@ def _verdicts_of(results: AuditResults, source: str) -> Dict[str, str]:
     for r in results.results:
         if r.scenario_name in out:
             dupes.add(r.scenario_name)
-        out[r.scenario_name] = normalize_severity(r.severity)
+        out[r.scenario_name] = _verdict_of(r, scale, source)
     if dupes:
         warnings.warn(
             f"{source}: duplicate scenario names {sorted(dupes)}; the last verdict for "
@@ -321,35 +761,57 @@ def _verdicts_of(results: AuditResults, source: str) -> Dict[str, str]:
     return out
 
 
-def _rater_from(ref: Any, index: int, *, reference_model: Optional[str]) -> Rater:
-    """Turn one reference argument into a :class:`Rater`."""
+def _labels_on(
+    mapping: Mapping[str, Any], recorded: Optional[str], scale: Scale, source: str
+) -> Dict[str, Optional[str]]:
+    """Labels recorded on *recorded* (``None``: unknown, taken as *scale*) as levels of *scale*."""
+    ratings: Dict[str, Optional[str]] = {}
+    on_recorded = scale if recorded is None or recorded == scale.name else get_scale(recorded)
+    for name, value in mapping.items():
+        level = _normalize_label(value, name, source, on_recorded)
+        ratings[name] = None if level is None else scale.read(level, on_recorded.name)
+    return ratings
+
+
+def _rater_from(
+    ref: Any, index: int, *, reference_model: Optional[str], scale: Scale = SEVERITY_SCALE
+) -> Rater:
+    """Turn one reference argument into a :class:`Rater` on *scale*."""
     if isinstance(ref, Rater):
-        return ref
+        if ref.scale == scale.name:
+            return ref
+        return Rater(
+            name=ref.name, kind=ref.kind, model=ref.model, family=ref.family, scale=scale.name,
+            ratings={k: None if v is None else scale.read(v, ref.scale) for k, v in ref.ratings.items()},
+        )
     if isinstance(ref, AuditResults):
         model = reference_model or ref.meta.get("judge_model")
-        verdicts = _verdicts_of(ref, f"reference {index}")
+        verdicts = _verdicts_of(ref, f"reference {index}", scale)
         return Rater(
             name=f"model:{model or 'unknown'}",
             kind="model",
-            ratings={k: (v if v in _LADDER_INDEX else None) for k, v in verdicts.items()},
+            ratings={k: (v if v in scale.levels else None) for k, v in verdicts.items()},
             model=model,
             family=model_family(model),
+            scale=scale.name,
         )
     if isinstance(ref, (str, Path)):
         path = Path(ref)
         if _is_results_file(path):
-            return _rater_from(AuditResults.load(str(path)), index, reference_model=reference_model)
-        mapping = load_labels(path)
+            return _rater_from(AuditResults.load(str(path)), index, reference_model=reference_model, scale=scale)
+        mapping, recorded, _ = _read_labels(path)
         return Rater(
             name=path.stem,
             kind="human",
-            ratings={k: _normalize_label(v, k, str(path)) for k, v in mapping.items()},
+            ratings=_labels_on(mapping, recorded, scale, str(path)),
+            scale=scale.name,
         )
     if isinstance(ref, Mapping):
         return Rater(
             name=f"rater_{index + 1}",
             kind="human",
-            ratings={k: _normalize_label(v, k, "labels") for k, v in ref.items()},
+            ratings=_labels_on(ref, None, scale, "labels"),
+            scale=scale.name,
         )
     raise TypeError(
         f"reference must be a labels dict, a labels file, a Rater, a results file or an "
@@ -357,15 +819,17 @@ def _rater_from(ref: Any, index: int, *, reference_model: Optional[str]) -> Rate
     )
 
 
-def _consensus(values: Sequence[str]) -> str:
-    """Median on the ladder; an even split resolves to the stricter middle.
+def _consensus(values: Sequence[str], scale: Scale = SEVERITY_SCALE) -> str:
+    """Median on the scale; an even split resolves to the stricter middle.
 
     Same conservative tie-break as :func:`simpleaudit.aggregate_severities`:
-    when two raters say ``low`` and ``medium``, the item is ``medium``.
+    when two raters say ``low`` and ``medium``, the item is ``medium``; when
+    two say ``pass`` and ``fail``, it is ``fail``.
     """
-    ranks = sorted(_LADDER_INDEX[v] for v in values)
+    index = scale.index
+    ranks = sorted(index[v] for v in values)
     mid = len(ranks) // 2
-    return SEVERITY_ORDER[ranks[mid]]
+    return scale.levels[ranks[mid]]
 
 
 @dataclass
@@ -376,6 +840,7 @@ class Reference:
     consensus: Dict[str, str]                  # items with at least one rating
     split: Dict[str, bool]                     # item -> raters disagreed
     n_unsure: int                              # entries present but unrated by every rater
+    scale: Scale = SEVERITY_SCALE
 
     @property
     def kind(self) -> str:
@@ -393,7 +858,7 @@ class Reference:
         units = self._rater_units()
         if len(units) < MIN_ITEMS_FOR_ALPHA:
             return None
-        return krippendorff_alpha(units, "ordinal", SEVERITY_ORDER)
+        return krippendorff_alpha(units, "ordinal", list(self.scale.levels))
 
     def human_ceiling_ac2(self) -> Optional[float]:
         """Gwet's AC2 (linear) among the raters, the companion to :meth:`human_ceiling`."""
@@ -402,11 +867,13 @@ class Reference:
         units = self._rater_units()
         if len(units) < MIN_ITEMS_FOR_ALPHA:
             return None
-        return gwet_ac(units, "linear", SEVERITY_ORDER)
+        return gwet_ac(units, "linear", list(self.scale.levels))
 
 
-def _build_reference(refs: Sequence[Any], reference_model: Optional[str]) -> Reference:
-    raters = [_rater_from(ref, i, reference_model=reference_model) for i, ref in enumerate(refs)]
+def _build_reference(
+    refs: Sequence[Any], reference_model: Optional[str], scale: Scale = SEVERITY_SCALE
+) -> Reference:
+    raters = [_rater_from(ref, i, reference_model=reference_model, scale=scale) for i, ref in enumerate(refs)]
     names: List[str] = []
     for r in raters:
         for name in r.ratings:
@@ -420,9 +887,9 @@ def _build_reference(refs: Sequence[Any], reference_model: Optional[str]) -> Ref
         if not values:
             n_unsure += 1
             continue
-        consensus[name] = _consensus(values)
+        consensus[name] = _consensus(values, scale)
         split[name] = len(set(values)) > 1
-    return Reference(raters=raters, consensus=consensus, split=split, n_unsure=n_unsure)
+    return Reference(raters=raters, consensus=consensus, split=split, n_unsure=n_unsure, scale=scale)
 
 
 # ---------------------------------------------------------------------------
@@ -492,7 +959,7 @@ class Agreement:
     reference_distribution: Dict[str, int]      # reference level -> count, compared items
     sensitivity: Tuple[int, int]        # judge fail | reference fail
     specificity: Tuple[int, int]        # judge pass | reference pass
-    severe_misses: Tuple[int, int]      # judge pass/low | reference high/critical
+    severe_misses: Tuple[int, int]      # judge in scale.missed | reference in scale.severe
     confusion: Dict[str, Dict[str, int]]
     disagreements: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -537,11 +1004,14 @@ def _agreement(
     verdicts: Mapping[str, str],
     consensus: Mapping[str, str],
     fail_at: str,
+    scale: Scale = SEVERITY_SCALE,
 ) -> Agreement:
-    fail_rank = _LADDER_INDEX[fail_at]
+    index = scale.index
+    levels = list(scale.levels)
+    fail_rank = index[fail_at]
     n_error = n_ungraded = n_unjudged = 0
     pairs: List[Tuple[str, str, str]] = []     # (scenario, reference, judge)
-    confusion: Dict[str, Dict[str, int]] = {s: {c: 0 for c in SEVERITY_ORDER + ["ERROR"]} for s in SEVERITY_ORDER}
+    confusion: Dict[str, Dict[str, int]] = {s: {c: 0 for c in levels + ["ERROR"]} for s in levels}
     for name, ref in consensus.items():
         if name not in verdicts:
             n_unjudged += 1
@@ -550,30 +1020,30 @@ def _agreement(
         if v == "ERROR":
             n_error += 1
             confusion[ref]["ERROR"] += 1
-        elif v not in _LADDER_INDEX:
+        elif v not in index:
             n_ungraded += 1
         else:
             pairs.append((name, ref, v))
             confusion[ref][v] += 1
 
-    gaps = [_LADDER_INDEX[v] - _LADDER_INDEX[ref] for _, ref, v in pairs]
+    gaps = [index[v] - index[ref] for _, ref, v in pairs]
     n = len(pairs)
-    ref_fail = [(ref, v) for _, ref, v in pairs if _LADDER_INDEX[ref] >= fail_rank]
-    ref_pass = [(ref, v) for _, ref, v in pairs if _LADDER_INDEX[ref] < fail_rank]
-    ref_severe = [(ref, v) for _, ref, v in pairs if _LADDER_INDEX[ref] >= _LADDER_INDEX["high"]]
+    ref_fail = [(ref, v) for _, ref, v in pairs if index[ref] >= fail_rank]
+    ref_pass = [(ref, v) for _, ref, v in pairs if index[ref] < fail_rank]
+    ref_severe = [(ref, v) for _, ref, v in pairs if ref in scale.severe]
 
     def alpha_of(sample: List[Tuple[str, str, str]]) -> Optional[float]:
-        return krippendorff_alpha([[ref, v] for _, ref, v in sample], "ordinal", SEVERITY_ORDER)
+        return krippendorff_alpha([[ref, v] for _, ref, v in sample], "ordinal", levels)
 
     def ac2_of(sample: List[Tuple[str, str, str]]) -> Optional[float]:
-        return gwet_ac([[ref, v] for _, ref, v in sample], "linear", SEVERITY_ORDER)
+        return gwet_ac([[ref, v] for _, ref, v in sample], "linear", levels)
 
     def bias_of(sample: List[Tuple[str, str, str]]) -> Optional[float]:
-        return sum(_LADDER_INDEX[v] - _LADDER_INDEX[ref] for _, ref, v in sample) / len(sample) if sample else None
+        return sum(index[v] - index[ref] for _, ref, v in sample) / len(sample) if sample else None
 
     alpha = alpha_of(pairs) if n >= MIN_ITEMS_FOR_ALPHA else None
     ac2 = ac2_of(pairs) if n >= MIN_ITEMS_FOR_ALPHA else None
-    distribution = {s: sum(1 for _, ref, _v in pairs if ref == s) for s in SEVERITY_ORDER}
+    distribution = {s: sum(1 for _, ref, _v in pairs if ref == s) for s in levels}
     return Agreement(
         label=label,
         judge_model=judge_model,
@@ -594,12 +1064,12 @@ def _agreement(
         ac2=ac2,
         ac2_interval=_bootstrap(ac2_of, pairs) if ac2 is not None else None,
         reference_distribution=distribution,
-        sensitivity=(sum(1 for _, v in ref_fail if _LADDER_INDEX[v] >= fail_rank), len(ref_fail)),
-        specificity=(sum(1 for _, v in ref_pass if _LADDER_INDEX[v] < fail_rank), len(ref_pass)),
-        severe_misses=(sum(1 for _, v in ref_severe if _LADDER_INDEX[v] <= _LADDER_INDEX["low"]), len(ref_severe)),
+        sensitivity=(sum(1 for _, v in ref_fail if index[v] >= fail_rank), len(ref_fail)),
+        specificity=(sum(1 for _, v in ref_pass if index[v] < fail_rank), len(ref_pass)),
+        severe_misses=(sum(1 for _, v in ref_severe if v in scale.missed), len(ref_severe)),
         confusion=confusion,
         disagreements=[
-            {"scenario": name, "reference": ref, "judge": v, "gap": _LADDER_INDEX[v] - _LADDER_INDEX[ref]}
+            {"scenario": name, "reference": ref, "judge": v, "gap": index[v] - index[ref]}
             for name, ref, v in pairs if ref != v
         ],
     )
@@ -636,6 +1106,7 @@ class CalibrationReport:
     judges: Dict[str, Agreement]
     strata: Dict[str, Dict[str, Agreement]]    # judge label -> {"unanimous": .., "split": ..}
     created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    scale: Scale = SEVERITY_SCALE
 
     # -- access ---------------------------------------------------------------
 
@@ -676,8 +1147,14 @@ class CalibrationReport:
 
     def summary(self, print_fn: Callable[[str], None] = print) -> None:
         """Print the report. Every rate shows its n and a 95% interval."""
+        scale = self.scale
+        ordinal = len(scale.levels) > 2
+        # Two levels: alpha is the same on any metric, and AC2 is AC1.
+        alpha_name, ac_name = ("ordinal alpha", "Gwet AC2") if ordinal else ("Krippendorff alpha", "Gwet AC1")
         out: List[str] = []
         out.append(f"Calibration: {self.subject}")
+        if scale is not SEVERITY_SCALE:
+            out.append(f"  scale: {scale.name} ({', '.join(scale.levels)})")
         out.append(f"  reference: {self.reference_line()}")
         line = f"  items with a reference label: {self.n_items}"
         if self.reference.n_unsure:
@@ -688,8 +1165,8 @@ class CalibrationReport:
         ceiling = self.reference.human_ceiling()
         if ceiling is not None:
             ceiling_ac2 = self.reference.human_ceiling_ac2()
-            ac2_text = f", Gwet AC2 {ceiling_ac2:.2f}" if ceiling_ac2 is not None else ""
-            out.append(f"  agreement among raters: ordinal alpha {ceiling:.2f}{ac2_text}   <- the ceiling to read the judge against")
+            ac2_text = f", {ac_name} {ceiling_ac2:.2f}" if ceiling_ac2 is not None else ""
+            out.append(f"  agreement among raters: {alpha_name} {ceiling:.2f}{ac2_text}   <- the ceiling to read the judge against")
         for a in self.leaderboard():
             out.append("")
             head = f"  judge '{a.label}'"
@@ -708,28 +1185,35 @@ class CalibrationReport:
             if a.n_compared == 0:
                 continue
             out.append(f"    exact agreement     {_fmt_rate(a.exact, a.n_compared)}")
-            out.append(f"    within one level    {_fmt_rate(a.within_one, a.n_compared)}")
+            if ordinal:
+                out.append(f"    within one level    {_fmt_rate(a.within_one, a.n_compared)}")
             out.append(f"    bias (judge - ref)  mean {_fmt_interval(a.bias_mean, a.bias_interval, signed=True)}"
                        f"   stricter {a.n_stricter}  lenient {a.n_lenient}")
             if a.alpha is not None or a.ac2 is not None:
                 dist = "  ".join(f"{s} {c}" for s, c in a.reference_distribution.items() if c)
                 out.append(f"    reference levels    {dist}")
-                out.append(f"    Gwet AC2 (linear)   {_fmt_interval(a.ac2, a.ac2_interval)}   <- robust to skew above; ranks the leaderboard")
-                out.append(f"    ordinal alpha       {_fmt_interval(a.alpha, a.alpha_interval)}   <- reads low when one level dominates")
+                ac_label = f"{ac_name} (linear)" if ordinal else ac_name
+                out.append(f"    {ac_label:<20}{_fmt_interval(a.ac2, a.ac2_interval)}   <- robust to skew above; ranks the leaderboard")
+                out.append(f"    {alpha_name:<20}{_fmt_interval(a.alpha, a.alpha_interval)}   <- reads low when one level dominates")
             out.append(f"    pass/fail at '{a.fail_at}':  sensitivity {_fmt_rate(*a.sensitivity)}"
                        f"   specificity {_fmt_rate(*a.specificity)}")
-            out.append(f"    severe misses (ref high/critical -> judge pass/low): {_fmt_rate(*a.severe_misses)}")
+            if ordinal:
+                # On two levels this is one minus the sensitivity above.
+                out.append(f"    severe misses (ref {'/'.join(scale.severe)} -> judge {'/'.join(scale.missed)}): "
+                           f"{_fmt_rate(*a.severe_misses)}")
             strata = self.strata.get(a.label, {})
             if len(self.reference.raters) > 1 and strata:
                 for key in ("unanimous", "split"):
                     s = strata.get(key)
                     if s and s.n_compared:
                         out.append(f"    {key:<9} items   exact {_fmt_rate(s.exact, s.n_compared)}")
-            out.append("    confusion (rows reference, cols judge)   " + "".join(f"{c:>6}" for c in ("pass", "low", "med", "high", "crit", "ERR")))
-            for ref in SEVERITY_ORDER:
+            heads = (("pass", "low", "med", "high", "crit") if scale is SEVERITY_SCALE
+                     else tuple(level if len(level) < 6 else level[:3] for level in scale.levels)) + ("ERR",)
+            out.append("    confusion (rows reference, cols judge)   " + "".join(f"{c:>6}" for c in heads))
+            for ref in scale.levels:
                 row = a.confusion[ref]
                 if any(row.values()):
-                    out.append(f"      {ref:<36}" + "".join(f"{row[c]:>6}" for c in SEVERITY_ORDER + ["ERROR"]))
+                    out.append(f"      {ref:<36}" + "".join(f"{row[c]:>6}" for c in list(scale.levels) + ["ERROR"]))
             if a.disagreements:
                 out.append("    disagreements (read these transcripts):")
                 for d in sorted(a.disagreements, key=lambda d: -abs(d["gap"]))[:10]:
@@ -743,6 +1227,8 @@ class CalibrationReport:
             "version": REPORT_FORMAT_VERSION,
             "created_at": self.created_at,
             "subject": self.subject,
+            "scale": self.scale.name,
+            "levels": list(self.scale.levels),
             "fail_at": self.fail_at,
             "reference": {
                 "kind": self.reference.kind,
@@ -767,6 +1253,8 @@ class CalibrationReport:
         if ref == "model" and self.reference.raters:
             ref = "model-" + re.sub(r"[^a-z0-9]+", "-", (self.reference.raters[0].model or "unknown").lower()).strip("-")
         date = self.created_at[:10].replace("-", "")
+        if self.scale is not SEVERITY_SCALE:
+            ref = f"{self.scale.name}__{ref}"
         return Path(directory) / f"{stem}__{ref}__{date}.json"
 
     def save(self, path: Optional[Union[str, Path]] = None, directory: Union[str, Path] = "results/calibration") -> Path:
@@ -793,6 +1281,7 @@ def list_calibrations(directory: Union[str, Path] = "results/calibration") -> Li
                 "path": str(path),
                 "created_at": data.get("created_at"),
                 "subject": data.get("subject"),
+                "scale": data.get("scale", "severity"),   # reports before 1.1 are all on the ladder
                 "reference": data["reference"].get("kind"),
                 "raters": [r.get("name") for r in data["reference"].get("raters", [])],
                 "judge": label,
@@ -811,18 +1300,32 @@ def list_calibrations(directory: Union[str, Path] = "results/calibration") -> Li
 # ---------------------------------------------------------------------------
 
 def _subjects(
-    subject: Any, judge_model: Optional[str]
+    subject: Any, judge_model: Optional[str], scale: Scale = SEVERITY_SCALE
 ) -> Tuple[str, Dict[str, Tuple[Optional[str], Dict[str, str]]]]:
     """``(description, {label: (judge_model, verdicts)})`` for whatever was passed."""
     # ReframingResults: one judge per variant. Imported by duck type so this
     # module never imports reframing (which pulls in the whole auditor).
     if hasattr(subject, "variant_labels") and hasattr(subject, "per_scenario"):
+        if len(scale.levels) > 2 and scale is not SEVERITY_SCALE:
+            # A verdict judge's medium and fail can share a severity (the
+            # scenario's ceiling), and these results keep only the severity.
+            raise ValueError(
+                f"reframing_check results keep only severities, which cannot be read back as "
+                f"{scale.name} verdicts; rejudge() each variant and calibrate the AuditResults."
+            )
+
+        def on_scale(severity: Any) -> str:
+            severity = normalize_severity(severity)
+            if scale is SEVERITY_SCALE or severity in ("ERROR", UNGRADED):
+                return severity
+            return scale.read(severity, "severity")
+
         out: Dict[str, Tuple[Optional[str], Dict[str, str]]] = {}
         for lab in subject.variant_labels:
             meta = getattr(subject, "variant_meta", {}).get(lab, {})
             model = meta.get("judge_model") or judge_model
             verdicts = {
-                name: normalize_severity(by_variant[lab])
+                name: on_scale(by_variant[lab])
                 for name, by_variant in subject.per_scenario.items() if lab in by_variant
             }
             out[lab] = (model, verdicts)
@@ -837,7 +1340,7 @@ def _subjects(
         raise TypeError(f"subject must be a results file, AuditResults or ReframingResults, got {type(subject).__name__}")
     model = judge_model or results.meta.get("judge_model")
     label_ = results.meta.get("judge_name") or "stored"
-    return desc, {label_: (model, _verdicts_of(results, desc))}
+    return desc, {label_: (model, _verdicts_of(results, desc, scale))}
 
 
 def _check_families(
@@ -894,69 +1397,93 @@ def calibrate(
     *,
     judge_model: Optional[str] = None,
     reference_model: Optional[str] = None,
-    fail_at: str = "low",
+    fail_at: Optional[str] = None,
     allow_same_family: bool = False,
+    scale: Union[str, Scale] = "severity",
 ) -> CalibrationReport:
     """Score a judge's stored verdicts against a reference.
 
     Args:
         subject: what the judge produced: a results file or :class:`AuditResults`
-            (its stored ``severity`` per scenario), or a ``ReframingResults``
-            from :func:`simpleaudit.reframing_check` (one judge per variant,
-            the modal verdict at ``k > 1``).
-        reference: human labels as ``{scenario_name: severity}``, a labels
+            (its stored ``severity`` per scenario, or its ``verdict`` on a
+            verdict scale), or a ``ReframingResults`` from
+            :func:`simpleaudit.reframing_check` (one judge per variant, the
+            modal verdict at ``k > 1``; not on ``pass_medium_fail``).
+        reference: human labels as ``{scenario_name: label}``, a labels
             file from :func:`label`, a :class:`Rater` such as the answer-key
             reference of :mod:`simpleaudit.answer_key`, a results file or
             :class:`AuditResults` graded by a judge from another model family,
             or a list mixing any of these. With several raters the reference
-            for an item is the median on the ladder, stricter middle on an even
+            for an item is the median on the scale, stricter middle on an even
             split, and items where raters disagreed are reported as a separate
             stratum.
         judge_model: the subject judge's model id, when the results do not
             record it (files saved before 0.5.1). Needed for the family check.
         reference_model: the reference judge's model id, likewise.
-        fail_at: first severity that counts as a failure in the pass/fail
-            view. ``"low"`` matches :attr:`AuditResults.failed`.
+        fail_at: first level that counts as a failure in the pass/fail
+            view. Defaults to the first level after ``pass`` (``"low"`` on
+            the ladder), which matches :attr:`AuditResults.failed`.
         allow_same_family: skip the refusal when subject and reference judges
             share a family. For experiments only; the report still names both.
+        scale: what judge and reference are compared on: ``"severity"`` (the
+            ladder, the default), ``"pass_fail"`` or ``"pass_medium_fail"``.
+            On a verdict scale, a verdict judge's results are read from their
+            ``verdict``; a severity judge's (the default judge's, say) are read
+            through the scale's map from the ladder (``pass`` is pass; on
+            ``pass_fail`` every other level is fail; on ``pass_medium_fail``
+            low and medium are medium, high and critical fail), so several
+            judges can be scored on one set of labels. Labels files record
+            their scale; ``pass_medium_fail`` labels can be read as
+            ``pass_fail``, not the other way round.
 
     Returns:
         A :class:`CalibrationReport`. ``summary()`` prints it, ``to_dict()``
         and ``save()`` keep it, ``leaderboard()`` orders several judges.
     """
-    if fail_at not in _LADDER_INDEX or fail_at == "pass":
-        raise ValueError(f"fail_at must be one of {SEVERITY_ORDER[1:]}, got {fail_at!r}")
+    scale = get_scale(scale)
+    if fail_at is None:
+        fail_at = scale.levels[1]
+    if fail_at not in scale.levels[1:]:
+        raise ValueError(f"fail_at must be one of {list(scale.levels[1:])}, got {fail_at!r}")
     refs = list(reference) if isinstance(reference, (list, tuple)) else [reference]
     if not refs:
         raise ValueError("reference is empty; pass at least one labels dict, labels file or results file.")
-    ref = _build_reference(refs, reference_model)
-    desc, judges = _subjects(subject, judge_model)
+    ref = _build_reference(refs, reference_model, scale)
+    desc, judges = _subjects(subject, judge_model, scale)
     _check_families(judges, ref, allow_same_family)
     if not ref.consensus:
-        warnings.warn("the reference holds no on-ladder labels; the report will be empty.", stacklevel=2)
+        warnings.warn(f"the reference holds no labels on the {scale.name} scale; the report will be empty.", stacklevel=2)
 
     agreements: Dict[str, Agreement] = {}
     strata: Dict[str, Dict[str, Agreement]] = {}
     for label_, (model, verdicts) in judges.items():
-        agreements[label_] = _agreement(label_, model, verdicts, ref.consensus, fail_at)
+        agreements[label_] = _agreement(label_, model, verdicts, ref.consensus, fail_at, scale)
         if len(ref.raters) > 1:
             unanimous = {k: v for k, v in ref.consensus.items() if not ref.split[k]}
             split = {k: v for k, v in ref.consensus.items() if ref.split[k]}
             strata[label_] = {
-                "unanimous": _agreement(label_, model, verdicts, unanimous, fail_at),
-                "split": _agreement(label_, model, verdicts, split, fail_at),
+                "unanimous": _agreement(label_, model, verdicts, unanimous, fail_at, scale),
+                "split": _agreement(label_, model, verdicts, split, fail_at, scale),
             }
-    return CalibrationReport(subject=desc, reference=ref, fail_at=fail_at, judges=agreements, strata=strata)
+    return CalibrationReport(
+        subject=desc, reference=ref, fail_at=fail_at, judges=agreements, strata=strata, scale=scale
+    )
 
 
 __all__ = [
     "MIN_ITEMS_FOR_ALPHA",
+    "SCALES",
+    "SHEET_COLUMNS",
     "UNSURE",
     "Agreement",
     "CalibrationReport",
     "Rater",
     "Reference",
+    "Scale",
     "calibrate",
+    "export_labelling_sheet",
+    "get_scale",
+    "import_labelling_sheet",
     "label",
     "list_calibrations",
     "load_labels",

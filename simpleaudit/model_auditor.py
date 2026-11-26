@@ -134,11 +134,14 @@ GRADING_METADATA_KEYS = ("expected_outcome", "facts", "asr")
 
 #: Keys the framework writes into a judgment. A judge's own JSON (or a
 #: transcript it echoes) must not be able to set them: they mark recorded
-#: failures, or carry the ground truth and designed severity a later
-#: re-grade (reframing.rejudge) trusts.
+#: failures, carry the ground truth and designed severity a later re-grade
+#: (reframing.rejudge) trusts, or name the scale a verdict judge's code
+#: graded on, which tells calibration to read the stored verdict instead of
+#: the severity (judges/verdict.py sets it after these keys are dropped).
 _FRAMEWORK_KEYS = (
     "parse_error", "error", "error_phase", "failure", "scenario_metadata",
     "designed_severity", "designed_severity_source", "judge_fallback", "asr_reference",
+    "verdict_scale",
 )
 
 

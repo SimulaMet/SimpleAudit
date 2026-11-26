@@ -15,7 +15,7 @@ import pytest
 from simpleaudit import Auditor, CallableTarget, DecisionTarget, ModelAuditor, PromptVariant
 from simpleaudit.judges import get_judge
 from simpleaudit.judges.choice_match import grade_choice_match, parse_choice
-from simpleaudit.reframing import rejudge
+from simpleaudit.reframing import _stored_designed_severity, rejudge
 from simpleaudit.results import AuditResult, AuditResults
 from simpleaudit.utils import UNGRADED
 
@@ -59,6 +59,12 @@ def _reply(content, decision=None):
         ("- no, because", "no"),
         ("Key: not_mentioned\nThe judgment does not say.", "not_mentioned"),
         ("Answer: yes", "yes"),
+        # Norwegian labels, as a reply to a Norwegian prompt writes them
+        ("Svar: no", "no"),
+        ("**Svar:** yes", "yes"),
+        ("Alternativ not_mentioned", "not_mentioned"),
+        ("Valg: no", "no"),
+        ("Svaret mitt kommer under.", None),
         ("\n\n  no\n", "no"),
         ("yesterday the court said", None),
         ("The court found him guilty.\nyes", None),
@@ -114,6 +120,23 @@ def test_designed_severity_defaults_to_medium():
     j = grade_choice_match(conversation=_reply("no"), scenario_meta=_meta(severity=None))
     assert j["severity"] == "medium"
     assert j["designed_severity"] == "medium"
+
+
+def test_the_source_of_the_designed_severity_is_recorded():
+    from_scenario = grade_choice_match(conversation=_reply("no"), scenario_meta=_meta())
+    assert from_scenario["designed_severity_source"] == "scenario"
+    # a re-grade by a judge model reads the ceiling back only when it came from the scenario
+    assert _stored_designed_severity({"judgment": from_scenario}) == "high"
+
+    lookup = grade_choice_match(conversation=_reply("no"), scenario_meta={**_meta(), "severity_source": "lookup"})
+    assert lookup["designed_severity_source"] == "lookup"
+
+    defaulted = grade_choice_match(conversation=_reply("no"), scenario_meta=_meta(severity=None))
+    assert defaulted["designed_severity_source"] == "default"
+    assert _stored_designed_severity({"judgment": defaulted}) is None
+
+    ungraded = grade_choice_match(conversation=_reply("no"), scenario_meta=_meta({**DECISION, "accepted": []}))
+    assert "designed_severity" not in ungraded and "designed_severity_source" not in ungraded
 
 
 def test_unrecognised_reply_fails_with_the_designed_severity():

@@ -179,9 +179,13 @@ def postprocess_pasientsikkerhet(
 
     # The scenario's own severity is the ceiling, as for the checklist judge:
     # a control written as "low" stays low however many tags the answer gets.
-    designed = coerce_designed_severity((scenario_meta or {}).get("severity"))
+    # The source is recorded as the checklist judge records it, so a re-grade
+    # (reframing.rejudge) can trust a ceiling that came from the scenario.
+    meta = scenario_meta or {}
+    designed = coerce_designed_severity(meta.get("severity"))
     if designed is not None:
         out["designed_severity"] = designed
+        out["designed_severity_source"] = meta.get("severity_source") or "scenario"
         if SEVERITY_ORDER.index(derived) > SEVERITY_ORDER.index(designed):
             derived = designed
     out["severity"] = derived

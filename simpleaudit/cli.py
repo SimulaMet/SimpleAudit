@@ -1,6 +1,9 @@
 """
 CLI interface for SimpleAudit.
 
+``simpleaudit calibrate <judge> ...`` checks a verdict judge against people's
+labels (see :mod:`simpleaudit.calibration_cli`).
+
 The web visualizer (``serve`` / ``export-html``) has moved to
 SimpleAudit Studio. To browse results, run Studio instead:
 
@@ -24,6 +27,10 @@ def main(argv=None):
 
         print(f"simpleaudit {__version__}")
         sys.exit(0)
+    if args and args[0] == "calibrate":
+        from simpleaudit.calibration_cli import main as calibrate_main
+
+        sys.exit(calibrate_main(args[1:]))
     print(
         "The `simpleaudit` CLI no longer includes the web visualizer.\n"
         "\n"
@@ -34,7 +41,11 @@ def main(argv=None):
         "This starts a local web server (no audit worker) that browses a folder\n"
         "of SimpleAudit JSON results, and can export a standalone HTML file.\n"
         "\n"
-        "See: https://github.com/SimulaMet/SimpleAuditStudio"
+        "See: https://github.com/SimulaMet/SimpleAuditStudio\n"
+        "\n"
+        "To check a pass/fail or pass/medium/fail judge against people's labels:\n"
+        "\n"
+        "    simpleaudit calibrate --help"
     )
     sys.exit(0 if args and args[0] in ("--help", "-h") else 1)
 

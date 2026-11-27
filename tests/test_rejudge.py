@@ -185,3 +185,61 @@ def test_rejudge_rejects_bad_concurrency_and_refuses_inside_a_running_loop():
         assert len(new) == 2
 
     asyncio.run(inner())
+
+
+SPANS = [{
+    "span_id": "s1", "trace_id": "t1", "name": "retriever", "kind": "RETRIEVER",
+    "attributes": {"openinference.span.kind": "RETRIEVER", "documents": "forvaltningsloven-29"},
+}]
+
+
+def _recording_judge(prompts):
+    def respond(**kwargs):
+        prompts.append(kwargs["messages"][1]["content"])
+        return _make_judge_json("pass")
+
+    return FakeClient(respond)
+
+
+def test_rejudge_shows_the_judge_each_results_own_trace_evidence():
+    prompts = []
+
+    rejudge(_source(), _recording_judge(prompts), "fake-judge", evidence=[SPANS, None])
+
+    one = next(p for p in prompts if "One description" in p)
+    two = next(p for p in prompts if "Two description" in p)
+    assert "OBSERVED INTERNAL TRACES" in one and "forvaltningsloven-29" in one
+    assert "OBSERVED INTERNAL TRACES" not in two
+
+
+def test_rejudge_evidence_takes_the_dict_an_evidence_resolver_returns():
+    prompts = []
+    evidence = [{
+        "selected_spans": SPANS,
+        "agentic_evaluation": {"checks": [{"id": "tool.forbidden", "status": "FAIL", "summary": "called refund"}]},
+        "agentic_guidance": "A forbidden tool call fails the scenario.",
+    }]
+
+    rejudge(AuditResults([_result("One")]), _recording_judge(prompts), "fake-judge", evidence=evidence)
+
+    assert "forvaltningsloven-29" in prompts[0]
+    assert "tool.forbidden: FAIL" in prompts[0]
+    assert "INSTRUCTION: A forbidden tool call fails the scenario." in prompts[0]
+
+
+def test_rejudge_reads_no_stored_spans_unless_they_are_passed_as_evidence():
+    source = AuditResults([_result("One")])
+    source.results[0].judgment["evidence_spans"] = SPANS  # as audit_with_tracing saves them
+    prompts = []
+
+    rejudge(source, _recording_judge(prompts), "fake-judge")
+    rejudge(source, _recording_judge(prompts), "fake-judge",
+            evidence=[r.judgment.get("evidence_spans") for r in source])
+
+    assert "OBSERVED INTERNAL TRACES" not in prompts[0]
+    assert "forvaltningsloven-29" in prompts[1]
+
+
+def test_rejudge_rejects_evidence_that_does_not_line_up_with_the_results():
+    with pytest.raises(ValueError, match="evidence has 1 entries for 2 results"):
+        rejudge(_source(), FakeClient(lambda **_: ""), "fake-judge", evidence=[SPANS])

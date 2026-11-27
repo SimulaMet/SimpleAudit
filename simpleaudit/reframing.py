@@ -916,6 +916,9 @@ async def _grade(
     postprocess: Optional[Callable[..., Dict[str, Any]]] = None,
     scenario_meta: Optional[Dict[str, Any]] = None,
     requires_expected_behavior: bool = False,
+    evidence_spans: Optional[List[Dict[str, Any]]] = None,
+    agentic_evaluation: Optional[Dict[str, Any]] = None,
+    agentic_guidance: Optional[str] = None,
 ) -> tuple:
     """One judge call under the concurrency limit; failures become ERROR verdicts.
 
@@ -945,6 +948,9 @@ async def _grade(
                 retry_backoff=retry_backoff,
                 postprocess=postprocess,
                 scenario_meta=scenario_meta,
+                evidence_spans=evidence_spans,
+                agentic_evaluation=agentic_evaluation,
+                agentic_guidance=agentic_guidance,
             )
         except asyncio.CancelledError:
             raise
@@ -1173,6 +1179,7 @@ async def rejudge_async(
     scenario_severities: Optional[Mapping[str, str]] = None,
     shared_expectations: Optional[Sequence[Any]] = None,
     legacy_optional_markers: bool = True,
+    evidence: Optional[Sequence[Any]] = None,
 ) -> AuditResults:
     """
     Grade a saved run again under another judge, keeping every transcript.
@@ -1207,6 +1214,16 @@ async def rejudge_async(
     read as before: a string starting with an old optional marker such as
     ``Kan nevne (ikke påkrevd)`` is not required. See
     :func:`simpleaudit.expectations.upgrade_expectations`.
+
+    ``evidence`` shows the new judge the trace evidence a live run's judge
+    reads, for results whose target was traced. It has one entry per result,
+    in order, each in a form an ``evidence_resolver`` returns: a list of
+    spans, a dict with ``selected_spans`` and optionally ``agentic_evaluation``
+    and ``agentic_guidance``, or None to grade that result on its transcript
+    alone. Spans stored on the results are not read: pass
+    ``[(r.judgment or {}).get("evidence_spans") for r in results]`` to reuse
+    the ones ``audit_with_tracing`` saved. Without ``evidence`` every result
+    is graded on its transcript alone.
     """
     if max_concurrency < 1:
         raise ValueError(f"max_concurrency must be >= 1, got {max_concurrency}.")
@@ -1214,6 +1231,12 @@ async def rejudge_async(
         source = AuditResults.load(str(results_or_path))
     else:
         source = results_or_path
+    evidence = list(evidence) if evidence is not None else [None] * len(source.results)
+    if len(evidence) != len(source.results):
+        raise ValueError(
+            f"evidence has {len(evidence)} entries for {len(source.results)} results. Pass one "
+            "per result, in order (None for a result without trace evidence)."
+        )
 
     requires_expected_behavior = False
     if judge is not None:
@@ -1254,12 +1277,14 @@ async def rejudge_async(
 
     semaphore = asyncio.Semaphore(max_concurrency)
 
-    async def grade(result: AuditResult, expectations: List[Dict[str, Any]]):
+    async def grade(result: AuditResult, expectations: List[Dict[str, Any]], observed: Any):
         if not result.conversation:
             return _error_judgment("No transcript to re-grade"), 0, 0
         if _truncated_by_error(result.judgment, result.conversation):
             # Carried through: the original failure, not a new grade.
             return dict(result.judgment), 0, 0
+        # Either form an evidence_resolver returns (ModelAuditor.run_scenario).
+        observed = observed if isinstance(observed, dict) else {"selected_spans": observed}
         return await _grade(
             judge_client,
             judge_model,
@@ -1275,10 +1300,16 @@ async def rejudge_async(
             postprocess=postprocess,
             scenario_meta={**meta_for(result), **({"expectations": expectations} if expectations else {})},
             requires_expected_behavior=requires_expected_behavior,
+            evidence_spans=observed.get("selected_spans"),
+            agentic_evaluation=observed.get("agentic_evaluation"),
+            agentic_guidance=observed.get("agentic_guidance"),
         )
 
     outcomes = await asyncio.gather(
-        *(grade(result, expectations) for result, expectations in zip(source.results, graded_expectations, strict=True))
+        *(
+            grade(result, expectations, observed)
+            for result, expectations, observed in zip(source.results, graded_expectations, evidence, strict=True)
+        )
     )
 
     empty = [r.scenario_name for r in source.results if not r.conversation]
@@ -1364,6 +1395,7 @@ def rejudge(
     scenario_severities: Optional[Mapping[str, str]] = None,
     shared_expectations: Optional[Sequence[Any]] = None,
     legacy_optional_markers: bool = True,
+    evidence: Optional[Sequence[Any]] = None,
 ) -> AuditResults:
     """Synchronous wrapper around :func:`rejudge_async`.
 
@@ -1385,6 +1417,7 @@ def rejudge(
             scenario_severities=scenario_severities,
             shared_expectations=shared_expectations,
             legacy_optional_markers=legacy_optional_markers,
+            evidence=evidence,
         ),
         "rejudge",
     )
